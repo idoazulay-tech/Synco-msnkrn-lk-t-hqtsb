@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { TimelinePicker } from '@/components/ui/timeline-picker';
 import { useTaskStore } from '@/store/taskStore';
 import { DEFAULT_TAGS, Tag as TagType } from '@/types/task';
 import { cn } from '@/lib/utils';
@@ -22,10 +23,28 @@ const AddTaskPage = () => {
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [startTime, setStartTime] = useState(format(addHours(new Date(), 1), 'HH:00'));
-  const [endTime, setEndTime] = useState(format(addHours(new Date(), 2), 'HH:00'));
+  const [startHour, setStartHour] = useState(() => {
+    const hour = new Date().getHours() + 1;
+    return hour > 23 ? 8 : hour;
+  });
+  const [startMinute, setStartMinute] = useState(0);
+  const [endHour, setEndHour] = useState(() => {
+    const hour = new Date().getHours() + 2;
+    return hour > 23 ? 9 : hour;
+  });
+  const [endMinute, setEndMinute] = useState(0);
   const [selectedTags, setSelectedTags] = useState<TagType[]>([]);
   const [isListening, setIsListening] = useState(false);
+
+  const handleStartTimeChange = (hour: number, minute: number) => {
+    setStartHour(hour);
+    setStartMinute(minute);
+  };
+
+  const handleEndTimeChange = (hour: number, minute: number) => {
+    setEndHour(hour);
+    setEndMinute(minute);
+  };
 
   const toggleTag = (tag: TagType) => {
     setSelectedTags(prev => 
@@ -78,8 +97,11 @@ const AddTaskPage = () => {
       if (timeMatch) {
         const hour = parseInt(timeMatch[1]);
         if (hour >= 0 && hour <= 23) {
-          setStartTime(`${hour.toString().padStart(2, '0')}:00`);
-          setEndTime(`${((hour + 1) % 24).toString().padStart(2, '0')}:00`);
+          setStartHour(hour);
+          setStartMinute(0);
+          // Ensure end hour is always after start hour (max 23)
+          setEndHour(Math.min(hour + 1, 23));
+          setEndMinute(hour === 23 ? 59 : 0);
         }
       }
 
@@ -101,9 +123,6 @@ const AddTaskPage = () => {
       });
       return;
     }
-
-    const [startHour, startMinute] = startTime.split(':').map(Number);
-    const [endHour, endMinute] = endTime.split(':').map(Number);
     
     const taskDate = new Date(selectedDate);
     const taskStartTime = setMinutes(setHours(startOfDay(taskDate), startHour), startMinute);
@@ -185,27 +204,21 @@ const AddTaskPage = () => {
               <span className="text-sm font-medium">תאריך ושעה</span>
             </div>
             
-            <div className="grid grid-cols-3 gap-3">
-              <Input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="col-span-3"
-              />
-              <Input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="col-span-1"
-              />
-              <div className="flex items-center justify-center text-muted-foreground">-</div>
-              <Input
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="col-span-1"
-              />
-            </div>
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              data-testid="input-date"
+            />
+            
+            <TimelinePicker
+              startHour={startHour}
+              startMinute={startMinute}
+              endHour={endHour}
+              endMinute={endMinute}
+              onStartChange={handleStartTimeChange}
+              onEndChange={handleEndTimeChange}
+            />
           </motion.div>
 
           {/* Location */}

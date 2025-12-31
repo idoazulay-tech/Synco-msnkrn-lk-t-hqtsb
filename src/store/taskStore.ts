@@ -26,72 +26,11 @@ interface TaskState {
   addHistoryEntry: (taskId: string, entry: Omit<HistoryEntry, 'id' | 'taskId' | 'timestamp'>) => void;
 }
 
-// Demo data for initial state
-const createDemoTasks = (): Task[] => {
-  const now = new Date();
-  const tasks: Task[] = [
-    {
-      id: '1',
-      title: 'פגישת צוות בוקר',
-      description: 'סקירה שבועית עם הצוות',
-      location: 'חדר ישיבות A',
-      startTime: addMinutes(now, -30),
-      endTime: addMinutes(now, 30),
-      duration: 60,
-      status: 'in_progress',
-      tags: [DEFAULT_TAGS[1]],
-      createdAt: addHours(now, -24),
-      updatedAt: now,
-      history: [],
-    },
-    {
-      id: '2',
-      title: 'הכנת מצגת',
-      description: 'להכין מצגת לישיבת הנהלה',
-      startTime: addMinutes(now, 45),
-      endTime: addMinutes(now, 105),
-      duration: 60,
-      status: 'pending',
-      tags: [DEFAULT_TAGS[1]],
-      createdAt: addHours(now, -48),
-      updatedAt: now,
-      history: [],
-    },
-    {
-      id: '3',
-      title: 'אימון ריצה',
-      description: '5 קילומטר בפארק',
-      location: 'פארק הירקון',
-      startTime: addHours(now, 3),
-      endTime: addHours(now, 4),
-      duration: 60,
-      status: 'pending',
-      tags: [DEFAULT_TAGS[4]],
-      createdAt: addHours(now, -72),
-      updatedAt: now,
-      history: [],
-    },
-    {
-      id: '4',
-      title: 'תשלום חשבונות',
-      description: 'חשמל, מים, ארנונה',
-      startTime: addHours(now, 5),
-      endTime: addMinutes(addHours(now, 5), 30),
-      duration: 30,
-      status: 'pending',
-      tags: [DEFAULT_TAGS[2], DEFAULT_TAGS[3]],
-      createdAt: addHours(now, -24),
-      updatedAt: now,
-      history: [],
-    },
-  ];
-  return tasks;
-};
 
 export const useTaskStore = create<TaskState>()(
   persist(
     (set, get) => ({
-      tasks: createDemoTasks(),
+      tasks: [],
       standbyTasks: [],
       archivedTasks: [],
       tags: DEFAULT_TAGS,
