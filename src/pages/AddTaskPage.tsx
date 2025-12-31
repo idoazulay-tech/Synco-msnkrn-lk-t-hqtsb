@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X } from 'lucide-react';
@@ -8,7 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { TimelinePicker } from '@/components/ui/timeline-picker';
+import { TimeWheelPicker } from '@/components/ui/time-wheel-picker';
+import { DurationPresets } from '@/components/ui/duration-presets';
 import { useTaskStore } from '@/store/taskStore';
 import { DEFAULT_TAGS, Tag as TagType } from '@/types/task';
 import { cn } from '@/lib/utils';
@@ -23,18 +24,47 @@ const AddTaskPage = () => {
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  
+  // Time state
   const [startHour, setStartHour] = useState(() => {
     const hour = new Date().getHours() + 1;
     return hour > 23 ? 8 : hour;
   });
   const [startMinute, setStartMinute] = useState(0);
-  const [endHour, setEndHour] = useState(() => {
-    const hour = new Date().getHours() + 2;
-    return hour > 23 ? 9 : hour;
-  });
-  const [endMinute, setEndMinute] = useState(0);
+  const [durationMinutes, setDurationMinutes] = useState(60); // Default 1 hour
+  
+  // Wheel picker states
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  
   const [selectedTags, setSelectedTags] = useState<TagType[]>([]);
   const [isListening, setIsListening] = useState(false);
+
+  // Calculate end time from start + duration
+  const endTime = useMemo(() => {
+    const totalMinutes = startHour * 60 + startMinute + durationMinutes;
+    let endHour = Math.floor(totalMinutes / 60);
+    let endMinute = totalMinutes % 60;
+    
+    // Cap at 23:59 to avoid going to next day
+    if (endHour > 23) {
+      endHour = 23;
+      endMinute = 59;
+    }
+    
+    return { hour: endHour, minute: endMinute };
+  }, [startHour, startMinute, durationMinutes]);
+
+  // Calculate actual duration (may differ from durationMinutes if capped)
+  const actualDurationMinutes = useMemo(() => {
+    const startTotal = startHour * 60 + startMinute;
+    const endTotal = endTime.hour * 60 + endTime.minute;
+    return Math.max(1, endTotal - startTotal);
+  }, [startHour, startMinute, endTime]);
+
+  const formatTime = (hour: number, minute: number) => {
+    return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+  };
 
   const handleStartTimeChange = (hour: number, minute: number) => {
     setStartHour(hour);
@@ -42,8 +72,18 @@ const AddTaskPage = () => {
   };
 
   const handleEndTimeChange = (hour: number, minute: number) => {
-    setEndHour(hour);
-    setEndMinute(minute);
+    // Calculate new duration based on new end time
+    const startTotalMinutes = startHour * 60 + startMinute;
+    const endTotalMinutes = hour * 60 + minute;
+    const newDuration = endTotalMinutes - startTotalMinutes;
+    
+    if (newDuration > 0) {
+      setDurationMinutes(newDuration);
+    }
+  };
+
+  const handleDurationSelect = (minutes: number) => {
+    setDurationMinutes(minutes);
   };
 
   const toggleTag = (tag: TagType) => {
@@ -99,9 +139,7 @@ const AddTaskPage = () => {
         if (hour >= 0 && hour <= 23) {
           setStartHour(hour);
           setStartMinute(0);
-          // Ensure end hour is always after start hour (max 23)
-          setEndHour(Math.min(hour + 1, 23));
-          setEndMinute(hour === 23 ? 59 : 0);
+          setDurationMinutes(60); // Default 1 hour duration
         }
       }
 
@@ -126,7 +164,7 @@ const AddTaskPage = () => {
     
     const taskDate = new Date(selectedDate);
     const taskStartTime = setMinutes(setHours(startOfDay(taskDate), startHour), startMinute);
-    const taskEndTime = setMinutes(setHours(startOfDay(taskDate), endHour), endMinute);
+    const taskEndTime = setMinutes(setHours(startOfDay(taskDate), endTime.hour), endTime.minute);
 
     addTask({
       title: title.trim(),
@@ -134,7 +172,7 @@ const AddTaskPage = () => {
       location: location.trim() || undefined,
       startTime: taskStartTime,
       endTime: taskEndTime,
-      duration: (taskEndTime.getTime() - taskStartTime.getTime()) / (1000 * 60),
+      duration: actualDurationMinutes,
       status: 'pending',
       tags: selectedTags,
     });
@@ -168,6 +206,7 @@ const AddTaskPage = () => {
                 'p-2 rounded-full transition-colors',
                 isListening ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
               )}
+              data-testid="button-voice-input"
             >
               {isListening ? <Mic className="w-5 h-5 animate-pulse" /> : <MicOff className="w-5 h-5" />}
             </button>
@@ -189,6 +228,7 @@ const AddTaskPage = () => {
               placeholder="מה המשימה?"
               className="text-lg h-12"
               autoFocus
+              data-testid="input-title"
             />
           </motion.div>
 
@@ -211,14 +251,41 @@ const AddTaskPage = () => {
               data-testid="input-date"
             />
             
-            <TimelinePicker
-              startHour={startHour}
-              startMinute={startMinute}
-              endHour={endHour}
-              endMinute={endMinute}
-              onStartChange={handleStartTimeChange}
-              onEndChange={handleEndTimeChange}
-            />
+            {/* Time Selection */}
+            <div className="space-y-4 bg-muted/30 rounded-lg p-4" dir="rtl">
+              {/* Start and End Time Display */}
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <div className="text-sm text-muted-foreground mb-1">התחלה:</div>
+                  <Button
+                    variant="outline"
+                    className="w-full text-2xl font-bold h-14"
+                    onClick={() => setShowStartPicker(true)}
+                    data-testid="button-start-time"
+                  >
+                    {formatTime(startHour, startMinute)}
+                  </Button>
+                </div>
+                
+                <div className="flex-1">
+                  <div className="text-sm text-muted-foreground mb-1">סיום:</div>
+                  <Button
+                    variant="outline"
+                    className="w-full text-2xl font-bold h-14"
+                    onClick={() => setShowEndPicker(true)}
+                    data-testid="button-end-time"
+                  >
+                    {formatTime(endTime.hour, endTime.minute)}
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Duration Presets */}
+              <DurationPresets
+                selectedDuration={durationMinutes}
+                onDurationSelect={handleDurationSelect}
+              />
+            </div>
           </motion.div>
 
           {/* Location */}
@@ -236,6 +303,7 @@ const AddTaskPage = () => {
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               placeholder="היכן?"
+              data-testid="input-location"
             />
           </motion.div>
 
@@ -255,6 +323,7 @@ const AddTaskPage = () => {
               onChange={(e) => setDescription(e.target.value)}
               placeholder="פרטים נוספים..."
               rows={3}
+              data-testid="input-description"
             />
           </motion.div>
 
@@ -286,6 +355,7 @@ const AddTaskPage = () => {
                       backgroundColor: `${tag.color}${isSelected ? '30' : '15'}`,
                       color: tag.color,
                     }}
+                    data-testid={`button-tag-${tag.id}`}
                   >
                     {tag.icon && <span>{tag.icon}</span>}
                     {tag.name}
@@ -303,11 +373,31 @@ const AddTaskPage = () => {
             size="lg" 
             onClick={handleSubmit}
             className="w-full max-w-lg mx-auto block"
+            data-testid="button-submit-task"
           >
             הוסף משימה
           </Button>
         </div>
       </div>
+
+      {/* Time Wheel Pickers */}
+      <TimeWheelPicker
+        open={showStartPicker}
+        onOpenChange={setShowStartPicker}
+        hour={startHour}
+        minute={startMinute}
+        onTimeChange={handleStartTimeChange}
+        title="שעת התחלה"
+      />
+      
+      <TimeWheelPicker
+        open={showEndPicker}
+        onOpenChange={setShowEndPicker}
+        hour={endTime.hour}
+        minute={endTime.minute}
+        onTimeChange={handleEndTimeChange}
+        title="שעת סיום"
+      />
     </AppLayout>
   );
 };
