@@ -36,8 +36,17 @@ Preferred communication style: Simple, everyday language.
 Tasks have a lifecycle: pending → in_progress → completed/not_completed → archived. Key entities:
 - `Task`: Main task object with title, times, tags, location, history
 - `StandbyTask`: Unscheduled tasks waiting to be assigned times
+- `TaskTemplate`: Reusable task blueprints for quick scheduling (with usageCount, lastUsedAt tracking)
+- `TemplateCategory`: Grouping for templates with colors
 - `HistoryEntry`: Audit trail for task modifications
 - `Tag`: Categorization with colors
+
+### Task Template System ("המתנה")
+- Templates are pre-configured task blueprints with title, duration, category, and tags
+- Quick scheduling converts a template to a calendar task with a chosen date/time
+- Usage tracking: templates sorted by recent use (last 24h), then by frequency
+- Categories organize templates with color-coded labels
+- Date fields are properly rehydrated from localStorage via onRehydrateStorage callback
 
 ### Design Decisions
 1. **Client-Side Only**: Currently no backend - all data persists in localStorage via Zustand
