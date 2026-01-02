@@ -55,14 +55,34 @@ export interface DaySchedule {
   tasks: Task[];
 }
 
-// Template Category for organizing task templates
+// Template Category for organizing task templates (general categories)
 export interface TemplateCategory {
   id: string;
   name: string;
   color: string;
   order: number;
+  parentId?: string; // for subcategories
   createdAt: Date;
 }
+
+// Default general categories with subcategories
+export const DEFAULT_CATEGORIES: { name: string; color: string; subcategories: string[] }[] = [
+  { name: 'בית', color: '#10B981', subcategories: ['אוכל', 'ניקיון', 'כביסה', 'סידור'] },
+  { name: 'בריאות', color: '#EF4444', subcategories: ['רופא', 'תרופות', 'בדיקות', 'טיפול'] },
+  { name: 'ספורט', color: '#F59E0B', subcategories: ['אימון', 'ריצה', 'חדר כושר', 'שחייה'] },
+  { name: 'בירוקרטיה', color: '#6366F1', subcategories: ['מסמכים', 'טפסים', 'תשלומים', 'פגישות'] },
+  { name: 'זוגיות', color: '#EC4899', subcategories: ['דייט', 'יום נישואין', 'מתנה', 'שיחה'] },
+  { name: 'משפחה', color: '#8B5CF6', subcategories: ['ילדים', 'הורים', 'אירוע', 'ביקור'] },
+  { name: 'כסף', color: '#22C55E', subcategories: ['בנק', 'חשבונות', 'השקעות', 'תקציב'] },
+  { name: 'חברים', color: '#14B8A6', subcategories: ['מפגש', 'יום הולדת', 'טלפון', 'אירוע'] },
+  { name: 'עבודה', color: '#3B82F6', subcategories: ['פגישה', 'משימה', 'דוח', 'שיחה'] },
+  { name: 'לימודים', color: '#A855F7', subcategories: ['שיעור', 'מבחן', 'עבודה', 'קריאה'] },
+  { name: 'תחזוקה', color: '#78716C', subcategories: ['רכב', 'בית', 'מכשירים', 'גינה'] },
+  { name: 'קניות', color: '#F97316', subcategories: ['מזון', 'ביגוד', 'מתנות', 'ציוד'] },
+  { name: 'סידורים', color: '#06B6D4', subcategories: ['דואר', 'משלוחים', 'איסוף', 'החזרה'] },
+  { name: 'נסיעות', color: '#0EA5E9', subcategories: ['טיסה', 'מלון', 'טיול', 'תכנון'] },
+  { name: 'פנאי', color: '#84CC16', subcategories: ['סרט', 'מסעדה', 'תחביב', 'קריאה'] },
+];
 
 // Task Template - stored in "המתנה" for quick scheduling
 export interface TaskTemplate {

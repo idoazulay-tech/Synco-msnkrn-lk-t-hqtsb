@@ -7,7 +7,7 @@ const navItems = [
   { icon: Home, label: 'בית', path: '/' },
   { icon: Calendar, label: 'יום', path: '/day' },
   { icon: CalendarDays, label: 'חודש', path: '/month' },
-  { icon: Archive, label: 'המתנה', path: '/standby' },
+  { icon: Archive, label: 'ארון', path: '/standby' },
   { icon: Settings, label: 'הגדרות', path: '/settings' },
 ];
 

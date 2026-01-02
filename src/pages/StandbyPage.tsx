@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Inbox, Plus, ChevronLeft, Clock, Tag, Folder, 
-  MoreVertical, Trash2, Edit2, X, Check 
+  Archive, Plus, ChevronLeft, Clock, Tag, Folder, 
+  MoreVertical, Trash2, Edit2, Check, TrendingUp, History,
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 import { format, setHours, setMinutes, startOfDay } from 'date-fns';
 import { he } from 'date-fns/locale';
@@ -26,9 +27,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { TimeWheelPicker } from '@/components/ui/time-wheel-picker';
 import { DurationPresets } from '@/components/ui/duration-presets';
-import { TaskTemplate, TemplateCategory, DEFAULT_TAGS, Tag as TagType } from '@/types/task';
+import { TaskTemplate, TemplateCategory, DEFAULT_CATEGORIES, DEFAULT_TAGS, Tag as TagType } from '@/types/task';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 
@@ -54,36 +62,49 @@ const StandbyPage = () => {
   const [editingTemplate, setEditingTemplate] = useState<TaskTemplate | null>(null);
   const [editingCategory, setEditingCategory] = useState<TemplateCategory | null>(null);
   const [schedulingTemplate, setSchedulingTemplate] = useState<TaskTemplate | null>(null);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   const [templateTitle, setTemplateTitle] = useState('');
   const [templateDuration, setTemplateDuration] = useState(60);
   const [templateCategoryId, setTemplateCategoryId] = useState<string | undefined>();
+  const [templateSubcategoryId, setTemplateSubcategoryId] = useState<string | undefined>();
   const [templateTags, setTemplateTags] = useState<TagType[]>([]);
 
   const [categoryName, setCategoryName] = useState('');
   const [categoryColor, setCategoryColor] = useState('#3B82F6');
 
   const [scheduleDate, setScheduleDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [scheduleHour, setScheduleHour] = useState(() => {
-    const hour = new Date().getHours();
-    return hour > 23 ? 8 : hour;
-  });
-  const [scheduleMinute, setScheduleMinute] = useState(() => {
-    const minute = new Date().getMinutes();
-    return Math.floor(minute / 5) * 5;
-  });
+  const [scheduleHour, setScheduleHour] = useState(() => new Date().getHours());
+  const [scheduleMinute, setScheduleMinute] = useState(() => Math.floor(new Date().getMinutes() / 5) * 5);
   const [showTimePicker, setShowTimePicker] = useState(false);
+
+  useEffect(() => {
+    if (templateCategories.length === 0) {
+      DEFAULT_CATEGORIES.forEach((cat, index) => {
+        addCategory({ name: cat.name, color: cat.color });
+      });
+    }
+  }, []);
 
   const sortedTemplates = getTemplatesSorted();
   
-  const recentTemplates = sortedTemplates.filter(t => 
-    t.lastUsedAt && (Date.now() - t.lastUsedAt.getTime()) < 24 * 60 * 60 * 1000
+  const mostUsedTemplates = useMemo(() => 
+    [...templates].sort((a, b) => b.usageCount - a.usageCount).slice(0, 5),
+    [templates]
   );
   
-  const frequentTemplates = sortedTemplates.filter(t => t.usageCount > 0);
+  const recentTemplates = useMemo(() => 
+    [...templates]
+      .filter(t => t.lastUsedAt)
+      .sort((a, b) => (b.lastUsedAt?.getTime() || 0) - (a.lastUsedAt?.getTime() || 0))
+      .slice(0, 5),
+    [templates]
+  );
   
   const getCategoryTemplates = (categoryId: string) => 
-    sortedTemplates.filter(t => t.categoryId === categoryId);
+    sortedTemplates
+      .filter(t => t.categoryId === categoryId)
+      .sort((a, b) => b.usageCount - a.usageCount);
   
   const uncategorizedTemplates = sortedTemplates.filter(t => !t.categoryId);
 
@@ -91,7 +112,7 @@ const StandbyPage = () => {
     if (minutes < 60) return `${minutes} דק'`;
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    return mins > 0 ? `${hours} שעות ${mins} דק'` : `${hours} שעות`;
+    return mins > 0 ? `${hours}:${mins.toString().padStart(2, '0')}` : `${hours} שעות`;
   };
 
   const openTemplateDialog = (template?: TaskTemplate) => {
@@ -135,7 +156,7 @@ const StandbyPage = () => {
 
   const handleSaveTemplate = () => {
     if (!templateTitle.trim()) {
-      toast({ title: 'שגיאה', description: 'נא להזין שם לתבנית', variant: 'destructive' });
+      toast({ title: 'שגיאה', description: 'נא להזין שם למשימה', variant: 'destructive' });
       return;
     }
 
@@ -146,7 +167,7 @@ const StandbyPage = () => {
         categoryId: templateCategoryId,
         tags: templateTags,
       });
-      toast({ title: 'נשמר', description: 'התבנית עודכנה בהצלחה' });
+      toast({ title: 'נשמר', description: 'המשימה עודכנה בהצלחה' });
     } else {
       addTemplate({
         title: templateTitle.trim(),
@@ -154,14 +175,14 @@ const StandbyPage = () => {
         categoryId: templateCategoryId,
         tags: templateTags,
       });
-      toast({ title: 'נוסף', description: 'תבנית חדשה נוספה בהצלחה' });
+      toast({ title: 'נוסף', description: 'משימה חדשה נוספה לארון' });
     }
     setShowTemplateDialog(false);
   };
 
   const handleDeleteTemplate = (template: TaskTemplate) => {
     deleteTemplate(template.id);
-    toast({ title: 'נמחק', description: 'התבנית נמחקה' });
+    toast({ title: 'נמחק', description: 'המשימה נמחקה מהארון' });
   };
 
   const handleScheduleTemplate = () => {
@@ -174,7 +195,7 @@ const StandbyPage = () => {
 
     scheduleTemplate(schedulingTemplate.id, scheduleDateTime);
     toast({ 
-      title: 'שובץ ליומן', 
+      title: 'הועתק ליומן', 
       description: `"${schedulingTemplate.title}" נוסף ליומן` 
     });
     setShowScheduleDialog(false);
@@ -202,6 +223,18 @@ const StandbyPage = () => {
     toast({ title: 'נמחק', description: 'הקטגוריה נמחקה' });
   };
 
+  const toggleCategory = (categoryId: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
+      }
+      return next;
+    });
+  };
+
   const toggleTag = (tag: TagType) => {
     setTemplateTags(prev => 
       prev.some(t => t.id === tag.id)
@@ -210,57 +243,59 @@ const StandbyPage = () => {
     );
   };
 
-  const TemplateCard = ({ template }: { template: TaskTemplate }) => (
+  const TemplateCard = ({ template, compact = false }: { template: TaskTemplate; compact?: boolean }) => (
     <motion.div
       layout
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className="relative"
     >
-      <Card className="p-3 flex items-center gap-3">
+      <Card className={cn("flex items-center gap-2", compact ? "p-2" : "p-3")}>
         <button
           onClick={() => openScheduleDialog(template)}
-          className="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center hover:bg-primary/20 transition-colors"
+          className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center hover:bg-primary/20 transition-colors"
           data-testid={`button-schedule-${template.id}`}
         >
-          <ChevronLeft className="w-6 h-6 text-primary" />
+          <ChevronLeft className="w-5 h-5 text-primary" />
         </button>
         
         <div className="flex-1 min-w-0">
-          <p className="font-medium truncate">{template.title}</p>
-          <div className="flex items-center gap-2 mt-1">
-            <Badge variant="secondary" className="text-xs">
-              <Clock className="w-3 h-3 mr-1" />
+          <p className={cn("font-medium truncate", compact && "text-sm")}>{template.title}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Clock className="w-3 h-3" />
               {formatDuration(template.duration)}
-            </Badge>
+            </span>
             {template.usageCount > 0 && (
               <span className="text-xs text-muted-foreground">
-                {template.usageCount} שימושים
+                x{template.usageCount}
               </span>
             )}
           </div>
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" data-testid={`button-menu-${template.id}`}>
-              <MoreVertical className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => openTemplateDialog(template)}>
-              <Edit2 className="w-4 h-4 mr-2" />
-              עריכה
-            </DropdownMenuItem>
-            <DropdownMenuItem 
-              onClick={() => handleDeleteTemplate(template)}
-              className="text-destructive"
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              מחיקה
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {!compact && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-7 w-7" data-testid={`button-menu-${template.id}`}>
+                <MoreVertical className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => openTemplateDialog(template)}>
+                <Edit2 className="w-4 h-4 mr-2" />
+                עריכה
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => handleDeleteTemplate(template)}
+                className="text-destructive"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                מחיקה
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </Card>
     </motion.div>
   );
@@ -270,14 +305,12 @@ const StandbyPage = () => {
       <div className="min-h-screen">
         <header className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b border-border">
           <div className="flex items-center justify-between p-4">
-            <div>
-              <h1 className="text-2xl font-bold">תבניות משימות</h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                משימות מוכנות לשיבוץ מהיר
-              </p>
+            <div className="flex items-center gap-2">
+              <Archive className="w-6 h-6 text-primary" />
+              <h1 className="text-xl font-bold">ארון המשימות</h1>
             </div>
-            <Button onClick={() => openTemplateDialog()} data-testid="button-add-template">
-              <Plus className="w-4 h-4 mr-2" />
+            <Button size="sm" onClick={() => openTemplateDialog()} data-testid="button-add-template">
+              <Plus className="w-4 h-4 mr-1" />
               חדש
             </Button>
           </div>
@@ -291,56 +324,62 @@ const StandbyPage = () => {
               className="flex flex-col items-center justify-center py-16"
             >
               <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center mb-4">
-                <Inbox className="w-10 h-10 text-muted-foreground" />
+                <Archive className="w-10 h-10 text-muted-foreground" />
               </div>
-              <h2 className="text-lg font-medium mb-1">אין תבניות עדיין</h2>
-              <p className="text-muted-foreground text-center mb-6">
-                צור תבניות משימות לשיבוץ מהיר ליומן
+              <h2 className="text-lg font-medium mb-1">הארון ריק</h2>
+              <p className="text-muted-foreground text-center mb-6 px-4">
+                הוסף משימות לארון וחסוך זמן בהעתקה ליומן
               </p>
               <Button onClick={() => openTemplateDialog()} className="gap-2">
                 <Plus className="w-4 h-4" />
-                צור תבנית ראשונה
+                הוסף משימה ראשונה
               </Button>
             </motion.div>
           ) : (
             <>
-              {recentTemplates.length > 0 && (
+              <div className="grid grid-cols-2 gap-4">
                 <section>
-                  <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-primary" />
-                    שימוש אחרון
-                  </h2>
-                  <div className="space-y-2">
-                    {recentTemplates.slice(0, 5).map(template => (
-                      <TemplateCard key={template.id} template={template} />
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {frequentTemplates.length > 0 && (
-                <section>
-                  <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                    <Tag className="w-5 h-5 text-primary" />
+                  <h2 className="text-sm font-semibold mb-2 flex items-center gap-1.5 text-muted-foreground">
+                    <TrendingUp className="w-4 h-4" />
                     הכי בשימוש
                   </h2>
                   <div className="space-y-2">
-                    {frequentTemplates.slice(0, 5).map(template => (
-                      <TemplateCard key={template.id} template={template} />
-                    ))}
+                    {mostUsedTemplates.length > 0 ? (
+                      mostUsedTemplates.map(template => (
+                        <TemplateCard key={template.id} template={template} compact />
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted-foreground py-4 text-center">אין נתונים</p>
+                    )}
                   </div>
                 </section>
-              )}
+
+                <section>
+                  <h2 className="text-sm font-semibold mb-2 flex items-center gap-1.5 text-muted-foreground">
+                    <History className="w-4 h-4" />
+                    שימוש אחרון
+                  </h2>
+                  <div className="space-y-2">
+                    {recentTemplates.length > 0 ? (
+                      recentTemplates.map(template => (
+                        <TemplateCard key={template.id} template={template} compact />
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted-foreground py-4 text-center">אין נתונים</p>
+                    )}
+                  </div>
+                </section>
+              </div>
 
               <section>
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <h2 className="text-base font-semibold flex items-center gap-2">
                     <Folder className="w-5 h-5 text-primary" />
                     קטגוריות
                   </h2>
                   <Button 
                     size="sm" 
-                    variant="outline"
+                    variant="ghost"
                     onClick={() => openCategoryDialog()}
                     data-testid="button-add-category"
                   >
@@ -349,69 +388,133 @@ const StandbyPage = () => {
                   </Button>
                 </div>
 
-                {templateCategories.length === 0 && uncategorizedTemplates.length === 0 ? (
-                  <p className="text-muted-foreground text-sm text-center py-4">
-                    אין קטגוריות עדיין
-                  </p>
-                ) : (
-                  <div className="space-y-4">
-                    {templateCategories.map(category => (
-                      <div key={category.id}>
-                        <div className="flex items-center justify-between mb-2">
+                <div className="space-y-2">
+                  {templateCategories.map(category => {
+                    const categoryTemplates = getCategoryTemplates(category.id);
+                    const isExpanded = expandedCategories.has(category.id);
+                    
+                    return (
+                      <div key={category.id} className="rounded-lg border border-border overflow-hidden">
+                        <button
+                          onClick={() => toggleCategory(category.id)}
+                          className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors"
+                        >
                           <div className="flex items-center gap-2">
                             <div 
-                              className="w-3 h-3 rounded-full" 
+                              className="w-3 h-3 rounded-full flex-shrink-0" 
                               style={{ backgroundColor: category.color }} 
                             />
                             <span className="font-medium">{category.name}</span>
+                            <Badge variant="secondary" className="text-xs">
+                              {categoryTemplates.length}
+                            </Badge>
                           </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button size="icon" variant="ghost" className="h-6 w-6">
-                                <MoreVertical className="w-3 h-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => openCategoryDialog(category)}>
-                                <Edit2 className="w-4 h-4 mr-2" />
-                                עריכה
-                              </DropdownMenuItem>
-                              <DropdownMenuItem 
-                                onClick={() => handleDeleteCategory(category)}
-                                className="text-destructive"
-                              >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                מחיקה
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                        <div className="space-y-2 mr-5">
-                          {getCategoryTemplates(category.id).map(template => (
-                            <TemplateCard key={template.id} template={template} />
-                          ))}
-                          {getCategoryTemplates(category.id).length === 0 && (
-                            <p className="text-muted-foreground text-xs py-2">ריק</p>
+                          <div className="flex items-center gap-1">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                <Button size="icon" variant="ghost" className="h-6 w-6">
+                                  <MoreVertical className="w-3 h-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => openCategoryDialog(category)}>
+                                  <Edit2 className="w-4 h-4 mr-2" />
+                                  עריכה
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  onClick={() => handleDeleteCategory(category)}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  מחיקה
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            {isExpanded ? (
+                              <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                            )}
+                          </div>
+                        </button>
+                        
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="border-t border-border"
+                            >
+                              <div className="p-2 space-y-2 bg-muted/30">
+                                {categoryTemplates.length > 0 ? (
+                                  categoryTemplates.map(template => (
+                                    <TemplateCard key={template.id} template={template} />
+                                  ))
+                                ) : (
+                                  <p className="text-sm text-muted-foreground py-4 text-center">
+                                    אין משימות בקטגוריה זו
+                                  </p>
+                                )}
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="w-full"
+                                  onClick={() => {
+                                    setTemplateCategoryId(category.id);
+                                    openTemplateDialog();
+                                  }}
+                                >
+                                  <Plus className="w-3 h-3 mr-1" />
+                                  הוסף משימה
+                                </Button>
+                              </div>
+                            </motion.div>
                           )}
-                        </div>
+                        </AnimatePresence>
                       </div>
-                    ))}
+                    );
+                  })}
 
-                    {uncategorizedTemplates.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-3 h-3 rounded-full bg-gray-400" />
+                  {uncategorizedTemplates.length > 0 && (
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <button
+                        onClick={() => toggleCategory('uncategorized')}
+                        className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-gray-400 flex-shrink-0" />
                           <span className="font-medium text-muted-foreground">ללא קטגוריה</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {uncategorizedTemplates.length}
+                          </Badge>
                         </div>
-                        <div className="space-y-2 mr-5">
-                          {uncategorizedTemplates.map(template => (
-                            <TemplateCard key={template.id} template={template} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                        {expandedCategories.has('uncategorized') ? (
+                          <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </button>
+                      
+                      <AnimatePresence>
+                        {expandedCategories.has('uncategorized') && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="border-t border-border"
+                          >
+                            <div className="p-2 space-y-2 bg-muted/30">
+                              {uncategorizedTemplates.map(template => (
+                                <TemplateCard key={template.id} template={template} />
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
+                </div>
               </section>
             </>
           )}
@@ -421,11 +524,11 @@ const StandbyPage = () => {
       <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingTemplate ? 'עריכת תבנית' : 'תבנית חדשה'}</DialogTitle>
+            <DialogTitle>{editingTemplate ? 'עריכת משימה' : 'משימה חדשה לארון'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
-              <label className="text-sm font-medium">שם התבנית *</label>
+              <label className="text-sm font-medium">שם המשימה *</label>
               <Input
                 value={templateTitle}
                 onChange={(e) => setTemplateTitle(e.target.value)}
@@ -445,38 +548,22 @@ const StandbyPage = () => {
 
             <div>
               <label className="text-sm font-medium">קטגוריה</label>
-              <div className="flex flex-wrap gap-2 mt-2">
-                <button
-                  onClick={() => setTemplateCategoryId(undefined)}
-                  className={cn(
-                    'px-3 py-1.5 rounded-full text-sm transition-all',
-                    !templateCategoryId 
-                      ? 'bg-primary text-primary-foreground' 
-                      : 'bg-secondary hover:bg-secondary/80'
-                  )}
-                >
-                  ללא
-                </button>
-                {templateCategories.map(cat => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setTemplateCategoryId(cat.id)}
-                    className={cn(
-                      'px-3 py-1.5 rounded-full text-sm transition-all',
-                      templateCategoryId === cat.id 
-                        ? 'ring-2 ring-offset-2' 
-                        : 'opacity-70 hover:opacity-100'
-                    )}
-                    style={{ 
-                      backgroundColor: `${cat.color}30`,
-                      color: cat.color,
-                      borderColor: cat.color,
-                    }}
-                  >
-                    {cat.name}
-                  </button>
-                ))}
-              </div>
+              <Select value={templateCategoryId || ''} onValueChange={(v) => setTemplateCategoryId(v || undefined)}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="בחר קטגוריה" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">ללא קטגוריה</SelectItem>
+                  {templateCategories.map(cat => (
+                    <SelectItem key={cat.id} value={cat.id}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
+                        {cat.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -506,7 +593,7 @@ const StandbyPage = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowTemplateDialog(false)}>ביטול</Button>
             <Button onClick={handleSaveTemplate} data-testid="button-save-template">
-              {editingTemplate ? 'שמור' : 'צור תבנית'}
+              {editingTemplate ? 'שמור' : 'הוסף לארון'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -515,7 +602,7 @@ const StandbyPage = () => {
       <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>שיבוץ ליומן</DialogTitle>
+            <DialogTitle>העתקה ליומן</DialogTitle>
           </DialogHeader>
           {schedulingTemplate && (
             <div className="space-y-4 py-4">
@@ -557,7 +644,7 @@ const StandbyPage = () => {
             <Button variant="outline" onClick={() => setShowScheduleDialog(false)}>ביטול</Button>
             <Button onClick={handleScheduleTemplate} data-testid="button-confirm-schedule">
               <Check className="w-4 h-4 mr-2" />
-              שבץ ליומן
+              העתק ליומן
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -581,8 +668,8 @@ const StandbyPage = () => {
             </div>
             <div>
               <label className="text-sm font-medium">צבע</label>
-              <div className="flex gap-2 mt-2">
-                {['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'].map(color => (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'].map(color => (
                   <button
                     key={color}
                     onClick={() => setCategoryColor(color)}
