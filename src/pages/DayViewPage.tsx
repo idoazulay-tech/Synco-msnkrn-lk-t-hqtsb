@@ -77,16 +77,16 @@ const TaskItem = ({
           )}
         </div>
 
-        {/* Timer stats for active task */}
+        {/* Timer stats for active task - 20% larger */}
         {isActive && (
           <div className="flex-shrink-0 text-right">
             <p className={cn(
-              'text-lg md:text-xl font-bold tabular-nums',
+              'text-xl md:text-2xl font-bold tabular-nums',
               isUrgent ? 'text-destructive' : 'text-primary-foreground'
             )}>
               {Math.round(percentage)}%
             </p>
-            <p className="text-xs text-primary-foreground/80 tabular-nums">
+            <p className="text-sm text-primary-foreground/80 tabular-nums">
               {remainingTime}
             </p>
           </div>
@@ -337,13 +337,14 @@ const DayViewPage = () => {
 
                   {/* Empty task area for grid */}
                   <div className="flex-1 relative">
-                    {/* Current time indicator */}
+                    {/* Current time indicator - dark blue, highest z-index for focus */}
                     {isCurrentHour && (
                       <div 
-                        className="absolute left-0 right-0 h-0.5 bg-primary z-20"
+                        className="absolute -left-16 right-0 h-1 bg-blue-900 dark:bg-blue-400 z-50 shadow-lg"
                         style={{ top: `${(now.getMinutes() / 60) * 100}%` }}
                       >
-                        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary" />
+                        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-blue-900 dark:bg-blue-400 shadow-md" />
+                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-blue-900 dark:bg-blue-400 shadow-md" />
                       </div>
                     )}
                   </div>
