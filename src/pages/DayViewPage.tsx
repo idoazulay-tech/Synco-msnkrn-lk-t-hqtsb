@@ -205,6 +205,20 @@ const DayViewPage = () => {
     return processed;
   }, [tasks, selectedDate]);
 
+  // Get task info for a specific hour (for hour label coloring)
+  const getTaskAtHour = (hour: number): { hasTask: boolean; isYellow: boolean } => {
+    const hourStart = addHours(startOfDay(selectedDate), hour);
+    const hourEnd = addHours(hourStart, 1);
+    
+    for (const { task, isOverlapping } of processedTasks) {
+      // Check if task covers this hour
+      if (task.startTime < hourEnd && task.endTime > hourStart) {
+        return { hasTask: true, isYellow: isOverlapping };
+      }
+    }
+    return { hasTask: false, isYellow: false };
+  };
+
   // Auto-scroll to current hour on mount and when viewing today
   useEffect(() => {
     if (timelineRef.current && isSameDay(selectedDate, new Date())) {
@@ -297,6 +311,7 @@ const DayViewPage = () => {
             {HOURS.map((hour) => {
               const now = new Date();
               const isCurrentHour = isSameHour(addHours(startOfDay(selectedDate), hour), now);
+              const taskInfo = getTaskAtHour(hour);
 
               return (
                 <div 
@@ -304,11 +319,17 @@ const DayViewPage = () => {
                   className="flex border-b border-border/50 relative"
                   style={{ height: `${HOUR_HEIGHT}px` }}
                 >
-                  {/* Time label */}
-                  <div className="w-16 flex-shrink-0 px-2 py-1 text-left">
+                  {/* Time label - changes color when task is present */}
+                  <div className="w-16 flex-shrink-0 px-2 py-1 text-left relative z-30">
                     <span className={cn(
-                      'text-xs font-medium',
-                      isCurrentHour ? 'text-primary' : 'text-muted-foreground'
+                      'text-xs font-bold px-1 py-0.5 rounded',
+                      taskInfo.hasTask 
+                        ? taskInfo.isYellow 
+                          ? 'text-black bg-yellow-500/90' 
+                          : 'text-white bg-primary/90'
+                        : isCurrentHour 
+                          ? 'text-primary' 
+                          : 'text-muted-foreground'
                     )}>
                       {hour.toString().padStart(2, '0')}:00
                     </span>
