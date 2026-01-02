@@ -1,52 +1,154 @@
-import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X } from 'lucide-react';
-import { format, addHours, setHours, setMinutes, startOfDay } from 'date-fns';
+import { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X, Sparkles, Calendar, Archive } from 'lucide-react';
+import { format, addDays, setHours, setMinutes, startOfDay, nextDay, getDay } from 'date-fns';
 import { he } from 'date-fns/locale';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { TimeWheelPicker } from '@/components/ui/time-wheel-picker';
 import { DurationPresets } from '@/components/ui/duration-presets';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useTaskStore } from '@/store/taskStore';
 import { DEFAULT_TAGS, Tag as TagType } from '@/types/task';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 
+const HEBREW_DAYS: Record<string, number> = {
+  'ראשון': 0, 'שני': 1, 'שלישי': 2, 'רביעי': 3, 'חמישי': 4, 'שישי': 5, 'שבת': 6,
+  'יום ראשון': 0, 'יום שני': 1, 'יום שלישי': 2, 'יום רביעי': 3, 'יום חמישי': 4, 'יום שישי': 5,
+};
+
+interface ExtractedDateTime {
+  date?: Date;
+  hour?: number;
+  minute?: number;
+  cleanTitle: string;
+}
+
+const extractDateTimeFromText = (text: string): ExtractedDateTime | null => {
+  let cleanTitle = text;
+  let date: Date | undefined;
+  let hour: number | undefined;
+  let minute: number | undefined;
+  
+  const now = new Date();
+  
+  if (text.includes('היום')) {
+    date = now;
+    cleanTitle = cleanTitle.replace(/היום/g, '').trim();
+  }
+  
+  if (text.includes('מחר')) {
+    date = addDays(now, 1);
+    cleanTitle = cleanTitle.replace(/מחר/g, '').trim();
+  }
+  
+  if (text.includes('מחרתיים')) {
+    date = addDays(now, 2);
+    cleanTitle = cleanTitle.replace(/מחרתיים/g, '').trim();
+  }
+
+  for (const [dayName, dayNum] of Object.entries(HEBREW_DAYS)) {
+    const patterns = [
+      new RegExp(`ב${dayName}\\s*(הקרוב|הבא)?`, 'g'),
+      new RegExp(`${dayName}\\s*(הקרוב|הבא)?`, 'g'),
+    ];
+    
+    for (const pattern of patterns) {
+      if (pattern.test(text)) {
+        const today = getDay(now);
+        let daysUntil = dayNum - today;
+        if (daysUntil <= 0) daysUntil += 7;
+        date = addDays(now, daysUntil);
+        cleanTitle = cleanTitle.replace(pattern, '').trim();
+      }
+    }
+  }
+  
+  const timePatterns = [
+    /ב?שעה\s*(\d{1,2}):(\d{2})/g,
+    /ב?(\d{1,2}):(\d{2})/g,
+    /ב?שעה\s*(\d{1,2})/g,
+  ];
+  
+  for (const pattern of timePatterns) {
+    const match = pattern.exec(text);
+    if (match) {
+      hour = parseInt(match[1]);
+      minute = match[2] ? parseInt(match[2]) : 0;
+      if (hour >= 0 && hour <= 23) {
+        cleanTitle = cleanTitle.replace(match[0], '').trim();
+        break;
+      }
+    }
+  }
+  
+  cleanTitle = cleanTitle.replace(/\s+/g, ' ').trim();
+  cleanTitle = cleanTitle.replace(/^[-–—,.:;]+|[-–—,.:;]+$/g, '').trim();
+  
+  if (date || hour !== undefined) {
+    return { date, hour, minute, cleanTitle };
+  }
+  
+  return null;
+};
+
 const AddTaskPage = () => {
   const navigate = useNavigate();
-  const { addTask, tags } = useTaskStore();
+  const [searchParams] = useSearchParams();
+  const { addTask, addTemplate, templateCategories } = useTaskStore();
   const { toast } = useToast();
+
+  const initialMode = searchParams.get('mode') === 'cabinet' ? 'cabinet' : 'calendar';
+  const [mode, setMode] = useState<'calendar' | 'cabinet'>(initialMode);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>();
   
-  // Time state
   const [startHour, setStartHour] = useState(() => {
-    const hour = new Date().getHours() + 1;
+    const hour = new Date().getHours();
     return hour > 23 ? 8 : hour;
   });
-  const [startMinute, setStartMinute] = useState(0);
-  const [durationMinutes, setDurationMinutes] = useState(60); // Default 1 hour
+  const [startMinute, setStartMinute] = useState(() => {
+    return Math.floor(new Date().getMinutes() / 5) * 5;
+  });
+  const [durationMinutes, setDurationMinutes] = useState(60);
   
-  // Wheel picker states
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   
   const [selectedTags, setSelectedTags] = useState<TagType[]>([]);
   const [isListening, setIsListening] = useState(false);
 
-  // Calculate end time from start + duration
+  const [extractedInfo, setExtractedInfo] = useState<ExtractedDateTime | null>(null);
+
+  useEffect(() => {
+    if (title.length > 5) {
+      const extracted = extractDateTimeFromText(title);
+      setExtractedInfo(extracted);
+    } else {
+      setExtractedInfo(null);
+    }
+  }, [title]);
+
   const endTime = useMemo(() => {
     const totalMinutes = startHour * 60 + startMinute + durationMinutes;
     let endHour = Math.floor(totalMinutes / 60);
     let endMinute = totalMinutes % 60;
     
-    // Cap at 23:59 to avoid going to next day
     if (endHour > 23) {
       endHour = 23;
       endMinute = 59;
@@ -55,7 +157,6 @@ const AddTaskPage = () => {
     return { hour: endHour, minute: endMinute };
   }, [startHour, startMinute, durationMinutes]);
 
-  // Calculate actual duration (may differ from durationMinutes if capped)
   const actualDurationMinutes = useMemo(() => {
     const startTotal = startHour * 60 + startMinute;
     const endTotal = endTime.hour * 60 + endTime.minute;
@@ -72,7 +173,6 @@ const AddTaskPage = () => {
   };
 
   const handleEndTimeChange = (hour: number, minute: number) => {
-    // Calculate new duration based on new end time
     const startTotalMinutes = startHour * 60 + startMinute;
     const endTotalMinutes = hour * 60 + minute;
     const newDuration = endTotalMinutes - startTotalMinutes;
@@ -92,6 +192,25 @@ const AddTaskPage = () => {
         ? prev.filter(t => t.id !== tag.id)
         : [...prev, tag]
     );
+  };
+
+  const handleExtractDateTime = () => {
+    if (!extractedInfo) return;
+    
+    if (extractedInfo.date) {
+      setSelectedDate(format(extractedInfo.date, 'yyyy-MM-dd'));
+    }
+    if (extractedInfo.hour !== undefined) {
+      setStartHour(extractedInfo.hour);
+      setStartMinute(extractedInfo.minute || 0);
+    }
+    setTitle(extractedInfo.cleanTitle);
+    setExtractedInfo(null);
+    
+    toast({
+      title: 'זוהה בהצלחה',
+      description: 'התאריך והשעה הועברו לשדות המתאימים',
+    });
   };
 
   const handleVoiceInput = async () => {
@@ -124,25 +243,6 @@ const AddTaskPage = () => {
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       setTitle(transcript);
-      
-      // Simple parsing for demo - in production, use NLP
-      if (transcript.includes('מחר')) {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        setSelectedDate(format(tomorrow, 'yyyy-MM-dd'));
-      }
-      
-      // Extract time mentions (basic pattern)
-      const timeMatch = transcript.match(/ב?(\d{1,2})(:\d{2})?/);
-      if (timeMatch) {
-        const hour = parseInt(timeMatch[1]);
-        if (hour >= 0 && hour <= 23) {
-          setStartHour(hour);
-          setStartMinute(0);
-          setDurationMinutes(60); // Default 1 hour duration
-        }
-      }
-
       toast({
         title: 'זוהה בהצלחה',
         description: `"${transcript}"`,
@@ -161,34 +261,51 @@ const AddTaskPage = () => {
       });
       return;
     }
-    
-    const taskDate = new Date(selectedDate);
-    const taskStartTime = setMinutes(setHours(startOfDay(taskDate), startHour), startMinute);
-    const taskEndTime = setMinutes(setHours(startOfDay(taskDate), endTime.hour), endTime.minute);
 
-    addTask({
-      title: title.trim(),
-      description: description.trim() || undefined,
-      location: location.trim() || undefined,
-      startTime: taskStartTime,
-      endTime: taskEndTime,
-      duration: actualDurationMinutes,
-      status: 'pending',
-      tags: selectedTags,
-    });
+    if (mode === 'calendar') {
+      const taskDate = new Date(selectedDate);
+      const taskStartTime = setMinutes(setHours(startOfDay(taskDate), startHour), startMinute);
+      const taskEndTime = setMinutes(setHours(startOfDay(taskDate), endTime.hour), endTime.minute);
 
-    toast({
-      title: 'נוסף בהצלחה',
-      description: `המשימה "${title}" נוספה ללוח הזמנים`,
-    });
+      addTask({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        location: location.trim() || undefined,
+        startTime: taskStartTime,
+        endTime: taskEndTime,
+        duration: actualDurationMinutes,
+        status: 'pending',
+        tags: selectedTags,
+      });
 
-    navigate('/');
+      toast({
+        title: 'נוסף ליומן',
+        description: `המשימה "${title}" נוספה ללוח הזמנים`,
+      });
+
+      navigate('/day');
+    } else {
+      addTemplate({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        location: location.trim() || undefined,
+        duration: durationMinutes,
+        categoryId: selectedCategoryId,
+        tags: selectedTags,
+      });
+
+      toast({
+        title: 'נוסף לארון',
+        description: `המשימה "${title}" נשמרה בארון המשימות`,
+      });
+
+      navigate('/standby');
+    }
   };
 
   return (
     <AppLayout hideNav>
       <div className="min-h-screen flex flex-col">
-        {/* Header */}
         <header className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b border-border">
           <div className="flex items-center justify-between p-4">
             <button 
@@ -211,11 +328,38 @@ const AddTaskPage = () => {
               {isListening ? <Mic className="w-5 h-5 animate-pulse" /> : <MicOff className="w-5 h-5" />}
             </button>
           </div>
+          
+          <div className="flex border-t border-border">
+            <button
+              onClick={() => setMode('calendar')}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 py-3 transition-colors',
+                mode === 'calendar' 
+                  ? 'bg-primary/10 text-primary border-b-2 border-primary' 
+                  : 'text-muted-foreground'
+              )}
+              data-testid="tab-calendar"
+            >
+              <Calendar className="w-4 h-4" />
+              <span className="text-sm font-medium">ליומן</span>
+            </button>
+            <button
+              onClick={() => setMode('cabinet')}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 py-3 transition-colors',
+                mode === 'cabinet' 
+                  ? 'bg-primary/10 text-primary border-b-2 border-primary' 
+                  : 'text-muted-foreground'
+              )}
+              data-testid="tab-cabinet"
+            >
+              <Archive className="w-4 h-4" />
+              <span className="text-sm font-medium">לארון</span>
+            </button>
+          </div>
         </header>
 
-        {/* Form */}
         <div className="flex-1 p-6 space-y-6 pb-24">
-          {/* Title */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -225,70 +369,139 @@ const AddTaskPage = () => {
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="מה המשימה?"
+              placeholder="מה המשימה? (ניתן לכלול תאריך ושעה)"
               className="text-lg h-12"
               autoFocus
               data-testid="input-title"
             />
+            
+            <AnimatePresence>
+              {extractedInfo && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleExtractDateTime}
+                    className="w-full mt-2 gap-2 border-primary/50 text-primary"
+                    data-testid="button-extract"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    מכולל - העבר תאריך ושעה לשדות
+                    {extractedInfo.date && (
+                      <Badge variant="secondary" className="mr-2">
+                        {format(extractedInfo.date, 'dd/MM', { locale: he })}
+                      </Badge>
+                    )}
+                    {extractedInfo.hour !== undefined && (
+                      <Badge variant="secondary">
+                        {formatTime(extractedInfo.hour, extractedInfo.minute || 0)}
+                      </Badge>
+                    )}
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
 
-          {/* Date & Time */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="space-y-4"
-          >
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Clock className="w-4 h-4" />
-              <span className="text-sm font-medium">תאריך ושעה</span>
-            </div>
-            
-            <Input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              data-testid="input-date"
-            />
-            
-            {/* Time Selection */}
-            <div className="space-y-4 bg-muted/30 rounded-lg p-4" dir="rtl">
-              {/* Start and End Time Display */}
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex-1">
-                  <div className="text-sm text-muted-foreground mb-1">התחלה:</div>
-                  <Button
-                    variant="outline"
-                    className="w-full text-2xl font-bold h-14"
-                    onClick={() => setShowStartPicker(true)}
-                    data-testid="button-start-time"
-                  >
-                    {formatTime(startHour, startMinute)}
-                  </Button>
-                </div>
-                
-                <div className="flex-1">
-                  <div className="text-sm text-muted-foreground mb-1">סיום:</div>
-                  <Button
-                    variant="outline"
-                    className="w-full text-2xl font-bold h-14"
-                    onClick={() => setShowEndPicker(true)}
-                    data-testid="button-end-time"
-                  >
-                    {formatTime(endTime.hour, endTime.minute)}
-                  </Button>
-                </div>
+          {mode === 'calendar' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="space-y-4"
+            >
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Clock className="w-4 h-4" />
+                <span className="text-sm font-medium">תאריך ושעה</span>
               </div>
               
-              {/* Duration Presets */}
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                data-testid="input-date"
+              />
+              
+              <div className="space-y-4 bg-muted/30 rounded-lg p-4" dir="rtl">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="text-sm text-muted-foreground mb-1">התחלה:</div>
+                    <Button
+                      variant="outline"
+                      className="w-full text-2xl font-bold h-14"
+                      onClick={() => setShowStartPicker(true)}
+                      data-testid="button-start-time"
+                    >
+                      {formatTime(startHour, startMinute)}
+                    </Button>
+                  </div>
+                  
+                  <div className="flex-1">
+                    <div className="text-sm text-muted-foreground mb-1">סיום:</div>
+                    <Button
+                      variant="outline"
+                      className="w-full text-2xl font-bold h-14"
+                      onClick={() => setShowEndPicker(true)}
+                      data-testid="button-end-time"
+                    >
+                      {formatTime(endTime.hour, endTime.minute)}
+                    </Button>
+                  </div>
+                </div>
+                
+                <DurationPresets
+                  selectedDuration={durationMinutes}
+                  onDurationSelect={handleDurationSelect}
+                />
+              </div>
+            </motion.div>
+          )}
+
+          {mode === 'cabinet' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="space-y-4"
+            >
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Clock className="w-4 h-4" />
+                <span className="text-sm font-medium">משך זמן קבוע</span>
+              </div>
+              
               <DurationPresets
                 selectedDuration={durationMinutes}
                 onDurationSelect={handleDurationSelect}
               />
-            </div>
-          </motion.div>
 
-          {/* Location */}
+              <div className="flex items-center gap-2 text-muted-foreground mt-4">
+                <Archive className="w-4 h-4" />
+                <span className="text-sm font-medium">קטגוריה</span>
+              </div>
+              
+              <Select value={selectedCategoryId || ''} onValueChange={(v) => setSelectedCategoryId(v || undefined)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="בחר קטגוריה" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">ללא קטגוריה</SelectItem>
+                  {templateCategories.map(cat => (
+                    <SelectItem key={cat.id} value={cat.id}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
+                        {cat.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </motion.div>
+          )}
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -307,7 +520,6 @@ const AddTaskPage = () => {
             />
           </motion.div>
 
-          {/* Description */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -327,7 +539,6 @@ const AddTaskPage = () => {
             />
           </motion.div>
 
-          {/* Tags */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -357,7 +568,6 @@ const AddTaskPage = () => {
                     }}
                     data-testid={`button-tag-${tag.id}`}
                   >
-                    {tag.icon && <span>{tag.icon}</span>}
                     {tag.name}
                     {isSelected && <X className="w-3 h-3" />}
                   </button>
@@ -367,7 +577,6 @@ const AddTaskPage = () => {
           </motion.div>
         </div>
 
-        {/* Submit Button */}
         <div className="fixed bottom-0 inset-x-0 p-4 bg-gradient-to-t from-background via-background to-transparent">
           <Button 
             size="lg" 
@@ -375,12 +584,11 @@ const AddTaskPage = () => {
             className="w-full max-w-lg mx-auto block"
             data-testid="button-submit-task"
           >
-            הוסף משימה
+            {mode === 'calendar' ? 'הוסף ליומן' : 'שמור בארון'}
           </Button>
         </div>
       </div>
 
-      {/* Time Wheel Pickers */}
       <TimeWheelPicker
         open={showStartPicker}
         onOpenChange={setShowStartPicker}
