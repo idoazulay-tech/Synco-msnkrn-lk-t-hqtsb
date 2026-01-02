@@ -55,6 +55,30 @@ export interface DaySchedule {
   tasks: Task[];
 }
 
+// Template Category for organizing task templates
+export interface TemplateCategory {
+  id: string;
+  name: string;
+  color: string;
+  order: number;
+  createdAt: Date;
+}
+
+// Task Template - stored in "המתנה" for quick scheduling
+export interface TaskTemplate {
+  id: string;
+  title: string;
+  description?: string;
+  location?: string;
+  duration: number; // in minutes
+  categoryId?: string;
+  tags: Tag[];
+  usageCount: number; // for sorting by frequency
+  lastUsedAt?: Date; // for sorting by recent usage
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // Default tags
 export const DEFAULT_TAGS: Tag[] = [
   { id: '1', name: 'בית', color: 'hsl(142 71% 45%)', icon: '🏠' },

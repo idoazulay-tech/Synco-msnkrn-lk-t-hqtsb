@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Task, StandbyTask, HistoryEntry, Tag, DEFAULT_TAGS } from '@/types/task';
+import { Task, StandbyTask, HistoryEntry, Tag, DEFAULT_TAGS, TaskTemplate, TemplateCategory } from '@/types/task';
 import { addHours, addMinutes, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 
 interface TaskState {
@@ -8,14 +8,28 @@ interface TaskState {
   standbyTasks: StandbyTask[];
   archivedTasks: Task[];
   tags: Tag[];
+  templates: TaskTemplate[];
+  templateCategories: TemplateCategory[];
   
-  // Actions
+  // Task Actions
   addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'history'>) => Task;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   completeTask: (id: string, completed: boolean) => void;
   moveToStandby: (id: string, notes: string) => void;
   scheduleStandbyTask: (id: string, startTime: Date, endTime: Date) => void;
+  
+  // Template Actions
+  addTemplate: (template: Omit<TaskTemplate, 'id' | 'createdAt' | 'updatedAt' | 'usageCount'>) => TaskTemplate;
+  updateTemplate: (id: string, updates: Partial<TaskTemplate>) => void;
+  deleteTemplate: (id: string) => void;
+  scheduleTemplate: (id: string, startTime: Date) => Task;
+  getTemplatesSorted: () => TaskTemplate[];
+  
+  // Category Actions
+  addCategory: (category: Omit<TemplateCategory, 'id' | 'createdAt' | 'order'>) => TemplateCategory;
+  updateCategory: (id: string, updates: Partial<TemplateCategory>) => void;
+  deleteCategory: (id: string) => void;
   
   // Getters
   getCurrentTask: () => Task | null;
@@ -34,6 +48,8 @@ export const useTaskStore = create<TaskState>()(
       standbyTasks: [],
       archivedTasks: [],
       tags: DEFAULT_TAGS,
+      templates: [],
+      templateCategories: [],
 
       addTask: (taskData) => {
         const newTask: Task = {
@@ -209,6 +225,148 @@ export const useTaskStore = create<TaskState>()(
           ),
         }));
       },
+
+      // Template Actions
+      addTemplate: (templateData) => {
+        const newTemplate: TaskTemplate = {
+          ...templateData,
+          id: crypto.randomUUID(),
+          usageCount: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        
+        set((state) => ({
+          templates: [...state.templates, newTemplate],
+        }));
+        
+        return newTemplate;
+      },
+
+      updateTemplate: (id, updates) => {
+        set((state) => ({
+          templates: state.templates.map((template) =>
+            template.id === id
+              ? { ...template, ...updates, updatedAt: new Date() }
+              : template
+          ),
+        }));
+      },
+
+      deleteTemplate: (id) => {
+        set((state) => ({
+          templates: state.templates.filter((t) => t.id !== id),
+        }));
+      },
+
+      scheduleTemplate: (id, startTime) => {
+        const template = get().templates.find((t) => t.id === id);
+        if (!template) throw new Error('Template not found');
+
+        const endTime = addMinutes(startTime, template.duration);
+        
+        // Update template usage stats
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === id
+              ? { ...t, usageCount: t.usageCount + 1, lastUsedAt: new Date(), updatedAt: new Date() }
+              : t
+          ),
+        }));
+
+        // Create the scheduled task
+        const newTask: Task = {
+          id: crypto.randomUUID(),
+          title: template.title,
+          description: template.description,
+          location: template.location,
+          startTime,
+          endTime,
+          duration: template.duration,
+          status: 'pending',
+          tags: template.tags,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          history: [{
+            id: crypto.randomUUID(),
+            taskId: '',
+            eventType: 'created',
+            timestamp: new Date(),
+            details: `Created from template: ${template.title}`,
+          }],
+        };
+        newTask.history[0].taskId = newTask.id;
+        
+        set((state) => ({
+          tasks: [...state.tasks, newTask],
+        }));
+        
+        return newTask;
+      },
+
+      getTemplatesSorted: () => {
+        const templates = get().templates;
+        
+        // Sort by: recently used first, then by frequency, then by creation date
+        return [...templates].sort((a, b) => {
+          // First: recently used (last 24 hours get priority)
+          const now = Date.now();
+          const dayAgo = now - 24 * 60 * 60 * 1000;
+          const aRecentlyUsed = a.lastUsedAt && a.lastUsedAt.getTime() > dayAgo;
+          const bRecentlyUsed = b.lastUsedAt && b.lastUsedAt.getTime() > dayAgo;
+          
+          if (aRecentlyUsed && !bRecentlyUsed) return -1;
+          if (!aRecentlyUsed && bRecentlyUsed) return 1;
+          
+          // If both recently used, sort by most recent
+          if (aRecentlyUsed && bRecentlyUsed) {
+            return (b.lastUsedAt?.getTime() || 0) - (a.lastUsedAt?.getTime() || 0);
+          }
+          
+          // Then: by usage frequency
+          if (a.usageCount !== b.usageCount) {
+            return b.usageCount - a.usageCount;
+          }
+          
+          // Finally: by creation date (newest first)
+          return b.createdAt.getTime() - a.createdAt.getTime();
+        });
+      },
+
+      // Category Actions
+      addCategory: (categoryData) => {
+        const categories = get().templateCategories;
+        const newCategory: TemplateCategory = {
+          ...categoryData,
+          id: crypto.randomUUID(),
+          order: categories.length,
+          createdAt: new Date(),
+        };
+        
+        set((state) => ({
+          templateCategories: [...state.templateCategories, newCategory],
+        }));
+        
+        return newCategory;
+      },
+
+      updateCategory: (id, updates) => {
+        set((state) => ({
+          templateCategories: state.templateCategories.map((cat) =>
+            cat.id === id ? { ...cat, ...updates } : cat
+          ),
+        }));
+      },
+
+      deleteCategory: (id) => {
+        set((state) => ({
+          templateCategories: state.templateCategories.filter((c) => c.id !== id),
+          // Also remove category from templates
+          templates: state.templates.map((t) =>
+            t.categoryId === id ? { ...t, categoryId: undefined } : t
+          ),
+        }));
+      },
     }),
     {
       name: 'task-storage',
@@ -217,7 +375,65 @@ export const useTaskStore = create<TaskState>()(
         standbyTasks: state.standbyTasks,
         archivedTasks: state.archivedTasks,
         tags: state.tags,
+        templates: state.templates,
+        templateCategories: state.templateCategories,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        
+        // Rehydrate Date fields for tasks
+        state.tasks = state.tasks.map(task => ({
+          ...task,
+          startTime: new Date(task.startTime),
+          endTime: new Date(task.endTime),
+          createdAt: new Date(task.createdAt),
+          updatedAt: new Date(task.updatedAt),
+          completedAt: task.completedAt ? new Date(task.completedAt) : undefined,
+          history: task.history.map(h => ({
+            ...h,
+            timestamp: new Date(h.timestamp),
+          })),
+        }));
+        
+        // Rehydrate Date fields for standbyTasks
+        state.standbyTasks = state.standbyTasks.map(task => ({
+          ...task,
+          createdAt: new Date(task.createdAt),
+          updatedAt: new Date(task.updatedAt),
+          history: task.history.map(h => ({
+            ...h,
+            timestamp: new Date(h.timestamp),
+          })),
+        }));
+        
+        // Rehydrate Date fields for archivedTasks
+        state.archivedTasks = state.archivedTasks.map(task => ({
+          ...task,
+          startTime: new Date(task.startTime),
+          endTime: new Date(task.endTime),
+          createdAt: new Date(task.createdAt),
+          updatedAt: new Date(task.updatedAt),
+          completedAt: task.completedAt ? new Date(task.completedAt) : undefined,
+          history: task.history.map(h => ({
+            ...h,
+            timestamp: new Date(h.timestamp),
+          })),
+        }));
+        
+        // Rehydrate Date fields for templates
+        state.templates = (state.templates || []).map(template => ({
+          ...template,
+          createdAt: new Date(template.createdAt),
+          updatedAt: new Date(template.updatedAt),
+          lastUsedAt: template.lastUsedAt ? new Date(template.lastUsedAt) : undefined,
+        }));
+        
+        // Rehydrate Date fields for templateCategories
+        state.templateCategories = (state.templateCategories || []).map(cat => ({
+          ...cat,
+          createdAt: new Date(cat.createdAt),
+        }));
+      },
     }
   )
 );
