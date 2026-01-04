@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { CircularProgress } from '@/components/timer/CircularProgress';
 import { CompletionDialog } from '@/components/timer/CompletionDialog';
 import { TaskCard } from '@/components/task/TaskCard';
+import { FocusMessageOverlay } from '@/components/focus/FocusMessageOverlay';
 import { useTaskStore } from '@/store/taskStore';
 import { useTaskTimer } from '@/hooks/useTaskTimer';
 import { Task } from '@/types/task';
@@ -118,7 +119,7 @@ const HomePage = () => {
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.5, type: 'spring' }}
-              className={`mb-4 ${isUrgent ? 'animate-countdown-pulse' : ''}`}
+              className={`mb-2 ${isUrgent ? 'animate-countdown-pulse' : ''}`}
             >
               <CircularProgress
                 percentage={percentage}
@@ -127,6 +128,9 @@ const HomePage = () => {
                 isWarning={isWarning}
               />
             </motion.div>
+
+            {/* Focus Message */}
+            <FocusMessageOverlay percentage={percentage} />
 
             <TaskCard
               task={currentTask}
