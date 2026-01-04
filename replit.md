@@ -48,6 +48,18 @@ Tasks have a lifecycle: pending → in_progress → completed/not_completed → 
 - Categories organize templates with color-coded labels
 - Date fields are properly rehydrated from localStorage via onRehydrateStorage callback
 
+### Mental Focus Feature (מיקוד מנטלי)
+- Displays motivational action phrases during active tasks based on completion percentage
+- Five percentage zones with different phrase pools:
+  - Zone 1 (0-10%): Starting correctly - action initiation
+  - Zone 2 (10-20%): Creating sequence - maintaining momentum
+  - Zone 3 (20-60%): Effective execution - peak performance
+  - Zone 4 (60-90%): Smart closing - preventing perfectionism
+  - Zone 5 (90-100%): Satisfying finish - clean closure
+- Phrases are randomly selected per zone; zones only progress forward (never backwards)
+- Component: `src/components/focus/FocusMessageOverlay.tsx`
+- Messages data: `src/lib/focusMessages.ts`
+
 ### Design Decisions
 1. **Client-Side Only**: Currently no backend - all data persists in localStorage via Zustand
 2. **RTL Support**: Hebrew language with right-to-left text direction considerations
