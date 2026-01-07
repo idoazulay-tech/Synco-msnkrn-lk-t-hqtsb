@@ -1,14 +1,12 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X, Sparkles, Calendar, Archive } from 'lucide-react';
-import { format, addDays, setHours, setMinutes, startOfDay, nextDay, getDay } from 'date-fns';
-import { he } from 'date-fns/locale';
+import { motion } from 'framer-motion';
+import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X, Calendar, Archive } from 'lucide-react';
+import { format, setHours, setMinutes, startOfDay } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { TimeWheelPicker } from '@/components/ui/time-wheel-picker';
 import { DurationPresets } from '@/components/ui/duration-presets';
 import {
@@ -22,91 +20,13 @@ import { useTaskStore } from '@/store/taskStore';
 import { DEFAULT_TAGS, Tag as TagType } from '@/types/task';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-
-const HEBREW_DAYS: Record<string, number> = {
-  'ראשון': 0, 'שני': 1, 'שלישי': 2, 'רביעי': 3, 'חמישי': 4, 'שישי': 5, 'שבת': 6,
-  'יום ראשון': 0, 'יום שני': 1, 'יום שלישי': 2, 'יום רביעי': 3, 'יום חמישי': 4, 'יום שישי': 5,
-};
-
-interface ExtractedDateTime {
-  date?: Date;
-  hour?: number;
-  minute?: number;
-  cleanTitle: string;
-}
-
-const extractDateTimeFromText = (text: string): ExtractedDateTime | null => {
-  let cleanTitle = text;
-  let date: Date | undefined;
-  let hour: number | undefined;
-  let minute: number | undefined;
-  
-  const now = new Date();
-  
-  if (text.includes('היום')) {
-    date = now;
-    cleanTitle = cleanTitle.replace(/היום/g, '').trim();
-  }
-  
-  if (text.includes('מחר')) {
-    date = addDays(now, 1);
-    cleanTitle = cleanTitle.replace(/מחר/g, '').trim();
-  }
-  
-  if (text.includes('מחרתיים')) {
-    date = addDays(now, 2);
-    cleanTitle = cleanTitle.replace(/מחרתיים/g, '').trim();
-  }
-
-  for (const [dayName, dayNum] of Object.entries(HEBREW_DAYS)) {
-    const patterns = [
-      new RegExp(`ב${dayName}\\s*(הקרוב|הבא)?`, 'g'),
-      new RegExp(`${dayName}\\s*(הקרוב|הבא)?`, 'g'),
-    ];
-    
-    for (const pattern of patterns) {
-      if (pattern.test(text)) {
-        const today = getDay(now);
-        let daysUntil = dayNum - today;
-        if (daysUntil <= 0) daysUntil += 7;
-        date = addDays(now, daysUntil);
-        cleanTitle = cleanTitle.replace(pattern, '').trim();
-      }
-    }
-  }
-  
-  const timePatterns = [
-    /ב?שעה\s*(\d{1,2}):(\d{2})/g,
-    /ב?(\d{1,2}):(\d{2})/g,
-    /ב?שעה\s*(\d{1,2})/g,
-  ];
-  
-  for (const pattern of timePatterns) {
-    const match = pattern.exec(text);
-    if (match) {
-      hour = parseInt(match[1]);
-      minute = match[2] ? parseInt(match[2]) : 0;
-      if (hour >= 0 && hour <= 23) {
-        cleanTitle = cleanTitle.replace(match[0], '').trim();
-        break;
-      }
-    }
-  }
-  
-  cleanTitle = cleanTitle.replace(/\s+/g, ' ').trim();
-  cleanTitle = cleanTitle.replace(/^[-–—,.:;]+|[-–—,.:;]+$/g, '').trim();
-  
-  if (date || hour !== undefined) {
-    return { date, hour, minute, cleanTitle };
-  }
-  
-  return null;
-};
+import { HaMekolel } from '@/components/task/HaMekolel';
+import { ParsedDateTime } from '@/lib/hebrewDateParser';
 
 const AddTaskPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { addTask, addTemplate, templateCategories } = useTaskStore();
+  const { addTask, addTemplate, templateCategories, tasks } = useTaskStore();
   const { toast } = useToast();
 
   const initialMode = searchParams.get('mode') === 'cabinet' ? 'cabinet' : 'calendar';
@@ -132,17 +52,6 @@ const AddTaskPage = () => {
   
   const [selectedTags, setSelectedTags] = useState<TagType[]>([]);
   const [isListening, setIsListening] = useState(false);
-
-  const [extractedInfo, setExtractedInfo] = useState<ExtractedDateTime | null>(null);
-
-  useEffect(() => {
-    if (title.length > 5) {
-      const extracted = extractDateTimeFromText(title);
-      setExtractedInfo(extracted);
-    } else {
-      setExtractedInfo(null);
-    }
-  }, [title]);
 
   const endTime = useMemo(() => {
     const totalMinutes = startHour * 60 + startMinute + durationMinutes;
@@ -194,21 +103,18 @@ const AddTaskPage = () => {
     );
   };
 
-  const handleExtractDateTime = () => {
-    if (!extractedInfo) return;
-    
-    if (extractedInfo.date) {
-      setSelectedDate(format(extractedInfo.date, 'yyyy-MM-dd'));
+  const handleMekolelApply = (parsed: ParsedDateTime) => {
+    if (parsed.date) {
+      setSelectedDate(format(parsed.date, 'yyyy-MM-dd'));
     }
-    if (extractedInfo.hour !== undefined) {
-      setStartHour(extractedInfo.hour);
-      setStartMinute(extractedInfo.minute || 0);
+    if (parsed.hour !== undefined) {
+      setStartHour(parsed.hour);
+      setStartMinute(parsed.minute || 0);
     }
-    setTitle(extractedInfo.cleanTitle);
-    setExtractedInfo(null);
+    setTitle(parsed.cleanTitle);
     
     toast({
-      title: 'זוהה בהצלחה',
+      title: 'המכולל זיהה בהצלחה',
       description: 'התאריך והשעה הועברו לשדות המתאימים',
     });
   };
@@ -375,36 +281,11 @@ const AddTaskPage = () => {
               data-testid="input-title"
             />
             
-            <AnimatePresence>
-              {extractedInfo && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                >
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleExtractDateTime}
-                    className="w-full mt-2 gap-2 border-primary/50 text-primary"
-                    data-testid="button-extract"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    מכולל - העבר תאריך ושעה לשדות
-                    {extractedInfo.date && (
-                      <Badge variant="secondary" className="mr-2">
-                        {format(extractedInfo.date, 'dd/MM', { locale: he })}
-                      </Badge>
-                    )}
-                    {extractedInfo.hour !== undefined && (
-                      <Badge variant="secondary">
-                        {formatTime(extractedInfo.hour, extractedInfo.minute || 0)}
-                      </Badge>
-                    )}
-                  </Button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <HaMekolel
+              title={title}
+              existingTasks={tasks}
+              onApply={handleMekolelApply}
+            />
           </motion.div>
 
           {mode === 'calendar' && (
