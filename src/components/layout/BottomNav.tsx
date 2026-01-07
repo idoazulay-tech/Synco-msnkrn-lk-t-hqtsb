@@ -40,7 +40,7 @@ export const BottomNav = () => {
       </motion.button>
 
       <nav className="relative bg-card/95 backdrop-blur-lg border-t border-border safe-area-pb z-40">
-        <div className="flex items-center justify-center h-16 max-w-lg mx-auto px-2 gap-1">
+        <div className="flex items-center justify-evenly h-16 w-full px-2">
           {navItems.map((item, index) => {
             const isActive = location.pathname === item.path;
             const insertFabAfter = index === 2;
@@ -50,7 +50,7 @@ export const BottomNav = () => {
                 <button
                   onClick={() => navigate(item.path)}
                   className={cn(
-                    'relative flex flex-col items-center justify-center flex-1 h-full gap-1',
+                    'relative flex flex-col items-center justify-center h-full gap-1 px-3',
                     'transition-colors duration-200',
                     isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
                   )}
@@ -72,7 +72,7 @@ export const BottomNav = () => {
                   <span className="text-xs font-medium">{item.label}</span>
                 </button>
                 {insertFabAfter && (
-                  <div className="w-16 h-full flex-shrink-0" />
+                  <div className="w-14 h-full flex-shrink-0" />
                 )}
               </Fragment>
             );
