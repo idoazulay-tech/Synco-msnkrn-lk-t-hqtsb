@@ -55,11 +55,20 @@ const parseHebrewNumber = (text: string): number | null => {
   return null;
 };
 
-const getNextDayOfWeek = (dayNum: number, fromDate: Date = new Date()): Date => {
+const getNextDayOfWeek = (dayNum: number, fromDate: Date = new Date(), includeToday: boolean = false): Date => {
   const today = getDay(fromDate);
   let daysUntil = dayNum - today;
-  if (daysUntil <= 0) daysUntil += 7;
+  if (includeToday) {
+    if (daysUntil < 0) daysUntil += 7;
+  } else {
+    if (daysUntil <= 0) daysUntil += 7;
+  }
   return addDays(fromDate, daysUntil);
+};
+
+const ensureDate = (value: Date | string): Date => {
+  if (value instanceof Date) return value;
+  return new Date(value);
 };
 
 const findNextFreeSlot = (
@@ -69,8 +78,8 @@ const findNextFreeSlot = (
   durationMinutes: number = 60
 ): { hour: number; minute: number } | null => {
   const dayTasks = tasks
-    .filter(t => isSameDay(t.startTime, date) && t.status !== 'completed' && t.status !== 'not_completed')
-    .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    .filter(t => isSameDay(ensureDate(t.startTime), date) && t.status !== 'completed' && t.status !== 'not_completed')
+    .sort((a, b) => ensureDate(a.startTime).getTime() - ensureDate(b.startTime).getTime());
 
   if (dayTasks.length === 0) {
     return { hour: preferredHour, minute: 0 };
@@ -82,8 +91,8 @@ const findNextFreeSlot = (
       const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60000);
       
       const hasConflict = dayTasks.some(task => {
-        const taskStart = task.startTime.getTime();
-        const taskEnd = task.endTime.getTime();
+        const taskStart = ensureDate(task.startTime).getTime();
+        const taskEnd = ensureDate(task.endTime).getTime();
         const start = slotStart.getTime();
         const end = slotEnd.getTime();
         return (start < taskEnd && end > taskStart);
@@ -100,16 +109,17 @@ const findNextFreeSlot = (
 
 const findLastTaskEnd = (tasks: Task[], date: Date): { hour: number; minute: number } | null => {
   const dayTasks = tasks
-    .filter(t => isSameDay(t.startTime, date))
-    .sort((a, b) => b.endTime.getTime() - a.endTime.getTime());
+    .filter(t => isSameDay(ensureDate(t.startTime), date))
+    .sort((a, b) => ensureDate(b.endTime).getTime() - ensureDate(a.endTime).getTime());
 
   if (dayTasks.length === 0) {
     return { hour: 9, minute: 0 };
   }
 
   const lastTask = dayTasks[0];
-  const hour = lastTask.endTime.getHours();
-  const minute = lastTask.endTime.getMinutes();
+  const endTime = ensureDate(lastTask.endTime);
+  const hour = endTime.getHours();
+  const minute = endTime.getMinutes();
   
   if (hour >= 23 && minute >= 30) return null;
   
@@ -170,9 +180,11 @@ export const parseHebrewDateTime = (
       regex: /ב?יום\s*(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)\s*(הקרוב|הבא)?/gi,
       handler: (match) => {
         const dayName = match[1];
+        const modifier = match[2];
         const dayNum = HEBREW_DAYS[dayName];
         if (dayNum !== undefined) {
-          date = getNextDayOfWeek(dayNum, now);
+          const includeToday = modifier === 'הקרוב' || !modifier;
+          date = getNextDayOfWeek(dayNum, now, includeToday);
         }
         parsedExpressions.push(match[0]);
         cleanTitle = cleanTitle.replace(match[0], '').trim();
