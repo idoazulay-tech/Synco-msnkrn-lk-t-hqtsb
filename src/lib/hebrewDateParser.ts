@@ -14,12 +14,20 @@ import {
 } from 'date-fns';
 import { Task } from '@/types/task';
 
+export interface TimeOption {
+  hour: number;
+  minute: number;
+  label: string;
+}
+
 export interface ParsedDateTime {
   date?: Date;
   hour?: number;
   minute?: number;
   cleanTitle: string;
   parsedExpressions: string[];
+  timeOptions?: TimeOption[];
+  isAmbiguousTime?: boolean;
 }
 
 const HEBREW_DAYS: Record<string, number> = {
@@ -43,6 +51,63 @@ const HEBREW_NUMBERS: Record<string, number> = {
   'שמונה': 8,
   'תשע': 9, 'תשעה': 9,
   'עשר': 10, 'עשרה': 10,
+  'אחת עשרה': 11, 'אחד עשר': 11,
+  'שתים עשרה': 12, 'שנים עשר': 12,
+};
+
+const HEBREW_HOUR_WORDS: Record<string, number> = {
+  'אחת': 1, 'אחד': 1,
+  'שתיים': 2, 'שניים': 2,
+  'שלוש': 3,
+  'ארבע': 4,
+  'חמש': 5,
+  'שש': 6,
+  'שבע': 7,
+  'שמונה': 8,
+  'תשע': 9,
+  'עשר': 10,
+  'אחת עשרה': 11, 'אחד עשר': 11,
+  'שתים עשרה': 12, 'שנים עשר': 12,
+};
+
+const parseHebrewHour = (text: string): number | null => {
+  const normalized = text.trim().toLowerCase();
+  for (const [word, hour] of Object.entries(HEBREW_HOUR_WORDS)) {
+    if (normalized === word || normalized.includes(word)) {
+      return hour;
+    }
+  }
+  const numMatch = text.match(/\d+/);
+  if (numMatch) return parseInt(numMatch[0]);
+  return null;
+};
+
+type TimeContext = 'morning' | 'afternoon' | 'evening' | 'night' | 'noon' | null;
+
+const detectTimeContext = (text: string): TimeContext => {
+  if (/בצהריים|בצהרים|צהוריים|צוהריים|צוהורים|צהורים/i.test(text)) return 'noon';
+  if (/בבוקר|בוקר/i.test(text)) return 'morning';
+  if (/בערב|ערב/i.test(text)) return 'evening';
+  if (/בלילה|לילה/i.test(text)) return 'night';
+  if (/אחה"צ|אחר הצהריים|אחרי הצהריים/i.test(text)) return 'afternoon';
+  return null;
+};
+
+const adjustHourForContext = (hour: number, context: TimeContext): number => {
+  if (context === 'noon' || context === 'afternoon' || context === 'evening') {
+    if (hour >= 1 && hour <= 11) return hour + 12;
+  }
+  if (context === 'night') {
+    if (hour >= 1 && hour <= 6) return hour + 12;
+    if (hour >= 7 && hour <= 11) return hour + 12;
+  }
+  return hour;
+};
+
+const formatTimeLabel = (hour: number, minute: number): string => {
+  const period = hour < 12 ? 'בבוקר' : hour < 17 ? 'אחה"צ' : hour < 21 ? 'בערב' : 'בלילה';
+  const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+  return `${displayHour}:${minute.toString().padStart(2, '0')} ${period}`;
 };
 
 const parseHebrewNumber = (text: string): number | null => {
@@ -305,12 +370,95 @@ export const parseHebrewDateTime = (
       }
     },
     {
-      regex: /ב?שעה\s*(\d{1,2}):(\d{2})/gi,
+      regex: /רבע\s+ל\s*(אחת|אחד|שתיים|שניים|שלוש|ארבע|חמש|שש|שבע|שמונה|תשע|עשר|אחת עשרה|שתים עשרה|\d{1,2})\s*(בצהריים|בצהרים|צהוריים|צוהריים|בבוקר|בערב|בלילה|אחה"צ)?/gi,
+      handler: (match) => {
+        if (hour === undefined) {
+          const targetHour = parseHebrewHour(match[1]);
+          if (targetHour !== null) {
+            let h = targetHour - 1;
+            if (h <= 0) h += 12;
+            const context = match[2] ? detectTimeContext(match[2]) : detectTimeContext(text);
+            hour = context ? adjustHourForContext(h, context) : h;
+            minute = 45;
+            parsedExpressions.push(match[0]);
+            cleanTitle = cleanTitle.replace(match[0], '').trim();
+          }
+        }
+      }
+    },
+    {
+      regex: /(חמישה|חמש|5)\s+ל\s*(אחת|אחד|שתיים|שניים|שלוש|ארבע|חמש|שש|שבע|שמונה|תשע|עשר|אחת עשרה|שתים עשרה|\d{1,2})\s*(בצהריים|בצהרים|צהוריים|צוהריים|בבוקר|בערב|בלילה|אחה"צ)?/gi,
+      handler: (match) => {
+        if (hour === undefined) {
+          const targetHour = parseHebrewHour(match[2]);
+          if (targetHour !== null) {
+            let h = targetHour - 1;
+            if (h <= 0) h += 12;
+            const context = match[3] ? detectTimeContext(match[3]) : detectTimeContext(text);
+            hour = context ? adjustHourForContext(h, context) : h;
+            minute = 55;
+            parsedExpressions.push(match[0]);
+            cleanTitle = cleanTitle.replace(match[0], '').trim();
+          }
+        }
+      }
+    },
+    {
+      regex: /(עשרה?|עשרים)\s+ל\s*(אחת|אחד|שתיים|שניים|שלוש|ארבע|חמש|שש|שבע|שמונה|תשע|עשר|אחת עשרה|שתים עשרה|\d{1,2})\s*(בצהריים|בצהרים|צהוריים|צוהריים|בבוקר|בערב|בלילה|אחה"צ)?/gi,
+      handler: (match) => {
+        if (hour === undefined) {
+          const targetHour = parseHebrewHour(match[2]);
+          const minutesBefore = match[1].includes('עשרים') ? 20 : 10;
+          if (targetHour !== null) {
+            let h = targetHour - 1;
+            if (h <= 0) h += 12;
+            const context = match[3] ? detectTimeContext(match[3]) : detectTimeContext(text);
+            hour = context ? adjustHourForContext(h, context) : h;
+            minute = 60 - minutesBefore;
+            parsedExpressions.push(match[0]);
+            cleanTitle = cleanTitle.replace(match[0], '').trim();
+          }
+        }
+      }
+    },
+    {
+      regex: /(אחת|אחד|שתיים|שניים|שלוש|ארבע|חמש|שש|שבע|שמונה|תשע|עשר|אחת עשרה|שתים עשרה|\d{1,2})\s+וחצי\s*(בצהריים|בצהרים|צהוריים|צוהריים|בבוקר|בערב|בלילה|אחה"צ)?/gi,
+      handler: (match) => {
+        if (hour === undefined) {
+          const h = parseHebrewHour(match[1]);
+          if (h !== null) {
+            const context = match[2] ? detectTimeContext(match[2]) : detectTimeContext(text);
+            hour = context ? adjustHourForContext(h, context) : h;
+            minute = 30;
+            parsedExpressions.push(match[0]);
+            cleanTitle = cleanTitle.replace(match[0], '').trim();
+          }
+        }
+      }
+    },
+    {
+      regex: /(אחת|אחד|שתיים|שניים|שלוש|ארבע|חמש|שש|שבע|שמונה|תשע|עשר|אחת עשרה|שתים עשרה|\d{1,2})\s+ורבע\s*(בצהריים|בצהרים|צהוריים|צוהריים|בבוקר|בערב|בלילה|אחה"צ)?/gi,
+      handler: (match) => {
+        if (hour === undefined) {
+          const h = parseHebrewHour(match[1]);
+          if (h !== null) {
+            const context = match[2] ? detectTimeContext(match[2]) : detectTimeContext(text);
+            hour = context ? adjustHourForContext(h, context) : h;
+            minute = 15;
+            parsedExpressions.push(match[0]);
+            cleanTitle = cleanTitle.replace(match[0], '').trim();
+          }
+        }
+      }
+    },
+    {
+      regex: /ב?שעה\s*(\d{1,2}):(\d{2})\s*(בצהריים|בצהרים|צהוריים|צוהריים|בבוקר|בערב|בלילה|אחה"צ)?/gi,
       handler: (match) => {
         const h = parseInt(match[1]);
         const m = parseInt(match[2]);
         if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-          hour = h;
+          const context = match[3] ? detectTimeContext(match[3]) : detectTimeContext(text);
+          hour = context ? adjustHourForContext(h, context) : h;
           minute = m;
           parsedExpressions.push(match[0]);
           cleanTitle = cleanTitle.replace(match[0], '').trim();
@@ -318,13 +466,14 @@ export const parseHebrewDateTime = (
       }
     },
     {
-      regex: /ב?(\d{1,2}):(\d{2})/gi,
+      regex: /ב?(\d{1,2}):(\d{2})\s*(בצהריים|בצהרים|צהוריים|צוהריים|בבוקר|בערב|בלילה|אחה"צ)?/gi,
       handler: (match) => {
         if (hour === undefined) {
           const h = parseInt(match[1]);
           const m = parseInt(match[2]);
           if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-            hour = h;
+            const context = match[3] ? detectTimeContext(match[3]) : detectTimeContext(text);
+            hour = context ? adjustHourForContext(h, context) : h;
             minute = m;
             parsedExpressions.push(match[0]);
             cleanTitle = cleanTitle.replace(match[0], '').trim();
@@ -333,12 +482,13 @@ export const parseHebrewDateTime = (
       }
     },
     {
-      regex: /ב?שעה\s*(\d{1,2})/gi,
+      regex: /ב?שעה\s*(\d{1,2})\s*(בצהריים|בצהרים|צהוריים|צוהריים|בבוקר|בערב|בלילה|אחה"צ)?/gi,
       handler: (match) => {
         if (hour === undefined) {
           const h = parseInt(match[1]);
           if (h >= 0 && h <= 23) {
-            hour = h;
+            const context = match[2] ? detectTimeContext(match[2]) : detectTimeContext(text);
+            hour = context ? adjustHourForContext(h, context) : h;
             minute = 0;
             parsedExpressions.push(match[0]);
             cleanTitle = cleanTitle.replace(match[0], '').trim();
@@ -360,12 +510,30 @@ export const parseHebrewDateTime = (
   cleanTitle = cleanTitle.replace(/\s+/g, ' ').trim();
   cleanTitle = cleanTitle.replace(/^[-–—,.:;]+|[-–—,.:;]+$/g, '').trim();
 
+  let timeOptions: TimeOption[] | undefined;
+  let isAmbiguousTime = false;
+
+  if (hour !== undefined && minute !== undefined) {
+    const timeContext = detectTimeContext(text);
+    if (!timeContext && hour >= 1 && hour <= 12) {
+      isAmbiguousTime = true;
+      const amHour = hour === 12 ? 0 : hour;
+      const pmHour = hour === 12 ? 12 : hour + 12;
+      timeOptions = [
+        { hour: amHour, minute, label: formatTimeLabel(amHour, minute) },
+        { hour: pmHour, minute, label: formatTimeLabel(pmHour, minute) },
+      ];
+    }
+  }
+
   return {
     date,
     hour,
     minute,
     cleanTitle,
     parsedExpressions,
+    timeOptions,
+    isAmbiguousTime,
   };
 };
 
