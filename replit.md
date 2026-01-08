@@ -57,13 +57,40 @@ Tasks have a lifecycle: pending → in_progress → completed/not_completed → 
   - יום X בשבוע הבא (day X next week)
   - תאריך X (specific date, e.g., "תאריך 15/01")
   - Time expressions: בשעה X, ב-X, numeric times
+  - Hebrew time fractions: ורבע (+15 min), וחצי (+30 min), רבע ל (-15 min), חמישה ל (-5 min), עשרה ל (-10 min), עשרים ל (-20 min)
+  - צהריים/צהרים/צוהוריים/צוהורים variations to indicate PM times
   - בזמן הפנוי הבא (next free time slot)
   - בזמן הפנוי ביום הבא (next free time tomorrow)
   - אחרי המשימה האחרונה היום (after last task today)
   - באותה שעה בעוד X ימים/שבועות/חודשים (same time in X days/weeks/months)
+- AM/PM ambiguity handling: When context is unclear for hours 1-12, displays two time options for user selection
 - Component: `src/components/task/HaMekolel.tsx`
 - Parser utility: `src/lib/hebrewDateParser.ts`
 - Uses `ensureDate()` helper to handle persisted tasks stored as strings in localStorage
+
+### Voice Input (קלט קולי)
+- Uses Web Speech API with Hebrew locale (he-IL) for speech recognition
+- Integrates with HaMekolel parser for automatic date/time extraction
+- Displays real-time transcription during recording
+- Shows parsed results with date/time badges before confirmation
+- Conflict detection on voice-created tasks
+- Component: `src/components/voice/VoiceInput.tsx`
+
+### Conflict Detection
+- Automatically identifies overlapping tasks when creating new ones
+- Visual warnings displayed in task creation form
+- Notifies users through in-app notification system
+- Works across calendar and voice input modes
+
+### Notification System
+- In-app notification center with popover UI
+- Notification types: conflict, reminder, success, warning, info
+- User-configurable settings for notification types and methods
+- Sound and vibration support (when device supports)
+- Unread count badge in bottom navigation
+- Persistent storage with localStorage
+- Components: `src/components/notifications/NotificationCenter.tsx`, `src/components/settings/NotificationSettings.tsx`
+- Store: `src/store/notificationStore.ts`
 
 ### Mental Focus Feature (מיקוד מנטלי)
 - Displays motivational action phrases during active tasks based on completion percentage
