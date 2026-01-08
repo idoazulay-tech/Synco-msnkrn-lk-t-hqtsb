@@ -2,6 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Calendar, CalendarDays, Archive, Settings, Plus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { NotificationCenter } from '@/components/notifications/NotificationCenter';
 
 const navItems = [
   { icon: Home, label: 'בית', path: '/' },
@@ -18,6 +19,9 @@ export const BottomNav = () => {
   return (
     <div className="fixed bottom-0 inset-x-0 z-40">
       <nav className="relative bg-card/95 backdrop-blur-lg border-t border-border safe-area-pb">
+        <div className="absolute top-2 left-2 z-10">
+          <NotificationCenter />
+        </div>
         <div className="flex items-center justify-evenly h-16 w-full px-2">
           <motion.button
             onClick={() => navigate('/add')}

@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X, Calendar, Archive } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X, Calendar, Archive, AlertCircle } from 'lucide-react';
 import { format, setHours, setMinutes, startOfDay } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { TimeWheelPicker } from '@/components/ui/time-wheel-picker';
 import { DurationPresets } from '@/components/ui/duration-presets';
+import { Card } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -17,20 +18,24 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useTaskStore } from '@/store/taskStore';
-import { DEFAULT_TAGS, Tag as TagType } from '@/types/task';
+import { useNotificationStore } from '@/store/notificationStore';
+import { DEFAULT_TAGS, Tag as TagType, Task } from '@/types/task';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { HaMekolel } from '@/components/task/HaMekolel';
+import { VoiceInput } from '@/components/voice/VoiceInput';
 import { ParsedDateTime } from '@/lib/hebrewDateParser';
 
 const AddTaskPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { addTask, addTemplate, templateCategories, tasks } = useTaskStore();
+  const { addNotification, settings } = useNotificationStore();
   const { toast } = useToast();
 
   const initialMode = searchParams.get('mode') === 'cabinet' ? 'cabinet' : 'calendar';
   const [mode, setMode] = useState<'calendar' | 'cabinet'>(initialMode);
+  const [showVoiceInput, setShowVoiceInput] = useState(false);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -52,6 +57,7 @@ const AddTaskPage = () => {
   
   const [selectedTags, setSelectedTags] = useState<TagType[]>([]);
   const [isListening, setIsListening] = useState(false);
+  const [conflicts, setConflicts] = useState<Task[]>([]);
 
   const endTime = useMemo(() => {
     const totalMinutes = startHour * 60 + startMinute + durationMinutes;
@@ -101,6 +107,61 @@ const AddTaskPage = () => {
         ? prev.filter(t => t.id !== tag.id)
         : [...prev, tag]
     );
+  };
+
+  const findConflicts = useCallback((date: Date, hour: number, minute: number, duration: number): Task[] => {
+    const taskStart = setMinutes(setHours(startOfDay(date), hour), minute);
+    const taskEnd = new Date(taskStart.getTime() + duration * 60 * 1000);
+
+    return tasks.filter(task => {
+      const existingStart = new Date(task.startTime);
+      const existingEnd = new Date(task.endTime);
+      return taskStart < existingEnd && taskEnd > existingStart;
+    });
+  }, [tasks]);
+
+  const checkConflicts = useCallback(() => {
+    if (mode !== 'calendar') {
+      setConflicts([]);
+      return;
+    }
+    const taskDate = new Date(selectedDate);
+    const foundConflicts = findConflicts(taskDate, startHour, startMinute, durationMinutes);
+    setConflicts(foundConflicts);
+  }, [mode, selectedDate, startHour, startMinute, durationMinutes, findConflicts]);
+
+  useEffect(() => {
+    checkConflicts();
+  }, [checkConflicts]);
+
+  const handleVoiceTaskCreate = (voiceTitle: string, parsed: ParsedDateTime) => {
+    if (parsed.date) {
+      setSelectedDate(format(parsed.date, 'yyyy-MM-dd'));
+    }
+    if (parsed.hour !== undefined) {
+      setStartHour(parsed.hour);
+      setStartMinute(parsed.minute || 0);
+    }
+    setTitle(voiceTitle);
+    setShowVoiceInput(false);
+    
+    if (settings.conflictAlerts && parsed.date && parsed.hour !== undefined) {
+      const taskDate = new Date(parsed.date);
+      const voiceConflicts = findConflicts(taskDate, parsed.hour, parsed.minute || 0, durationMinutes);
+      if (voiceConflicts.length > 0) {
+        addNotification({
+          type: 'conflict',
+          title: 'חפיפה במשימות',
+          message: `המשימה "${voiceTitle}" חופפת עם ${voiceConflicts.length} משימות קיימות`,
+          taskId: voiceConflicts[0].id,
+        });
+      }
+    }
+    
+    toast({
+      title: 'זוהה בהצלחה',
+      description: 'פרטי המשימה הועברו לטופס',
+    });
   };
 
   const handleMekolelApply = (parsed: ParsedDateTime) => {
@@ -173,6 +234,14 @@ const AddTaskPage = () => {
       const taskStartTime = setMinutes(setHours(startOfDay(taskDate), startHour), startMinute);
       const taskEndTime = setMinutes(setHours(startOfDay(taskDate), endTime.hour), endTime.minute);
 
+      if (conflicts.length > 0 && settings.conflictAlerts) {
+        addNotification({
+          type: 'conflict',
+          title: 'נוספה משימה עם חפיפה',
+          message: `המשימה "${title.trim()}" חופפת עם ${conflicts.length} משימות קיימות`,
+        });
+      }
+
       addTask({
         title: title.trim(),
         description: description.trim() || undefined,
@@ -224,14 +293,14 @@ const AddTaskPage = () => {
             <h1 className="text-lg font-bold">משימה חדשה</h1>
             
             <button 
-              onClick={handleVoiceInput}
+              onClick={() => setShowVoiceInput(!showVoiceInput)}
               className={cn(
                 'p-2 rounded-full transition-colors',
-                isListening ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
+                showVoiceInput ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
               )}
               data-testid="button-voice-input"
             >
-              {isListening ? <Mic className="w-5 h-5 animate-pulse" /> : <MicOff className="w-5 h-5" />}
+              {showVoiceInput ? <Mic className="w-5 h-5 animate-pulse" /> : <Mic className="w-5 h-5" />}
             </button>
           </div>
           
@@ -266,6 +335,28 @@ const AddTaskPage = () => {
         </header>
 
         <div className="flex-1 p-6 space-y-6 pb-24">
+          <AnimatePresence>
+            {showVoiceInput && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <Card className="p-4 mb-4 border-primary/50">
+                  <div className="text-sm font-medium text-muted-foreground mb-3 text-center">
+                    קלט קולי - דבר את פרטי המשימה
+                  </div>
+                  <VoiceInput
+                    existingTasks={tasks}
+                    onTaskCreate={handleVoiceTaskCreate}
+                    onConflictDetected={(detected) => setConflicts(detected)}
+                  />
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -287,6 +378,31 @@ const AddTaskPage = () => {
               onApply={handleMekolelApply}
             />
           </motion.div>
+
+          {mode === 'calendar' && conflicts.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              <Card className="p-3 border-destructive/50 bg-destructive/5">
+                <div className="flex items-center gap-2 text-destructive text-sm font-medium mb-2">
+                  <AlertCircle className="w-4 h-4" />
+                  חפיפה עם משימות קיימות ({conflicts.length})
+                </div>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  {conflicts.slice(0, 3).map(task => (
+                    <li key={task.id} className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
+                      {task.title}
+                    </li>
+                  ))}
+                  {conflicts.length > 3 && (
+                    <li className="text-xs">ועוד {conflicts.length - 3} משימות...</li>
+                  )}
+                </ul>
+              </Card>
+            </motion.div>
+          )}
 
           {mode === 'calendar' && (
             <motion.div

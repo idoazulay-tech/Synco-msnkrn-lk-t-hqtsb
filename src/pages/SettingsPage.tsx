@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, Info, BarChart3, Archive } from 'lucide-react';
+import { ChevronLeft, Info, BarChart3, Archive, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useTaskStore } from '@/store/taskStore';
+import { NotificationSettings } from '@/components/settings/NotificationSettings';
 import { cn } from '@/lib/utils';
 
 const settingsItems = [
@@ -97,6 +98,16 @@ const SettingsPage = () => {
             </motion.div>
           </div>
 
+          {/* Notification Settings */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="mb-6"
+          >
+            <NotificationSettings />
+          </motion.div>
+
           {/* Menu items */}
           <div className="space-y-2">
             {settingsItems.map((item, index) => (
@@ -104,7 +115,7 @@ const SettingsPage = () => {
                 key={item.path}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
+                transition={{ delay: index * 0.05 + 0.2 }}
                 onClick={() => navigate(item.path)}
                 className="w-full flex items-center gap-4 p-4 rounded-xl bg-card border border-border hover:bg-secondary/50 transition-colors text-right"
               >
