@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model TaskFile {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  aliases     Json?
+  parentId    String?
+  parent      TaskFile?  @relation("TaskHierarchy", fields: [parentId], references: [id])
+  children    TaskFile[] @relation("TaskHierarchy")
+  runs        TaskRun[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model TaskRun {
+  id               String    @id @default(cuid())
+  taskFileId       String
+  taskFile         TaskFile  @relation(fields: [taskFileId], references: [id])
+  status           RunStatus @default(OPEN)
+  urgency          Urgency   @default(MEDIUM)
+  startedAt        DateTime  @default(now())
+  dueAt            DateTime?
+  completedAt      DateTime?
+  rescheduledCount Int       @default(0)
+  context          Json?
+  steps            RunStep[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model RunStep {
+  id          String    @id @default(cuid())
+  taskRunId   String
+  taskRun     TaskRun   @relation(fields: [taskRunId], references: [id])
+  title       String
+  orderIndex  Int
+  status      StepStatus @default(OPEN)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model InsightLog {
+  id         String   @id @default(cuid())
+  sourceText String
+  summary    String
+  detected   Json
+  createdAt  DateTime @default(now())
+}
+
+model UserSettings {
+  id                String       @id @default(cuid())
+  language          String       @default("he")
+  insightsMode      InsightsMode @default(hidden)
+  regulationProfile Json?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+model RegulationLog {
+  id           String   @id @default(cuid())
+  type         String
+  exerciseId   String
+  completedAt  DateTime @default(now())
+  userFeedback Json?
+}
+
+enum RunStatus {
+  OPEN
+  DONE
+  DEFERRED
+  CANCELLED
+}
+
+enum Urgency {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum StepStatus {
+  OPEN
+  DONE
+}
+
+enum InsightsMode {
+  hidden
+  half
+  open
+}

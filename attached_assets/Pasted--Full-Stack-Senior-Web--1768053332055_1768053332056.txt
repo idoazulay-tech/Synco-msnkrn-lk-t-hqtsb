@@ -1,0 +1,247 @@
+אתה מפתח Full-Stack Senior. תבנה לי בסיס קוד נקי, מודולרי וניתן להרחבה לפיצ’ר חדש באפליקציית Web בשם “המפרקט” – סוכן פרקטי לניהול משימות, בהירות ופעולה לאנשים עם ADHD.
+
+❗ כרגע לא בונים אפליקציה מלאה ולא מערכת AI מלאה.
+המטרה: להקים תשתית חכמה, מסודרת ונכונה להמשך פיתוח.
+
+========================
+1. עקרונות על
+========================
+
+1) האפליקציה משימתית ופרקטית (Action-first).
+2) המפרקט אינו צ’אט רגיל – אלא כלי תפעולי.
+3) קיימת נקודת כניסה אחת מהירה מאוד (“כפתור נעילה”).
+4) המפרקט:
+   - מבין קלט חופשי
+   - מחליט אם זו משימה / מחשבה / בלבול
+   - או פועל אוטומטית
+   - או מבקש אישור
+   - או מסכם ומבהיר
+5) תובנות ושיקופים קיימים – אבל תמיד כ־Sidebar / Drawer, לא במרכז.
+
+========================
+2. טכנולוגיות
+========================
+
+Frontend:
+- React + TypeScript
+- Vite
+- State minimal (Context או Zustand)
+
+Backend:
+- Node.js + Express + TypeScript
+
+Database (MVP):
+- SQLite
+- Prisma ORM
+
+========================
+3. מבנה נתונים (Data Model)
+========================
+
+A) TaskFile  (קובץ משימה קבוע)
+- id
+- title
+- description
+- aliases (json)
+- parentId (nullable)
+- createdAt
+- updatedAt
+
+B) TaskRun (מופע ביצוע)
+- id
+- taskFileId
+- status: OPEN | DONE | DEFERRED | CANCELLED
+- urgency: LOW | MEDIUM | HIGH | CRITICAL
+- startedAt
+- dueAt (nullable)
+- completedAt (nullable)
+- rescheduledCount
+- context (json)
+
+C) RunStep (צעדים בתוך מופע)
+- id
+- taskRunId
+- title
+- orderIndex
+- status: OPEN | DONE
+- completedAt (nullable)
+
+D) InsightLog
+- id
+- sourceText
+- summary
+- detected (json)
+- createdAt
+
+E) UserSettings
+- language (he/en)
+- insightsMode: hidden | half | open
+- regulationProfile (json)
+
+========================
+4. מבנה UI / UX (לא צ’אט)
+========================
+
+מסך Home:
+- כפתור ראשי גדול מאוד (Quick Action Button)
+  - תמיד זמין
+  - מדמה “כפתור מסך נעול”
+- לחיצה פותחת Quick Input Panel (Modal / Drawer)
+
+Quick Input Panel:
+- שדה טקסט גדול להזנה חופשית
+- כפתור “שלח”
+- כפתור “ויסות” (Regulate)
+
+לאחר שליחה:
+נפתח **מסך תגובת המפרקט** (לא המשך הקלדה):
+
+========================
+5. מסך תגובת המפרקט (Understanding Screen)
+========================
+
+במרכז:
+- Understanding Card:
+  - מה זוהה (Intent)
+  - מה המפרקט הבין
+  - איזו פעולה בוצעה:
+    - משימה נוצרה
+    - מבקש אישור להכניס ליומן
+    - סיכום בלבד
+  - הצעד הבא המוצע
+
+בצד ימין:
+- Insights Drawer (⋮)
+  - תובנות
+  - שיקופים
+  - מבט על
+  - JSON detected (למפתחים)
+- מצב ברירת מחדל נשלט מהגדרות:
+  hidden / half / open
+
+========================
+6. Rule Engine – לוגיקה בסיסית בלבד
+========================
+
+לממש פונקציה:
+interpretInput(text, userContext)
+
+מחזירה:
+{
+  intent:
+    CREATE_TASK |
+    FREE_TEXT |
+    MOVE_TASK |
+    SCHEDULE_TASK |
+    UNKNOWN,
+
+  extracted: {
+    title?,
+    dueAt?,
+    urgency?,
+    entities?
+  },
+
+  autoAction: boolean,
+  needsApproval: boolean,
+  questions?: string[],
+  insights: {
+    summary: string,
+    detected: object
+  }
+}
+
+חוקים התחלתיים בלבד:
+1) אם יש ביטויים כמו:
+   “תכניס לי משימה”
+   “אני צריך”
+   “תזכיר לי”
+   → CREATE_TASK
+
+2) זיהוי תאריך/שעה ע"י regex → dueAt
+
+3) מילים כמו:
+   “דחוף”, “חייב עכשיו”, “קריטי”
+   → urgency = CRITICAL
+
+4) אם intent ברור + יש זמן:
+   → autoAction = true
+
+5) אם intent ברור אבל חסר זמן:
+   → needsApproval = true
+
+6) אם טקסט חופשי ללא משימה:
+   → FREE_TEXT + סיכום + 1–2 שאלות הבהרה
+
+❗ אין צ’אט מתמשך. כל קלט → הבנה → פעולה / אישור / סיכום.
+
+========================
+7. דחיפות מול ויסות (בסיס)
+========================
+
+אם urgency = CRITICAL:
+- המפרקט מציג:
+  “זה מצב ביצוע. עכשיו פועלים.”
+- מציע צעד אחד בלבד
+- מציע ויסות רק אחרי הביצוע
+
+אם לא קריטי:
+- מאפשר ויסות לפני פעולה
+
+========================
+8. כפתור ויסות (Demo)
+========================
+
+לחיצה על Regulate:
+- Modal עם:
+  1) עומס רגשי
+  2) עומס חושי
+  3) אחר
+
+לפי בחירה:
+- מוצג תרגיל קצר אחד (חוקים מתוך rules.json)
+- נשמר RegulationLog (json)
+
+========================
+9. API מינימלי
+========================
+
+POST /api/quick
+- input: text
+- output: interpret result + action
+
+GET /api/tasks
+- מחזיר TaskRuns פתוחים
+
+GET /api/task-files/:id
+- קובץ + היסטוריית מופעים
+
+POST /api/task-files/:id/runs
+- יצירת מופע חדש
+
+POST /api/settings
+- עדכון שפה / תובנות / ויסות
+
+========================
+10. הנחיות איכות
+========================
+
+- קוד TypeScript מלא
+- הפרדה: routes / services / repositories
+- ללא any
+- README קצר להרצה
+- seed:
+  - 2 TaskFiles לדוגמה
+  - 3 חוקים ב-rules.json
+
+========================
+11. חשוב מאוד
+========================
+
+❌ לא לבנות Chat UI
+✅ לבנות כלי תפעולי
+✅ כל החלטה של המפרקט מוצגת כהבנה ברורה
+✅ המערכת מוכנה להחלפת Rule Engine ב-AI אמיתי בעתיד
+
+עכשיו:
+צור את מבנה הפרויקט, הקבצים והקוד כך שהאפליקציה רצה מקומית.
