@@ -99,7 +99,11 @@ const NextTaskBanner = ({ task, onClick }: { task: Task; onClick: () => void }) 
 
 const HomePage = () => {
   const navigate = useNavigate();
-  const { getCurrentTask, getTasksForDay, completeTask } = useTaskStore();
+  // Subscribe to tasks array to trigger re-render when tasks change
+  const tasks = useTaskStore((state) => state.tasks);
+  const getCurrentTask = useTaskStore((state) => state.getCurrentTask);
+  const getTasksForDay = useTaskStore((state) => state.getTasksForDay);
+  const completeTask = useTaskStore((state) => state.completeTask);
   const currentTask = getCurrentTask();
 
   const [showSchedule, setShowSchedule] = useState(false);

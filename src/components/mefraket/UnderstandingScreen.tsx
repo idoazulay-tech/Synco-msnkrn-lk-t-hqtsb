@@ -122,6 +122,11 @@ export function UnderstandingScreen({ result, originalText, onReset, onClose }: 
     
     setTaskCreated(true);
     setCreatedTaskTime(startTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }));
+    
+    // Auto-close panel after 1.5 seconds to show task on home screen
+    setTimeout(() => {
+      onClose();
+    }, 1500);
   };
 
   return (
