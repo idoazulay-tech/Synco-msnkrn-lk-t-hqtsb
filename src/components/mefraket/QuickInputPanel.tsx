@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Keyboard, Mic, Send, Loader2, MicOff, Heart } from 'lucide-react';
+import { Keyboard, Mic, Send, Loader2, MicOff, Heart, CalendarPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -35,6 +36,7 @@ interface InterpretResult {
 }
 
 export function QuickInputPanel({ mode, onClose, onModeChange }: QuickInputPanelProps) {
+  const navigate = useNavigate();
   const [text, setText] = useState('');
   const [originalText, setOriginalText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -45,6 +47,11 @@ export function QuickInputPanel({ mode, onClose, onModeChange }: QuickInputPanel
   
   const recognitionRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleGoToFullForm = () => {
+    onClose();
+    navigate('/add');
+  };
 
   useEffect(() => {
     if (mode === 'text' && textareaRef.current) {
@@ -336,9 +343,18 @@ export function QuickInputPanel({ mode, onClose, onModeChange }: QuickInputPanel
         </motion.p>
       )}
 
-      <div className="pt-4 border-t">
+      <div className="pt-4 border-t space-y-2">
         <Button
           variant="outline"
+          onClick={handleGoToFullForm}
+          className="w-full gap-2"
+          data-testid="button-full-form"
+        >
+          <CalendarPlus className="h-4 w-4" />
+          יצירה רגילה עם בחירת תאריך ושעה
+        </Button>
+        <Button
+          variant="ghost"
           onClick={() => setShowRegulation(true)}
           className="w-full gap-2 text-muted-foreground"
           data-testid="button-regulation"

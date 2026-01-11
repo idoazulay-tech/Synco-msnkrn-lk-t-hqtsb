@@ -11,16 +11,19 @@ import {
   FileText,
   Calendar,
   Clock,
-  Plus
+  Plus,
+  CalendarPlus
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { InsightsDrawer } from './InsightsDrawer';
 import { useTaskStore } from '@/store/taskStore';
 import { parseHebrewDateTime } from '@/lib/hebrewDateParser';
-import { addMinutes, setHours, setMinutes, startOfDay } from 'date-fns';
+import { addMinutes, setHours, setMinutes, startOfDay, format } from 'date-fns';
 
 interface InterpretResult {
   intent: string;
@@ -77,6 +80,10 @@ export function UnderstandingScreen({ result, originalText, onReset, onClose }: 
   const [showInsights, setShowInsights] = useState(false);
   const [taskCreated, setTaskCreated] = useState(false);
   const [createdTaskTime, setCreatedTaskTime] = useState<string | null>(null);
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedTime, setSelectedTime] = useState(format(new Date(), 'HH:mm'));
+  const [taskDuration, setTaskDuration] = useState(30);
   const addTask = useTaskStore((state) => state.addTask);
   
   const intentInfo = intentLabels[result.intent] || intentLabels.UNKNOWN;
@@ -84,8 +91,9 @@ export function UnderstandingScreen({ result, originalText, onReset, onClose }: 
   
   const wasTaskCreated = result.action?.type === 'TASK_CREATED' || taskCreated;
   const canCreateTask = (result.intent === 'CREATE_TASK' || result.intent === 'SCHEDULE_TASK') && !wasTaskCreated;
+  const canConvertToTask = result.intent === 'FREE_TEXT' && !wasTaskCreated;
 
-  const handleConfirmTask = () => {
+  const handleConfirmTask = (useCustomTime = false) => {
     const title = result.extracted.title || originalText;
     const parsed = parseHebrewDateTime(originalText);
     
@@ -93,8 +101,30 @@ export function UnderstandingScreen({ result, originalText, onReset, onClose }: 
     
     let startTime: Date;
     let taskStatus: 'pending' | 'in_progress' = 'pending';
+    let duration = Math.max(5, taskDuration || 30);
     
-    if (parsed.date || parsed.hour !== undefined) {
+    if (useCustomTime) {
+      if (!selectedDate || !selectedTime) {
+        return;
+      }
+      const dateParts = selectedDate.split('-');
+      const timeParts = selectedTime.split(':');
+      if (dateParts.length !== 3 || timeParts.length !== 2) {
+        return;
+      }
+      const [year, month, day] = dateParts.map(Number);
+      const [hours, minutes] = timeParts.map(Number);
+      if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hours) || isNaN(minutes)) {
+        return;
+      }
+      startTime = new Date(year, month - 1, day, hours, minutes);
+      if (isNaN(startTime.getTime())) {
+        return;
+      }
+      if (startTime <= now) {
+        taskStatus = 'in_progress';
+      }
+    } else if (parsed.date || parsed.hour !== undefined) {
       let taskDate = parsed.date || startOfDay(now);
       if (parsed.hour !== undefined) {
         startTime = setMinutes(setHours(taskDate, parsed.hour), parsed.minute || 0);
@@ -109,13 +139,13 @@ export function UnderstandingScreen({ result, originalText, onReset, onClose }: 
       taskStatus = 'in_progress';
     }
     
-    const endTime = addMinutes(startTime, 30);
+    const endTime = addMinutes(startTime, duration);
     
     addTask({
       title,
       startTime,
       endTime,
-      duration: 30,
+      duration,
       status: taskStatus,
       tags: [],
     });
@@ -123,7 +153,6 @@ export function UnderstandingScreen({ result, originalText, onReset, onClose }: 
     setTaskCreated(true);
     setCreatedTaskTime(startTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }));
     
-    // Auto-close panel after 1.5 seconds to show task on home screen
     setTimeout(() => {
       onClose();
     }, 1500);
@@ -186,15 +215,91 @@ export function UnderstandingScreen({ result, originalText, onReset, onClose }: 
             </motion.div>
           )}
 
-          {canCreateTask && (
-            <Button
-              onClick={handleConfirmTask}
-              className="w-full bg-green-600 hover:bg-green-700"
-              data-testid="button-confirm-task"
+          {(canCreateTask || canConvertToTask) && !showScheduleForm && (
+            <div className="space-y-2">
+              <Button
+                onClick={() => handleConfirmTask(false)}
+                className="w-full bg-green-600 hover:bg-green-700"
+                data-testid="button-confirm-task"
+              >
+                <Plus className="h-4 w-4 ml-2" />
+                {canConvertToTask ? 'הפוך למשימה עכשיו' : 'אישור והוספה ללוח זמנים'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowScheduleForm(true)}
+                className="w-full"
+                data-testid="button-schedule-custom"
+              >
+                <CalendarPlus className="h-4 w-4 ml-2" />
+                בחר תאריך ושעה
+              </Button>
+            </div>
+          )}
+
+          {showScheduleForm && !wasTaskCreated && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="space-y-4 p-4 bg-muted/30 rounded-lg border"
             >
-              <Plus className="h-4 w-4 ml-2" />
-              אישור והוספה ללוח זמנים
-            </Button>
+              <h4 className="font-medium text-sm">תזמון משימה</h4>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="task-date">תאריך</Label>
+                  <Input
+                    id="task-date"
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    data-testid="input-task-date"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="task-time">שעה</Label>
+                  <Input
+                    id="task-time"
+                    type="time"
+                    value={selectedTime}
+                    onChange={(e) => setSelectedTime(e.target.value)}
+                    data-testid="input-task-time"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="task-duration">משך (דקות)</Label>
+                <Input
+                  id="task-duration"
+                  type="number"
+                  min={5}
+                  max={480}
+                  value={taskDuration}
+                  onChange={(e) => setTaskDuration(Number(e.target.value))}
+                  data-testid="input-task-duration"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowScheduleForm(false)}
+                  className="flex-1"
+                  data-testid="button-cancel-schedule"
+                >
+                  ביטול
+                </Button>
+                <Button
+                  onClick={() => handleConfirmTask(true)}
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  data-testid="button-confirm-scheduled-task"
+                >
+                  <Plus className="h-4 w-4 ml-2" />
+                  הוסף ללוח
+                </Button>
+              </div>
+            </motion.div>
           )}
 
           {result.needsApproval && !wasTaskCreated && (
