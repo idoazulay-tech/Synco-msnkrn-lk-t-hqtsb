@@ -100,6 +100,10 @@ const LOCATION_TRIGGERS = ['בכתובת', 'כתובת', 'מיקום', 'תתקי
 
 const PARTICIPANT_TRIGGERS = ['עם', 'מול', 'נפגש עם', 'פגישה עם', 'שיחה עם', 'לקבוע עם', 'לדבר עם', 'להתקשר ל', 'להתקשר עם'];
 
+const SPEECH_VERBS = ['דיברתי', 'נדבר', 'שיחה', 'לטלפון', 'התקשרתי', 'להתקשר', 'שוחחתי', 'התייעצתי'];
+
+const NARRATIVE_VERBS = ['דיברתי', 'אמרתי', 'סיפרתי', 'הסברתי', 'שאלתי', 'התקשרתי', 'נפגשתי', 'הלכתי', 'הייתי'];
+
 const ANGRY_WORDS = ['כועס', 'עצבני', 'נמאס', 'מעצבן', 'לעזאזל'];
 const ANXIOUS_WORDS = ['פחד', 'דאגה', 'לחץ', 'מלחיץ', 'חרדה', 'פוחד', 'דואג', 'לחוץ'];
 const SAD_WORDS = ['עצוב', 'עצב', 'דיכאון', 'ייאוש', 'בודד', 'נואש'];
@@ -251,6 +255,75 @@ function extractLocation(text: string): string | null {
   return null;
 }
 
+function inferPhoneCallLocation(text: string, participants: string[], explicitLocation: string | null): string | null {
+  if (explicitLocation) return explicitLocation;
+  
+  if (participants.length > 0) {
+    const hasSpeechVerb = SPEECH_VERBS.some(v => text.includes(v));
+    const hasNoPhysicalLocation = !LOCATION_TRIGGERS.some(trigger => 
+      text.includes(trigger) && !['שיחה', 'דיברתי', 'נדבר'].includes(trigger)
+    );
+    
+    if (hasSpeechVerb && hasNoPhysicalLocation) {
+      return 'שיחת טלפון';
+    }
+  }
+  
+  return null;
+}
+
+function isAlreadyScheduled(text: string): boolean {
+  const scheduledIndicators = ['קבענו', 'נקבע', 'יש לי', 'מתוכנן', 'נקבעה', 'סיכמנו', 'הוחלט'];
+  return scheduledIndicators.some(ind => text.includes(ind));
+}
+
+function convertNarrativeToAction(text: string, taskType: TaskType, participants: string[], alreadyScheduled: boolean): string {
+  let title = text;
+  
+  for (const verb of NARRATIVE_VERBS) {
+    title = title.replace(new RegExp(`${verb}\\s*(עם|את|ש)?`, 'g'), '');
+  }
+  
+  title = title
+    .replace(/וצריך\s*ל/g, 'ל')
+    .replace(/ו?אני\s*צריך\s*ל/g, 'ל')
+    .replace(/ואמר\s*(לי\s*)?ש/g, '')
+    .replace(/ו?הוא\s*אמר/g, '')
+    .replace(/ו?היא\s*אמרה/g, '')
+    .replace(/איתו|איתה|אתו|אתה/g, '');
+  
+  const typeToNoun: Record<TaskType, string> = {
+    meeting: 'פגישה',
+    appointment: 'תור',
+    errand: 'סידור',
+    task: 'משימה',
+    reminder: 'תזכורת'
+  };
+  
+  const typeToVerb: Record<TaskType, string> = {
+    meeting: 'לקבוע פגישה',
+    appointment: 'לקבוע תור',
+    errand: 'לעשות',
+    task: 'לעשות',
+    reminder: 'תזכורת'
+  };
+  
+  title = title.replace(/\s+/g, ' ').trim();
+  
+  if (!title || title.length < 3) {
+    if (alreadyScheduled) {
+      title = typeToNoun[taskType];
+    } else {
+      title = typeToVerb[taskType];
+    }
+    if (participants.length > 0) {
+      title += ` עם ${participants[0]}`;
+    }
+  }
+  
+  return title;
+}
+
 function extractParticipants(text: string): string[] {
   const participants: string[] = [];
   const patterns = [
@@ -272,7 +345,7 @@ function extractParticipants(text: string): string[] {
   return participants;
 }
 
-function cleanTitle(text: string, taskType: TaskType, participants: string[]): string {
+function cleanTitle(text: string, taskType: TaskType, participants: string[], alreadyScheduled: boolean): string {
   let title = text;
 
   const prefixes = [
@@ -310,17 +383,61 @@ function cleanTitle(text: string, taskType: TaskType, participants: string[]): s
   }
   title = title.replace(/\s+/g, ' ').trim();
 
-  if (!title || title.length < 2) {
-    const defaultTitles: Record<TaskType, string> = {
-      meeting: 'פגישה',
-      appointment: 'תור',
-      errand: 'סידור',
-      task: 'משימה',
-      reminder: 'תזכורת'
-    };
-    title = defaultTitles[taskType];
+  title = convertNarrativeToAction(title, taskType, participants, alreadyScheduled);
+
+  title = title
+    .replace(/בתאריך\s*\d{1,2}[\/.-]\d{1,2}([\/.-]\d{2,4})?/g, '')
+    .replace(/\d{1,2}[\/.-]\d{1,2}([\/.-]\d{2,4})?/g, '')
+    .replace(/מחר\s*בערב|מחר\s*בבוקר|היום\s*בערב|היום\s*בבוקר/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  let words = title.split(' ').filter(w => w.length > 0);
+  if (words.length > 6) {
+    words = words.slice(0, 6);
+    title = words.join(' ');
+  }
+
+  const typeToNounWithParticipant: Record<TaskType, (p: string) => string> = {
+    meeting: (p) => `פגישה עם ${p}`,
+    appointment: (p) => `תור עם ${p}`,
+    errand: (p) => `סידור עם ${p}`,
+    task: (p) => `משימה עם ${p}`,
+    reminder: (p) => `תזכורת לגבי ${p}`
+  };
+  
+  const typeToVerbWithParticipant: Record<TaskType, (p: string) => string> = {
+    meeting: (p) => `לקבוע פגישה עם ${p}`,
+    appointment: (p) => `לקבוע תור עם ${p}`,
+    errand: (p) => `לעשות סידור עם ${p}`,
+    task: (p) => `לעשות משימה עם ${p}`,
+    reminder: (p) => `תזכורת לגבי ${p}`
+  };
+  
+  const typeToNounAlone: Record<TaskType, string> = {
+    meeting: 'לקבוע פגישה',
+    appointment: 'לקבוע תור',
+    errand: 'סידור לעשות',
+    task: 'משימה לעשות',
+    reminder: 'תזכורת חדשה'
+  };
+  
+  const typeToVerbAlone: Record<TaskType, string> = {
+    meeting: 'לקבוע פגישה',
+    appointment: 'לקבוע תור',
+    errand: 'סידור לעשות',
+    task: 'משימה לעשות',
+    reminder: 'תזכורת חדשה'
+  };
+
+  words = title.split(' ').filter(w => w.length > 0);
+  if (words.length < 2) {
     if (participants.length > 0) {
-      title += ` עם ${participants[0]}`;
+      title = alreadyScheduled 
+        ? typeToNounWithParticipant[taskType](participants[0])
+        : typeToVerbWithParticipant[taskType](participants[0]);
+    } else {
+      title = alreadyScheduled ? typeToNounAlone[taskType] : typeToVerbAlone[taskType];
     }
   }
 
@@ -433,9 +550,12 @@ export function interpretInput(text: string): InterpretResult {
     const { date, time } = extractDate(normalizedText);
     const taskType = extractTaskType(normalizedText);
     const participants = extractParticipants(normalizedText);
-    const location = extractLocation(normalizedText);
-    const title = cleanTitle(normalizedText, taskType, participants);
+    const explicitLocation = extractLocation(normalizedText);
+    const alreadyScheduled = isAlreadyScheduled(normalizedText);
+    const title = cleanTitle(normalizedText, taskType, participants, alreadyScheduled);
     const priority = extractPriority(normalizedText);
+    
+    const location = inferPhoneCallLocation(normalizedText, participants, explicitLocation);
     
     let confidence: 'high' | 'medium' | 'low' = 'high';
     if (!date && !time) confidence = 'medium';
@@ -446,7 +566,7 @@ export function interpretInput(text: string): InterpretResult {
 
     if ((taskType === 'meeting' || taskType === 'appointment') && !date && !time) {
       needs_clarification = true;
-      clarifying_question = 'באיזו שעה לקבוע את זה?';
+      clarifying_question = 'מתי זה אמור להיות?';
     }
 
     const hasEmotionalLoad = MENTAL_LOAD_PHRASES.some(p => normalizedText.includes(p));

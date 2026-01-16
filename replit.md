@@ -127,13 +127,22 @@ Tasks have a lifecycle: pending → in_progress → completed/not_completed → 
 - Mode determination uses: action verbs, time/date signals, reminder triggers, commitment words
 - Task mode extracts: title, dates, times, location, participants, type, priority, flexibility
 - Journal mode extracts: mood (8 types), intensity (1-5), tags, action suggestions
+- **Smart Title Generation**:
+  - Spoken sentence NEVER becomes the title (2-6 word limit enforced)
+  - Narrative to action conversion: "דיברתי עם X וקבענו פגישה" → "פגישה עם X"
+  - Already scheduled detection: uses verb form ("לקבוע פגישה") vs noun form ("פגישה")
+  - Final validation strips all remaining time/date/location patterns
+- **Phone Call Location Inference**: If participant + speech verb + no physical location → "שיחת טלפון"
 - Supported phrase categories:
   - TIME_SIGNALS: בשעה, בבוקר, בצהריים, בערב, etc.
   - DATE_SIGNALS: היום, מחר, מחרתיים, השבוע, חודש הבא, etc.
   - ACTION_VERBS: לקנות, להתקשר, לשלוח, לסיים, etc. (20+ verbs)
+  - SPEECH_VERBS: דיברתי, נדבר, שיחה, לטלפון, התקשרתי, להתקשר, שוחחתי, התייעצתי
+  - NARRATIVE_VERBS: דיברתי, אמרתי, סיפרתי, הסברתי, שאלתי, התקשרתי, נפגשתי, הלכתי, הייתי
   - Emotional phrases: stuck, mental load, procrastination, obligation, chaos, money, people conflict
 - suggested_tasks_from_journal: Extracts up to 3 actionable tasks from journal entries
 - Learning log structure for iterative improvement
+- Clarification policy: Only for meetings/appointments without date/time
 
 ### Database Models (prisma/schema.prisma)
 - TaskFile: Persistent task templates with title, description, tags, urgency
