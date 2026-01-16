@@ -1,0 +1,278 @@
+מה אתה בונה בפועל
+
+יש לך 4 יכולות “על” שעובדות בסנכרון:
+
+פירוק משימות (Manual + Auto)
+
+הערכת זמנים חכמה (לפי פרטים שהמשתמש נותן + נתוני ביצוע בפועל)
+
+אילוצים בחיים (Templates קבועים עם וריאציות) שמכתיבים את הלוז
+
+ניהול יום / ניהול פרויקטים (מנוע שמנהל, שואל, משפר, ושומר שליטה מלאה בעריכות)
+
+ועכשיו אני נותן לך את זה מסודר: חוקים + תבניות אילוצים + פרומפטים.
+
+1) פירוק משימות חכם
+A) פירוק ידני בתוך משימה
+
+המשתמש נכנס למשימה → לוחץ “פרק לי”
+
+המפרקט יוצר תתי-שלבים בתוך המשימה (Checklist/Subtasks)
+
+ברירת מחדל: הפירוק מוצג בתוך פירוט המשימה
+
+אפשר לכבות/לערוך ידנית או בהקלטה
+
+B) פירוק אוטומטי רק אם יש תנאי
+
+אם המשתמש לא נתן נתונים בכלל: אין פירוק אוטומטי (ברירת מחדל)
+
+אלא אם המשתמש הגדיר בהגדרות:
+“פירוק אוטומטי פעיל”
+ואז המפרקט עושה פירוק “הכי הגיוני” ומסמן confidence בינוני.
+
+C) פירוק לפי פרטים קטנים כמו אוכל
+
+הדוגמה “פיתה עם גבינה” אצלך היא לא רק טריגר לכדור, אלא גם מידע שמאפשר להבין משך:
+
+אם זה “להכין סנדוויץ’” זה משימה קטנה עם שלבים קבועים
+
+המפרקט יכול לפרק למשהו כמו:
+
+להוציא מצרכים
+
+להכין/לחמם
+
+להכין סנדוויץ’
+
+לאכול
+
+לסדר/לשטוף/לפנות
+
+המשתמש לומד: אם הוא רוצה לוז מדויק, הוא נותן פרטים כאלה.
+
+2) זמנים חכמים שמסתגלים אליך (Personal Time Model)
+עיקרון
+
+לכל סוג משימה יש:
+
+זמן ברירת מחדל
+
+זמן לפי “רמזי כמות” (קצת/הרבה)
+
+ואז המודל לומד מהביצוע בפועל
+
+דוגמה לכלים בכיור
+
+“יש קצת כלים” → 5 דקות
+
+“יש הרבה כלים” → 20 דקות
+
+אם בפועל המשתמש מסיים “הרבה” ב-10 דקות במשך כמה פעמים, המערכת מתאימה את ההערכה אליו.
+
+מאיפה מגיע נתון “ביצוע בפועל”
+
+המשתמש שם זמן ידנית
+
+או “התחל/סיים” (טיימר)
+
+או לחץ “בוצע” עם timestamp
+ואז:
+
+duration_actual נרשם
+
+משפר את ההערכה הבאה
+
+3) מאגר אילוצים “מטורף” כתבניות
+
+המטרה: המשתמש מדבר רגיל, והמפרקט מבין שזה Constraint שמשנה תכנון.
+
+כל אילוץ הוא “תבנית” עם וריאציות:
+
+A) דדליינים
+
+“חייב עד X”
+
+“לא יאוחר מ X”
+
+“להגיש עד יום/שעה”
+
+“לפני סוף היום”
+שדות: deadline_date, deadline_time
+
+B) חייב להיות במקום עד זמן
+
+“צריך להיות בבית עד 14”
+
+“חייב להגיע לשם ב-10”
+
+“להיות כבר במשרד בשמונה”
+שדות: must_be_at_place_by(place,time)
+
+C) חלונות זמן מותרים בלבד
+
+“רק בבוקר אני יכול”
+
+“רק אחרי 16”
+
+“בין 12 ל-14”
+שדות: allowed_window(start,end)
+
+D) חלונות זמן אסורים
+
+“אל תשים לי שום דבר בצהריים”
+
+“אחרי 21 אני לא עושה כלום”
+שדות: forbidden_window(start,end)
+
+E) רצפים/סדר קבוע
+
+“קודם X ואז Y”
+
+“רק אחרי שאני עושה X”
+
+“אל תשנה לי את הסדר”
+שדות: precedence(A before B), lock_order(true)
+
+F) קצב אנרגיה
+
+“בבוקר אני חד”
+
+“בערב אין לי כוח”
+שדות: energy_profile(morning/high, evening/low)
+
+G) מעברים/נסיעות
+
+“אני צריך זמן נסיעה”
+
+“זה רחוק”
+שדות: travel_buffer_minutes
+
+H) תלות באוכל/תרופות
+
+“כדור אחרי אוכל”
+
+“לפני האוכל”
+שדות: trigger(after_meal → reminder)
+
+I) מרחב עבודה בבית
+
+“כשאני מגיע הביתה אני צריך לעבוד”
+
+“אני צריך שעה שקטה בבית”
+שדות: create_home_block(duration)
+
+J) “יום לא מתפקד”
+
+“אין לי קיבולת היום”
+
+“אני קורס”
+שדות: reduce_load_mode(true)
+
+4) ניהול יום וניהול פרויקטים
+כפתורים
+
+“ניהול יום” בראש המסך של היום
+
+“ניהול פרויקטים” באזור נפרד (פרויקטים פתוחים)
+
+עיקרון התנהגות
+
+המפרקט:
+
+מציג תוכנית
+
+שואל 1–3 שאלות חכמות (לא חפירה)
+
+משפר את התוכנית לפי התשובות
+
+נותן למשתמש שליטה:
+“שמור סדר קודם” / “שמור רק מרחב בית”
+
+דוגמה לשאלה:
+
+“למה אתה צריך להיות בבית ב-14:00? מה קורה שם?”
+אם עונה:
+
+“אני צריך מרחב עבודה בבית”
+המפרקט:
+
+מוסיף בלוק “בית/עבודה” אחרי 14:00
+
+אבל אם המשתמש אומר “אל תשנה סדר”
+אז:
+
+מחזיר את הסדר לקודם
+
+משאיר רק את בלוק הבית
+
+5) פרומפטים למפרקט (שניים)
+פרומפט A: פירוק משימה + הערכת זמן מותאמת אישית
+ROLE
+You are a Task Decomposer + Time Estimator for an ADHD scheduling app.
+Given a task title and optional user details, produce:
+1) clean subtasks (default on)
+2) estimated minutes per subtask
+3) total estimate
+4) confidence level
+You MUST adapt estimates using personal historical data when provided.
+
+INPUT (JSON)
+{
+  "task_title": string,
+  "user_details": string | null,
+  "context": {
+    "auto_decompose_enabled": boolean,
+    "personal_time_stats": [
+      {"pattern": string, "avg_minutes": number, "samples": number, "notes": string | null}
+    ]
+  }
+}
+
+RULES
+- If auto_decompose_enabled=false and user did not request decomposition explicitly, return no subtasks.
+- If user requested decomposition explicitly, always return subtasks.
+- Prefer simple generic steps: prep -> do -> clean up.
+- Use quantity hints: "קצת/מעט" -> small estimate, "הרבה/מלא" -> larger.
+- If personal_time_stats match the task pattern, override defaults toward the user's avg.
+- Output should be concise and practical.
+
+OUTPUT (JSON only)
+{
+  "subtasks_enabled": boolean,
+  "subtasks": [{"title": string, "estimate_minutes": number, "confidence":"high|medium|low"}],
+  "total_estimate_minutes": number | null,
+  "notes": string | null
+}
+
+פרומפט B: ניהול יום (שואל, משפר, ושומר שליטה מלאה)
+ROLE
+You are the Day Manager engine. Your job is to improve the user's daily schedule.
+You may ask up to 3 smart questions to clarify constraints, then rebuild the plan.
+
+INPUT (JSON)
+{
+  "target_date": "YYYY-MM-DD",
+  "existing_plan_blocks": [{"start":"HH:MM","end":"HH:MM","title":string,"kind":"task|event|break"}],
+  "constraints": [{"type": string, "details": string}],
+  "user_preference": {
+    "keep_original_order": boolean,
+    "allow_reorder": boolean
+  }
+}
+
+RULES
+- If keep_original_order=true, do NOT change the sequence of existing_plan_blocks.
+  You may only:
+  - insert new blocks into free gaps
+  - extend buffers
+  - add a required "home/work space" block
+- If allow_reorder=true, you may reorder tasks but never move anything into the past.
+- Ask questions only if they change planning materially.
+
+OUTPUT (JSON only)
+{
+  "questions": [{"id":string,"question":string,"options":[string,string,string,string]}],
+  "updated_plan_blocks": [{"start":"HH:MM","end":"HH:MM","title":string,"kind":"task|event|break"}],
+  "change_log": [string]
+}
