@@ -122,6 +122,41 @@ Tasks have a lifecycle: pending → in_progress → completed/not_completed → 
 - **Concurrency**: Frontend (Vite on 5000) and backend run together via `concurrently`
 - **Proxy**: Vite proxies `/api/*` requests to backend on port 3001
 
+### 7-Layer AI Architecture (server/layers/)
+Modular architecture for intelligent task management:
+
+1. **Input Layer** (`/input`): Normalizes text, cleans filler words (אממ, אהה, כאילו, etc.)
+2. **Intent Engine** (`/intent`): FULL IMPLEMENTATION
+   - Input types: command, thought, question, correction, emotional_dump
+   - Intents: create_task, create_event, reschedule, inquire, cancel, decompose_task, journal_entry, set_constraint, manage_day
+   - Commitment levels: high/medium/low
+   - Entity extraction: time, date, duration, people, location, task_name, constraints
+   - Cognitive load detection: low/medium/high
+   - 2-6 word title enforcement
+3. **Decision Engine** (`/decision`): Decides execute/ask/reflect/stop
+   - Strict time/date requirement for scheduling intents
+   - Emotional dump triggers reflect mode
+4. **Task Engine** (`/task`): Task decomposition, time estimation with personal stats
+   - Quantity modifiers: קצת=0.5x, הרבה=2x
+   - Generic decomposition: prep → do → cleanup
+   - Food/cleaning-specific decomposition patterns
+5. **Learning Engine** (`/learning`): Records patterns, updates personal time stats
+6. **Automation Layer** (`/automation`): Placeholder for calendar sync, triggers
+7. **Feedback Layer** (`/feedback`): Placeholder for day reviews
+
+**Constraint Types Supported:**
+- deadline: חייב עד, לא יאוחר מ
+- allowed_window: רק ב, רק אחרי
+- forbidden_window: אל תשים, אחרי X לא
+- energy_profile: בבוקר אני חד, בערב אין לי כוח
+- reduced_load_day: אין לי קיבולת, אני קורס
+
+**API Endpoints:**
+- POST `/api/layers/process` - Process input through all layers
+- POST `/api/layers/learn/completion` - Record task completion for learning
+- GET `/api/layers/stats/personal` - Get personal time stats
+- GET `/api/layers/insights` - Get learning insights
+
 ### Rule Engine / Voice-to-Task Engine (server/services/ruleEngine.ts)
 - Dual-mode detection: `task_or_event` vs `journal_entry`
 - Mode determination uses: action verbs, time/date signals, reminder triggers, commitment words

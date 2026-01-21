@@ -4,7 +4,7 @@
 import type { IntentAnalysis, DecisionResult, DecisionAction } from '../types';
 
 export function makeDecision(analysis: IntentAnalysis): DecisionResult {
-  const { primaryIntent, missingInfo, cognitiveLoad, confidenceScore, inputType } = analysis;
+  const { primaryIntent, missingInfo, cognitiveLoad, confidenceScore, inputType, entities } = analysis;
 
   // Emotional dump -> reflect mode
   if (inputType === 'emotional_dump' || cognitiveLoad === 'high') {
@@ -23,8 +23,31 @@ export function makeDecision(analysis: IntentAnalysis): DecisionResult {
     };
   }
 
+  // Scheduling intents MUST have date or time
+  const schedulingIntents = ['create_task', 'create_event', 'reschedule'];
+  if (schedulingIntents.includes(primaryIntent)) {
+    const hasTimeOrDate = entities.date || entities.time;
+    
+    if (!hasTimeOrDate) {
+      return {
+        action: 'ask',
+        reason: 'חסר זמן או תאריך',
+        followUpQuestions: ['מתי זה אמור להיות?']
+      };
+    }
+    
+    // Events need duration
+    if (primaryIntent === 'create_event' && !entities.duration) {
+      return {
+        action: 'ask',
+        reason: 'חסר משך זמן לאירוע',
+        followUpQuestions: ['כמה זמן זה ייקח?']
+      };
+    }
+  }
+
   // Missing critical info -> ask
-  if (missingInfo.length > 0 && confidenceScore < 0.7) {
+  if (missingInfo.length > 0) {
     const questions = missingInfo.map(info => {
       switch (info) {
         case 'time_or_date': return 'מתי זה אמור להיות?';

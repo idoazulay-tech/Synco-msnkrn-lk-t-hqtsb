@@ -1,5 +1,6 @@
 // Layer 2: Intent & Context Engine
 // Full implementation - analyzes intent, entities, commitment, cognitive load
+// Uses ruleEngine functions for title cleaning to maintain single source of truth
 
 import type { 
   InputType, 
@@ -12,6 +13,7 @@ import type {
   ConstraintType
 } from '../types';
 import type { NormalizedInput } from '../input';
+import { interpretInput } from '../../services/ruleEngine.js';
 
 // Input type detection patterns
 const INPUT_TYPE_PATTERNS: Record<InputType, RegExp[]> = {
@@ -294,32 +296,118 @@ function extractTaskName(text: string, intent: PrimaryIntent): string | undefine
     .replace(/היום|מחר|מחרתיים/g, '')
     .replace(/ב-?\d{1,2}:\d{2}/g, '')
     .replace(/בשעה\s*\d{1,2}/g, '')
-    .replace(/צריך ל|חייב ל|רוצה ל/g, '')
+    .replace(/בבוקר|בצהריים|בערב|בלילה/g, '')
+    .replace(/בתאריך\s*\d{1,2}[\/.-]\d{1,2}/g, '')
+    .replace(/\d{1,2}[\/.-]\d{1,2}/g, '')
+    .replace(/צריך ל|חייב ל|רוצה ל|עד ל|לפני|אחרי/g, '')
+    .replace(/זה דחוף|דחוף|חשוב/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
   
   const words = cleaned.split(' ').filter(w => w.length > 1);
-  if (words.length > 0 && words.length <= 6) {
-    return words.join(' ');
+  
+  if (words.length < 2) {
+    const intentToDefault: Record<PrimaryIntent, string> = {
+      create_task: 'משימה חדשה',
+      create_event: 'לקבוע פגישה',
+      reschedule: 'לשנות זמן',
+      inquire: 'בירור',
+      cancel: 'ביטול',
+      complete_task: 'סיום משימה',
+      decompose_task: 'פירוק משימה',
+      journal_entry: 'יומן',
+      set_constraint: 'הגדרת אילוץ',
+      manage_day: 'ניהול יום',
+      unknown: 'פעולה'
+    };
+    return intentToDefault[intent];
   }
+  
   if (words.length > 6) {
     return words.slice(0, 6).join(' ');
   }
-  return undefined;
+  
+  return words.join(' ');
 }
 
 function extractConstraints(text: string): ConstraintData[] {
   const constraints: ConstraintData[] = [];
   
-  for (const [type, patterns] of Object.entries(CONSTRAINT_PATTERNS)) {
-    for (const pattern of patterns) {
-      if (pattern.test(text)) {
-        constraints.push({
-          type: type as ConstraintType,
-          details: { rawMatch: text.match(pattern)?.[0] }
-        });
-        break;
+  // Deadline extraction
+  const deadlineMatch = text.match(/(חייב עד|לא יאוחר מ|להגיש עד|לפני סוף)\s*(.+?)(?=,|$)/);
+  if (deadlineMatch) {
+    const deadlineText = deadlineMatch[2];
+    const deadlineTime = extractTime(deadlineText);
+    const deadlineDate = extractDate(deadlineText);
+    constraints.push({
+      type: 'deadline',
+      details: { 
+        deadline_date: deadlineDate,
+        deadline_time: deadlineTime,
+        rawMatch: deadlineMatch[0]
       }
+    });
+  }
+  
+  // Allowed window extraction - supports both digits and Hebrew numbers
+  const hebrewTimeNumbers: Record<string, string> = {
+    'אחת': '13', 'שתיים': '14', 'שלוש': '15', 'ארבע': '16', 'חמש': '17',
+    'שש': '18', 'שבע': '19', 'שמונה': '20', 'תשע': '21', 'עשר': '22'
+  };
+  
+  const windowMatch = text.match(/רק\s*(אחרי|ב-?|בין)\s*(\d{1,2}|אחת|שתיים|שלוש|ארבע|חמש|שש|שבע|שמונה|תשע|עשר)/);
+  if (windowMatch) {
+    let startHour = windowMatch[2];
+    if (hebrewTimeNumbers[startHour]) {
+      startHour = hebrewTimeNumbers[startHour];
     }
+    constraints.push({
+      type: 'allowed_window',
+      details: {
+        start: startHour.padStart(2, '0') + ':00',
+        end: null,
+        rawMatch: windowMatch[0]
+      }
+    });
+  }
+  
+  // Forbidden window extraction  
+  const forbiddenMatch = text.match(/אל תשים.*ב(צהריים|ערב|בוקר)|אחרי\s*(\d{1,2})\s*לא/);
+  if (forbiddenMatch) {
+    constraints.push({
+      type: 'forbidden_window',
+      details: {
+        period: forbiddenMatch[1] || null,
+        after_hour: forbiddenMatch[2] || null,
+        rawMatch: forbiddenMatch[0]
+      }
+    });
+  }
+  
+  // Energy profile extraction
+  const energyMatch = text.match(/(בבוקר אני|בערב אין לי|בצהריים אני)\s*(.+?)(?=,|$)/);
+  if (energyMatch) {
+    let period: 'morning' | 'afternoon' | 'evening' = 'morning';
+    if (energyMatch[1].includes('ערב')) period = 'evening';
+    if (energyMatch[1].includes('צהריים')) period = 'afternoon';
+    
+    const isHigh = /חד|טוב|מלא אנרגיה/.test(energyMatch[2]);
+    constraints.push({
+      type: 'energy_profile',
+      details: {
+        period,
+        level: isHigh ? 'high' : 'low',
+        rawMatch: energyMatch[0]
+      }
+    });
+  }
+  
+  // Reduced load day
+  if (/אין לי קיבולת|אני קורס|יום לא מתפקד/.test(text)) {
+    constraints.push({
+      type: 'reduced_load_day',
+      details: { active: true }
+    });
   }
   
   return constraints;
@@ -380,13 +468,29 @@ export function analyzeIntent(input: NormalizedInput): IntentAnalysis {
   const commitmentLevel = detectCommitmentLevel(text);
   const cognitiveLoad = detectCognitiveLoad(text, input.wordCount);
   
+  // Use ruleEngine for title cleaning to maintain single source of truth
+  let taskName: string | undefined;
+  try {
+    const ruleResult = interpretInput(text);
+    if (ruleResult.mode === 'task_or_event' && ruleResult.task) {
+      taskName = ruleResult.task.title;
+    }
+  } catch {
+    // Fallback to local extraction if ruleEngine fails
+    taskName = extractTaskName(text, primaryIntent);
+  }
+  
+  if (!taskName) {
+    taskName = extractTaskName(text, primaryIntent);
+  }
+  
   const entities: ExtractedEntities = {
     time: extractTime(text),
     date: extractDate(text),
     duration: extractDuration(text),
     people: extractPeople(text),
     location: extractLocation(text),
-    task_name: extractTaskName(text, primaryIntent),
+    task_name: taskName,
     constraints: extractConstraints(text)
   };
   
