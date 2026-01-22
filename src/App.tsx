@@ -14,6 +14,7 @@ import SettingsPage from "./pages/SettingsPage";
 import StatisticsPage from "./pages/StatisticsPage";
 import ArchivePage from "./pages/ArchivePage";
 import AboutPage from "./pages/AboutPage";
+import AILabPage from "./pages/AILabPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,6 +37,7 @@ const App = () => (
           <Route path="/statistics" element={<StatisticsPage />} />
           <Route path="/archive" element={<ArchivePage />} />
           <Route path="/about" element={<AboutPage />} />
+          <Route path="/ai-lab" element={<AILabPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

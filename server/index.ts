@@ -6,6 +6,7 @@ import tasksRoutes from './routes/tasks.js';
 import settingsRoutes from './routes/settings.js';
 import regulationRoutes from './routes/regulation.js';
 import layersRoutes from './routes/layers.js';
+import analyzeRoutes from './routes/analyze.js';
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.use('/api/task-files', tasksRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/regulation', regulationRoutes);
 app.use('/api/layers', layersRoutes);
+app.use('/api', analyzeRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
