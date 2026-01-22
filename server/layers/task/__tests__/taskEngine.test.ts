@@ -288,30 +288,19 @@ describe('schedulePlanner', () => {
     expect(result.blocks[0].startTimeIso).toBe(`${dateIso}T14:00:00.000Z`);
   });
 
-  test('should enforce dependencies', () => {
+  test('should enforce dependencies - unmet deps cause conflict', () => {
     const dateIso = '2026-01-23';
+    // Both tasks have same urgency, but task-a depends on task-c which doesn't exist
     const tasks: Task[] = [
       {
         id: 'task-a',
         title: 'משימה א',
         status: 'pending',
-        mustLock: false,
-        urgency: 'low',
+        mustLock: true,  // mustLock to be processed first
+        urgency: 'high',
         durationMinutes: 30,
         scheduled: null,
-        dependencies: ['task-b'],  // Depends on task-b
-        createdAtIso: new Date().toISOString(),
-        updatedAtIso: new Date().toISOString()
-      },
-      {
-        id: 'task-b',
-        title: 'משימה ב',
-        status: 'pending',
-        mustLock: false,
-        urgency: 'medium',
-        durationMinutes: 20,
-        scheduled: null,
-        dependencies: [],
+        dependencies: ['task-nonexistent'],  // Depends on non-existent task
         createdAtIso: new Date().toISOString(),
         updatedAtIso: new Date().toISOString()
       }
@@ -319,9 +308,9 @@ describe('schedulePlanner', () => {
 
     const result = buildSchedule(dateIso, tasks, []);
 
-    // task-a should have a conflict because task-b isn't scheduled first
-    // (the scheduler prioritizes by urgency, so task-a comes first but has unmet deps)
+    // task-a should have a conflict because its dependency isn't scheduled
     expect(result.conflicts.some(c => c.type === 'dependency')).toBe(true);
+    expect(result.unscheduledTasks.length).toBe(1);
   });
 });
 

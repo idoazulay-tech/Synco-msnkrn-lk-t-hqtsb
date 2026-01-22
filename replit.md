@@ -40,12 +40,48 @@ A modular architecture for intelligent task management:
 1.  **Input Layer**: Normalizes text and cleans filler words.
 2.  **Intent Engine**: A 10-step pipeline for detecting language, classifying input type, identifying primary intents, extracting entities (time, date, duration, etc.), detecting commitment and cognitive load, identifying missing information, computing confidence, and providing explainability. Supports Hebrew number words and various intents like `create_task`, `reschedule`, `journal_entry`, etc.
 3.  **Decision Engine**: A modular, strategy-based architecture deciding whether to `execute`, `ask`, `reflect`, or `stop` based on confidence thresholds and policies (e.g., one question per turn).
-4.  **Task Engine**: Handles task decomposition and time estimation.
+4.  **Task & Time Engine** (`/task`): FULL IMPLEMENTATION - 12 tests passing
+   - **TaskTimeEngine**: Main orchestrator with `apply()` method
+   - **Directory Structure**:
+     - `types/` - Task, Event, ScheduleBlock, payload types
+     - `store/` - InMemoryStore with CRUD for tasks, events, notes, scheduleBlocks
+     - `planners/` - schedulePlanner (daily scheduling), reshufflePlanner (conflict resolution)
+     - `rules/` - mustLockRules, dependencyRules, conflictRules
+     - `__tests__/` - 12 unit tests (all passing)
+   - **Supported ActionTypes**: create_task, create_event, reschedule, cancel, inquire, log_note
+   - **Scheduler Features**:
+     - Day window: 08:00-22:00 (configurable)
+     - Priority: mustLock > urgency > dependencies
+     - Buffer: 5 minutes between blocks
+     - Reshuffle: Plan A (shorten) / Plan B (postpone) options
+   - **Store State**: tasks[], events[], notes[], scheduleBlocks[], lastQuestion, lastReflection, contextState, decisionLog[]
 5.  **Learning Engine**: Records patterns and updates personal time statistics.
 6.  **Automation Layer**: Placeholder for calendar sync and triggers.
 7.  **Feedback Layer**: Placeholder for day reviews.
 
 **Constraint Types Supported**: deadline, allowed_window, forbidden_window, energy_profile, reduced_load_day.
+
+### API Routes for AI Processing
+- `POST /api/analyze` - Full flow: Input → Intent → Decision → TaskEngine
+- `POST /api/answer` - Submit answer to pending question
+- `POST /api/action` - Direct UI actions (mark_done, cancel, toggle_must_lock, etc.)
+- `GET /api/state` - Get current store state
+
+### AI Lab Frontend (`/ai-lab`)
+Visual interface for testing the full AI flow:
+- **InputPanel**: Text input with send button
+- **AnalysisPanel**: Shows IntentAnalysis (inputType, primaryIntent, entities, missingInfo, confidence)
+- **DecisionPanel**: Shows decision (execute/ask/reflect/stop) with reason
+- **Timeline**: Daily schedule blocks visualization
+- **TaskList**: Interactive task list with done/cancel/mustLock actions
+- **QuestionModal**: Popup for answering Decision Engine questions
+- **ReflectionCard**: Displays reflection/micro-step messages
+
+### Test Coverage
+- **Total**: 43 tests passing
+- Layer 2 (Intent): 19 tests
+- Layer 3 (Decision): 12 tests
+- Layer 4 (Task): 12 tests
 
 ### Rule Engine / Voice-to-Task Engine
 Determines input as `task_or_event` or `journal_entry`. Extracts details for tasks (title, dates, times, location, etc.) and journals (mood, intensity, tags). Features smart title generation, phone call location inference, and identifies actionable tasks from journal entries.

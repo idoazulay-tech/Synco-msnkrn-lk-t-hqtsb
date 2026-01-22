@@ -62,7 +62,7 @@ interface AnalyzeResponse {
   uiInstructions: UIInstructions;
 }
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = '/api';
 
 export default function AILabPage() {
   const [inputText, setInputText] = useState('');
@@ -299,7 +299,7 @@ export default function AILabPage() {
 
             {lastAnalysis && (
               <>
-                <Card>
+                <Card data-testid="card-analysis">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-lg flex items-center gap-2">
                       <Zap className="h-5 w-5" />
@@ -310,23 +310,23 @@ export default function AILabPage() {
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div>
                         <span className="text-muted-foreground">סוג קלט: </span>
-                        <Badge variant="outline">{lastAnalysis.intent.inputType}</Badge>
+                        <Badge variant="outline" data-testid="badge-input-type">{lastAnalysis.intent.inputType}</Badge>
                       </div>
                       <div>
                         <span className="text-muted-foreground">כוונה: </span>
-                        <Badge>{lastAnalysis.intent.primaryIntent}</Badge>
+                        <Badge data-testid="badge-primary-intent">{lastAnalysis.intent.primaryIntent}</Badge>
                       </div>
                       <div>
                         <span className="text-muted-foreground">ביטחון: </span>
-                        <span className="font-medium">{Math.round(lastAnalysis.intent.confidenceScore * 100)}%</span>
+                        <span className="font-medium" data-testid="text-confidence">{Math.round(lastAnalysis.intent.confidenceScore * 100)}%</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">חסר: </span>
                         {lastAnalysis.intent.missingInfo.length > 0 
                           ? lastAnalysis.intent.missingInfo.map((m, i) => (
-                              <Badge key={i} variant="secondary" className="ml-1">{m}</Badge>
+                              <Badge key={i} variant="secondary" className="ml-1" data-testid={`badge-missing-${i}`}>{m}</Badge>
                             ))
-                          : <span className="text-green-600">הכל קיים</span>
+                          : <span className="text-green-600" data-testid="text-complete">הכל קיים</span>
                         }
                       </div>
                     </div>
@@ -347,7 +347,7 @@ export default function AILabPage() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card data-testid="card-decision">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-lg flex items-center gap-2">
                       <Brain className="h-5 w-5" />
@@ -357,6 +357,7 @@ export default function AILabPage() {
                   <CardContent>
                     <div className="flex items-center gap-4">
                       <Badge 
+                        data-testid="badge-decision"
                         className={`text-base px-3 py-1 ${
                           lastAnalysis.decision.decision === 'execute' ? 'bg-green-500' :
                           lastAnalysis.decision.decision === 'ask' ? 'bg-blue-500' :
@@ -366,12 +367,12 @@ export default function AILabPage() {
                       >
                         {lastAnalysis.decision.decision}
                       </Badge>
-                      <span className="text-sm text-muted-foreground">{lastAnalysis.decision.reason}</span>
+                      <span className="text-sm text-muted-foreground" data-testid="text-decision-reason">{lastAnalysis.decision.reason}</span>
                     </div>
                     {lastAnalysis.decision.actionPlan.actionType !== 'none' && (
                       <div className="mt-2 text-sm">
                         <span className="text-muted-foreground">פעולה: </span>
-                        <Badge variant="outline">{lastAnalysis.decision.actionPlan.actionType}</Badge>
+                        <Badge variant="outline" data-testid="badge-action-type">{lastAnalysis.decision.actionPlan.actionType}</Badge>
                       </div>
                     )}
                   </CardContent>
@@ -379,7 +380,7 @@ export default function AILabPage() {
               </>
             )}
 
-            <Card>
+            <Card data-testid="card-timeline">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Calendar className="h-5 w-5" />
@@ -388,7 +389,7 @@ export default function AILabPage() {
               </CardHeader>
               <CardContent>
                 {blocks.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
+                  <div className="text-center py-8 text-muted-foreground" data-testid="text-no-blocks">
                     אין בלוקים מתוזמנים
                   </div>
                 ) : (
@@ -415,13 +416,13 @@ export default function AILabPage() {
           </div>
 
           <div>
-            <Card>
+            <Card data-testid="card-tasks">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg">רשימת משימות</CardTitle>
               </CardHeader>
               <CardContent>
                 {tasks.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
+                  <div className="text-center py-8 text-muted-foreground" data-testid="text-no-tasks">
                     אין משימות
                   </div>
                 ) : (
