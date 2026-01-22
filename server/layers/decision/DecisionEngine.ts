@@ -1,6 +1,7 @@
 import type { IntentAnalysis } from '../intent/types/intentTypes.js';
 import type { ContextManager } from '../intent/memory/ContextManager.js';
-import { DecisionOutput, createDecisionOutput } from './types/decisionTypes.js';
+import type { DecisionOutput } from './types/decisionTypes.js';
+import { createDecisionOutput } from './types/decisionTypes.js';
 import { 
   shouldExecute, 
   shouldAsk, 
@@ -150,4 +151,4 @@ export class DecisionEngine {
   }
 }
 
-export { DecisionOutput, buildActionPlan };
+export type { DecisionOutput };

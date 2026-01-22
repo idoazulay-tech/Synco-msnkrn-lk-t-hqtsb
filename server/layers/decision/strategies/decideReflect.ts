@@ -1,9 +1,6 @@
 import type { IntentAnalysis } from '../../intent/types/intentTypes.js';
-import { 
-  DecisionOutput, 
-  Reflection,
-  createDecisionOutput 
-} from '../types/decisionTypes.js';
+import type { DecisionOutput, Reflection } from '../types/decisionTypes.js';
+import { createDecisionOutput } from '../types/decisionTypes.js';
 
 const EMOTIONAL_REFLECTIONS = [
   'נשמע שיש לך הרבה על הראש עכשיו.',

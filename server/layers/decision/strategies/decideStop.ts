@@ -1,8 +1,6 @@
 import type { IntentAnalysis } from '../../intent/types/intentTypes.js';
-import { 
-  DecisionOutput, 
-  createDecisionOutput 
-} from '../types/decisionTypes.js';
+import type { DecisionOutput } from '../types/decisionTypes.js';
+import { createDecisionOutput } from '../types/decisionTypes.js';
 import { getQuestionTemplate } from '../policies/questionTemplates.js';
 
 export function decideStop(analysis: IntentAnalysis): DecisionOutput {

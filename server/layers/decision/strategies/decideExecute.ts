@@ -1,10 +1,6 @@
 import type { IntentAnalysis } from '../../intent/types/intentTypes.js';
-import { 
-  DecisionOutput, 
-  ActionPlan, 
-  createDecisionOutput, 
-  createEmptyActionPlan 
-} from '../types/decisionTypes.js';
+import type { DecisionOutput, ActionPlan } from '../types/decisionTypes.js';
+import { createDecisionOutput, createEmptyActionPlan } from '../types/decisionTypes.js';
 
 export function buildActionPlan(analysis: IntentAnalysis): ActionPlan {
   const plan = createEmptyActionPlan();

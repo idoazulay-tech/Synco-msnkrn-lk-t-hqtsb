@@ -1,7 +1,8 @@
 // Layer 3: Decision Engine - Modular Implementation
 // Decides: execute, ask, reflect, or stop
 
-export { DecisionEngine, MergedEntities } from './DecisionEngine.js';
+export { DecisionEngine } from './DecisionEngine.js';
+export type { MergedEntities } from './DecisionEngine.js';
 export type { 
   DecisionOutput, 
   DecisionAction, 

@@ -1,12 +1,8 @@
 import type { IntentAnalysis } from '../../intent/types/intentTypes.js';
-import { 
-  DecisionOutput, 
-  Question,
-  createDecisionOutput,
-  createEmptyQuestion 
-} from '../types/decisionTypes.js';
-import { getMostCriticalMissing, MissingField } from '../policies/rules.js';
-import { getQuestionTemplate, QuestionTemplate } from '../policies/questionTemplates.js';
+import type { DecisionOutput, Question } from '../types/decisionTypes.js';
+import { createDecisionOutput, createEmptyQuestion } from '../types/decisionTypes.js';
+import { getMostCriticalMissing, type MissingField } from '../policies/rules.js';
+import { getQuestionTemplate, type QuestionTemplate } from '../policies/questionTemplates.js';
 
 function buildQuestion(field: MissingField): Question {
   const template = getQuestionTemplate(field);
