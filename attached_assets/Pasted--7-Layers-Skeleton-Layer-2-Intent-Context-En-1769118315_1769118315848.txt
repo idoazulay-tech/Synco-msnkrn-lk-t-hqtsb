@@ -1,0 +1,266 @@
+אני ממשיך את הפרויקט שנבנה לפי הפרומפטים הקודמים:
+- 7 Layers Skeleton
+- Layer 2: Intent & Context Engine (Pipeline מלא + ContextManager + IntentAnalysis)
+- Layer 3: Decision Engine (DecisionOutput + actionPlan + question/reflection)
+
+עכשיו אני רוצה שתבנה Layer 4: Task & Time Engine בצורה מלאה ומעשית,
+ובנוסף: להוסיף Front-End מינימלי שמציג ומאפשר להפעיל את כל ה-flow (Layers 1–4) בצורה ויזואלית, פרקטית, ומוכנה להתרחבות.
+
+מטרה מרכזית
+כל קלט של משתמש חייב להפוך לאחד מאלה:
+- create / edit / delete / reschedule / confirm / learn / log_note
+והכל חייב להיות מוצג בפרונט (לא רק console).
+
+דרישות טכנולוגיות
+1) שפה: TypeScript
+2) Backend: Node + Express
+3) Front-End: React + Vite (או אם כבר יש React ב-Replit אז להשתמש במה שקיים)
+4) אין DB אמיתי בשלב הזה, רק In-Memory Store יציב (עם אפשרות החלפה בהמשך)
+5) Architecture: modular, clean, scalable
+6) comments באנגלית בלבד
+
+מבנה תיקיות נדרש
+/src
+  /server
+    app.ts
+    routes.ts
+    controllers/
+      analyzeController.ts
+    services/
+      flowService.ts
+  /layers
+    (1-3 קיימים)
+    /task
+      index.ts
+      TaskTimeEngine.ts
+      planners/
+        schedulePlanner.ts
+        reshufflePlanner.ts
+      rules/
+        mustLockRules.ts
+        dependencyRules.ts
+        conflictRules.ts
+      store/
+        InMemoryStore.ts
+        storeTypes.ts
+      types/
+        taskTypes.ts
+        scheduleTypes.ts
+      __tests__/
+        taskEngine.test.ts
+  /ui
+    (React app)
+    src/
+      App.tsx
+      api/
+        client.ts
+      components/
+        InputPanel.tsx
+        AnalysisPanel.tsx
+        DecisionPanel.tsx
+        Timeline.tsx
+        TaskList.tsx
+        QuestionModal.tsx
+        ReflectionCard.tsx
+      types/
+        uiTypes.ts
+
+חובה: Flow מלא מקצה לקצה
+הפרונט שולח טקסט לשרת:
+POST /api/analyze
+body: { "text": "..." }
+
+השרת עושה:
+InputLayer -> IntentContextEngine.analyze -> DecisionEngine.decide -> TaskTimeEngine.apply
+ומחזיר JSON שמכיל:
+- IntentAnalysis
+- DecisionOutput
+- UpdatedState (tasks, events, schedule timeline)
+- UIInstructions (מה להציג, האם לפתוח modal שאלה, האם להציג reflect וכו')
+
+הגדרת Store (חובה)
+InMemoryStore חייב להחזיק:
+- tasks[]
+- events[]
+- notes[]
+- scheduleBlocks[] (timeline)
+- lastQuestion (אם נשאלה שאלה)
+- lastReflection
+- contextState (מה-ContextManager)
+
+Task Entity (חובה)
+Task:
+{
+  id: string,
+  title: string,
+  status: "pending|done|canceled",
+  mustLock: boolean,
+  urgency: "low|medium|high",
+  durationMinutes: number,
+  scheduled: {
+    dateIso: string,
+    startTimeIso: string,
+    endTimeIso: string
+  } | null,
+  dependencies: string[],
+  createdAtIso: string,
+  updatedAtIso: string
+}
+
+Event Entity (חובה)
+Event:
+{
+  id: string,
+  title: string,
+  people: string[],
+  location: string,
+  scheduled: {
+    dateIso: string,
+    startTimeIso: string,
+    endTimeIso: string
+  },
+  createdAtIso: string,
+  updatedAtIso: string
+}
+
+Schedule Blocks (חובה)
+כל מה שמופיע בטיימליין זה Block:
+{
+  id: string,
+  type: "task|event|buffer|free",
+  refId: string | null,
+  title: string,
+  startTimeIso: string,
+  endTimeIso: string
+}
+
+Layer 4: Task & Time Engine (חובה יכולות)
+TaskTimeEngine.apply(decisionOutput, store) מחיל פעולה בפועל על הנתונים.
+
+חובה לתמוך ב-actionType מה-Decision Engine:
+1) create_task
+2) create_event
+3) reschedule
+4) cancel
+5) inquire
+6) log_note
+
+ולתרגם את זה לפעולות CRUD:
+- create: הוספה ל-store
+- edit/update: עדכון ישות קיימת
+- delete/cancel: שינוי status + הסרה מהטיימליין אם צריך
+- reschedule: בניית schedule מחדש
+- confirm: אם היה question, קליטת תשובה ועדכון ישות/החלטה
+
+Scheduler בסיסי (MVP)
+לבנות planner שמייצר לוז יומי פשוט:
+- מניח יום עבודה 08:00 עד 22:00
+- events מקבלים מקום קבוע לפי זמן
+- tasks נכנסים ל-free slots לפי:
+  1) mustLock קודם
+  2) urgency גבוה קודם
+  3) dependencies קודם
+- מוסיף buffer של 5 דקות בין בלוקים (configurable)
+
+Dependencies Rules (חובה)
+אם task A תלויה ב-task B:
+- A לא יכולה להיות לפני B בטיימליין
+- אם אין מספיק מקום, להחזיר UIInstructions שמציע:
+  - דחייה
+  - קיצור
+  - ביטול משימה לא must
+
+Reshuffle Planner (חובה)
+כשתגיע משימה דחופה באמצע היום:
+- להכניס אותה עכשיו
+- להפיק 2 פתרונות בלבד:
+  Plan A: לקצר בלוקים לא-must (עד גבול מינימום זמן לכל task)
+  Plan B: לדחות משימה אחת לא-must לחלון הבא
+להחזיר לשכבת UI "planOptions" עם תיאור קצר בעברית.
+המשתמש מאשר Plan A או Plan B.
+הבחירה נשמרת ב-store כ-decisionLog (להמשך Layer 5).
+
+Conflict Handling (חובה)
+אם אין דרך לשבץ:
+- אם יש mustLock שלא יכול להיכנס => UIInstructions: stop + שאלה "איזה משימה להזיז"
+- אם אין mustLock => UIInstructions: ask עם options
+בשום מצב לא להציג למשתמש 10 שאלות.
+רק אחת.
+
+השלמת שאלות (Question Modal Flow)
+אם DecisionOutput.decision == "ask":
+- הפרונט מציג QuestionModal
+- המשתמש עונה
+- התשובה נשלחת ל:
+POST /api/answer
+body: { "answer": "...", "questionId": "..."}
+השרת משתמש ב-ContextManager + mergeEntities ואז:
+Intent -> Decision -> TaskTimeEngine.apply
+ומחזיר מצב מעודכן.
+
+UI Requirements (חובה)
+הפרונט חייב להציג 5 אזורים:
+
+1) InputPanel
+- שדה טקסט + כפתור שליחה
+
+2) AnalysisPanel
+- מציג IntentAnalysis בצורה קריאה (כרטיסים)
+  inputType, primaryIntent, entities, missingInfo, confidenceScore
+
+3) DecisionPanel
+- מציג decision + reason
+- אם ask: מציג "waiting for answer"
+- אם reflect: מציג ReflectionCard
+
+4) Timeline
+- טיימליין יומי: רשימת Blocks לפי זמן
+
+5) TaskList
+- רשימת tasks עם:
+  - toggle done
+  - cancel
+  - mustLock indicator
+
+Actions בפרונט (חובה)
+כל ישות בטיימליין וב-task list צריכה כפתורים:
+- Mark Done
+- Cancel
+- Edit Duration
+- Toggle MustLock
+- Reschedule (simple: "move to later today")
+
+הפעולות שולחות:
+POST /api/action
+{ action: "mark_done", id: "...", entityType: "task" }
+
+ומפעילות Layer 4 ישירות בלי Intent Engine.
+
+זה קריטי כדי שהמערכת תהיה "פרקטית" ולא רק שיחה.
+
+API Routes (חובה)
+POST /api/analyze
+POST /api/answer
+POST /api/action
+GET  /api/state
+
+Testing (חובה)
+ב-taskEngine.test.ts לבנות לפחות 10 טסטים:
+- create_task -> store.tasks גדל
+- mustLock נשמר
+- scheduler משבץ task ל-slot פנוי
+- create_event מייצר block בזמן קבוע
+- cancel מסיר block
+- reschedule מייצר טיימליין חדש
+- dependencies נאכפות
+- reshuffle מחזיר 2 plans
+- confirm plan משנה schedule
+- mark_done מעדכן status
+
+בסיום
+1) להבטיח שהשרת והפרונט רצים יחד
+2) להוסיף README קצר איך להריץ
+3) לוודא שכל flow עובד:
+- שולחים משפט -> רואים analysis -> decision -> timeline משתנה
+4) להוסיף comment:
+// READY FOR NEXT LAYER: Learning Engine
