@@ -1,0 +1,210 @@
+אני ממשיך את הפרויקט מהפרומפטים הקודמים, שבהם כבר נבנה:
+- 7 Layers Skeleton
+- Layer 1: Input Layer (קבלת input text)
+- Layer 2: Intent & Context Engine (Pipeline מלא + ContextManager + IntentAnalysis Output יציב)
+
+עכשיו אני רוצה שתבנה במלואו את Layer 3: Decision Engine, בצורה מודולרית, יציבה, והכי חשוב: מחוברת ל-IntentAnalysis ול-ContextManager מהשכבה הקודמת, ומכינה את הקרקע לשכבות 4–7.
+
+מטרה מרכזית של Layer 3
+לתרגם IntentAnalysis להחלטה תפקודית ברורה, בלי עומס על המשתמש:
+- execute: לבצע פעולה אוטומטית (בעתיד יתממש בשכבות 4–6)
+- ask: לשאול שאלה אחת ממוקדת (לא שאלון)
+- reflect: לשקף למשתמש מה הובן ולהציע צעד קטן
+- stop: לעצור פעולה ולבקש הבהרה כי יש סיכון לטעות
+
+העיקרון: 90% אוטומציה, 10% שאלות, רק כשביטחון נמוך או חסר קריטי.
+
+דרישות כלליות
+1) TypeScript
+2) Modular architecture
+3) Interfaces ב-/src/types
+4) Unit tests
+5) comments באנגלית בלבד
+6) לא להמציא פיצ'רים שלא ביקשתי
+7) חיבור מלא ל-index.ts כך שאפשר להריץ דוגמאות בפועל
+
+מבנה תיקיות נדרש
+/src/layers/decision
+  index.ts
+  DecisionEngine.ts
+  strategies/
+    decideExecute.ts
+    decideAsk.ts
+    decideReflect.ts
+    decideStop.ts
+  policies/
+    thresholds.ts
+    rules.ts
+    questionTemplates.ts
+  types/
+    decisionTypes.ts
+  __tests__/
+    decisionEngine.test.ts
+
+הגדרות Types (חובה)
+להוסיף types שיאפשרו לכל השכבות הבאות לעבוד בלי שינוי API.
+
+DecisionOutput (חובה)
+DecisionEngine חייב להחזיר אובייקט מובנה קבוע:
+
+{
+  "decision": "execute|ask|reflect|stop",
+  "reason": "short_string",
+  "confidence": 0.0,
+  "requiredNextLayer": "task|learning|feedback|none",
+  "actionPlan": {
+    "actionType": "create_task|create_event|reschedule|cancel|inquire|log_note|none",
+    "payload": {},
+    "dependencies": [],
+    "constraints": [],
+    "mustLock": false,
+    "urgency": "low|medium|high"
+  },
+  "question": {
+    "shouldAsk": true|false,
+    "questionId": "",
+    "text": "",
+    "expectedAnswerType": "choice|free_text|time|date|duration|confirm",
+    "options": []
+  },
+  "reflection": {
+    "shouldReflect": true|false,
+    "text": "",
+    "microStep": ""
+  }
+}
+
+חוקים בסיסיים להחלטה
+DecisionEngine משתמש בנתונים משכבה 2:
+- inputType
+- primaryIntent
+- secondaryIntents
+- commitmentLevel
+- entities + confidence לכל entity
+- missingInfo
+- cognitiveLoad
+- context.isFollowUp + previousTurnId
+- confidenceScore
+
+Policy: Thresholds (חובה)
+ב-/policies/thresholds.ts להגדיר ספים ברורים:
+- EXECUTE_THRESHOLD: לדוגמה 0.75
+- ASK_THRESHOLD: לדוגמה 0.45
+- STOP_THRESHOLD: מתחת לזה stop
+וגם סף מיוחד לעומס קוגניטיבי:
+- אם cognitiveLoad=high, להעדיף ask עם שאלה אחת קצרה או reflect, ולא stop, אלא אם חסר קריטי מאוד.
+
+Policy: Rules (חובה, מפורט)
+ב-/policies/rules.ts להגדיר rules לפי intent:
+
+1) create_event
+- אם חסר date או time => ask
+- אם יש date+time אבל חסר title/people => ask (לבחור אחד בלבד לפי מה הכי קריטי)
+- אם הכל קיים וה-confidenceScore גבוה => execute (actionType=create_event)
+
+2) create_task
+- אם חסר taskName => ask
+- אם יש taskName => execute
+- אם יש urgency=high => לשים constraints עדיפות גבוהה
+- אם must=true => mustLock=true
+
+3) reschedule
+- אם חסר scope => ask ("על איזה טווח לסדר? היום / מחר / כל השבוע")
+- אם יש scope => execute (actionType=reschedule) עם payload שמכיל scope
+
+4) cancel
+- אם חסר target => ask ("מה לבטל? פגישה / משימה / תזכורת")
+- אם יש target => execute
+
+5) inquire
+- בדרך כלל execute (כי לא חסר משהו קריטי)
+- אבל אם השאלה כללית מדי ("מה קורה") => reflect ("רוצה לראות לוז היום או רשימת משימות?")
+
+6) unknown
+- אם inputType=emotional_dump => reflect
+- אם inputType=thought => ask שאלה אחת שמקדמת לפעולה
+- אם inputType=question => ask/execute לפי הבהירות
+
+התנהגות מיוחדת: Follow-up
+אם context.isFollowUp=true:
+- DecisionEngine חייב לקרוא ל-ContextManager כדי להבין מה היה missingInfo קודם
+- אם המשתמש ענה תשובה קצרה (כן/לא/שעה/תאריך), DecisionEngine יעדכן את actionPlan כדי להשלים את החסר, ואז execute.
+הערה: בשלב הזה אין לנו "mergeEntities" בשכבה 4, לכן תכתוב פונקציה פנימית ב-decision או ב-utils שתעשה merge בין lastEntities ל-currentEntities בצורה פשוטה.
+
+Policy: One Question Only (חובה)
+המערכת לא שואלת יותר משאלה אחת באותו turn.
+אם חסרים כמה פרטים:
+- לבחור את הפרט הכי קריטי לפי intent
+- ולשאול רק עליו
+השאר נשאר ב-missingInfo לסבב הבא.
+
+Question Templates (חובה)
+ב-/policies/questionTemplates.ts לבנות תבניות שאלות קצרות בעברית (מותר מונחים באנגלית):
+- date: "לאיזה תאריך זה?"
+- time: "באיזו שעה?"
+- duration: "כמה זמן זה ייקח?"
+- scope: "על מה לסדר מחדש? היום / מחר / השבוע"
+- targetCancel: "מה לבטל? משימה / פגישה"
+- clarifyIntent: "רוצה שאוסיף משימה, פגישה, או רק לרשום הערה?"
+
+בכל שאלה:
+- להחזיר expectedAnswerType נכון
+- ואם יש options, לספק options כדי לחסוך זמן
+
+Reflect Strategy (חובה, מותאם למצב)
+אם inputType=emotional_dump או cognitiveLoad=high והביטחון נמוך:
+- reflect.shouldReflect=true
+- text: שיקוף קצר ולא שיפוטי
+- microStep: צעד קטן מאוד, לדוגמה:
+  "רוצה שנבחר דבר אחד קטן ל-5 דקות?"
+
+Stop Strategy (חובה, מצומצם)
+stop רק אם:
+- primaryIntent לא ברור לחלוטין
+וגם
+- missingInfo גדול
+וגם
+- confidenceScore מאוד נמוך
+ב-stop:
+- לשאול clarifyIntent עם options
+
+Integration עם שכבות 4–7 (Placeholder אבל חובה hook)
+DecisionEngine לא מבצע בפועל יצירת משימות, אלא מחזיר actionPlan שמוכן לשכבה 4.
+ב-/src/layers/task יהיה placeholder שמקבל actionPlan ומדפיס "TODO".
+לכן תוודא שה-actionPlan.payload בנוי בצורה עתידית, למשל:
+create_task payload:
+{
+  "taskName": "...",
+  "durationMinutes": 20,
+  "dateIso": "",
+  "timeIso": "",
+  "mustLock": true,
+  "urgency": "high"
+}
+
+Unit Tests (חובה)
+ב-__tests__/decisionEngine.test.ts לבנות לפחות 12 טסטים שמשלבים IntentAnalysis אמיתי:
+1) create_event חסר date => ask date
+2) create_event חסר time => ask time
+3) create_task חסר taskName => ask
+4) create_task עם must => execute + mustLock true
+5) emotional_dump => reflect + microStep
+6) cognitiveLoad high + ambiguity => reflect/ask קצר
+7) inquire "מה יש לי היום" => execute
+8) unknown question כללית => reflect עם options
+9) follow-up "כן" אחרי שאלה confirm => execute (simulate via ContextManager state)
+10) cancel בלי target => ask options
+11) reschedule בלי scope => ask options
+12) confidenceScore מתחת stop => stop + clarifyIntent
+
+index.ts Demo (חובה)
+לעדכן index.ts כך שיזרום:
+InputLayer -> IntentContextEngine.analyze -> DecisionEngine.decide
+ולהדפיס גם IntentAnalysis וגם DecisionOutput עבור 3 דוגמאות שונות.
+
+בסיום
+1) להריץ build
+2) להריץ tests
+3) לוודא שכל outputs עומדים במבנה הקבוע
+4) להוסיף comment בסוף:
+// READY FOR NEXT LAYER: Task & Time Engine
