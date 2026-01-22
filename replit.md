@@ -126,13 +126,27 @@ Tasks have a lifecycle: pending → in_progress → completed/not_completed → 
 Modular architecture for intelligent task management:
 
 1. **Input Layer** (`/input`): Normalizes text, cleans filler words (אממ, אהה, כאילו, etc.)
-2. **Intent Engine** (`/intent`): FULL IMPLEMENTATION
-   - Input types: command, thought, question, correction, emotional_dump
-   - Intents: create_task, create_event, reschedule, inquire, cancel, decompose_task, journal_entry, set_constraint, manage_day
-   - Commitment levels: high/medium/low
-   - Entity extraction: time, date, duration, people, location, task_name, constraints
-   - Cognitive load detection: low/medium/high
-   - 2-6 word title enforcement
+2. **Intent Engine** (`/intent`): MODULAR 10-STEP PIPELINE
+   - **Pipeline Architecture**:
+     - Step 1: normalizeText - Clean filler words, normalize whitespace
+     - Step 2: detectLanguage - Identify Hebrew/English/mixed
+     - Step 3: classifyInputType - command/thought/question/correction/emotional_dump
+     - Step 4: detectIntents - Primary intent detection
+     - Step 5: extractEntities - Time, date, duration, people, location, taskName, urgency, constraints
+     - Step 6: detectCommitment - high/medium/low commitment level
+     - Step 7: detectCognitiveLoad - low/medium/high cognitive load
+     - Step 8: detectMissingInfo - What info is needed to proceed
+     - Step 9: computeConfidence - Weighted confidence scoring
+     - Step 10: explainability - Internal reasoning notes
+   - **Directory Structure**:
+     - `pipeline/` - 10 pipeline step modules
+     - `rules/` - Keywords, patterns, scoring weights
+     - `memory/` - ContextManager for session state and follow-up detection
+     - `types/` - TypeScript interfaces for intents, entities, context
+     - `__tests__/` - 19 unit tests (all passing)
+   - **Entity Extraction**: Hebrew number words support (בשלוש → 15:00)
+   - **Intents**: create_task, create_event, reschedule, inquire, cancel, decompose_task, journal_entry, set_constraint, manage_day
+   - **2-6 word title enforcement**
 3. **Decision Engine** (`/decision`): Decides execute/ask/reflect/stop
    - Strict time/date requirement for scheduling intents
    - Emotional dump triggers reflect mode
