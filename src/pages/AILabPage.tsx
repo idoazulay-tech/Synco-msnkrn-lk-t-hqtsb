@@ -4,8 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Send, RefreshCw, Trash2, Clock, CheckCircle2, XCircle, Lock, Unlock, Brain, MessageSquare, Zap, Calendar } from 'lucide-react';
+import { Send, RefreshCw, Trash2, Clock, CheckCircle2, XCircle, Lock, Unlock, Brain, MessageSquare, Zap, Calendar, Link, Activity } from 'lucide-react';
 import LearningPanel from '@/components/LearningPanel';
+import IntegrationsPanel from '@/components/IntegrationsPanel';
+import AutomationLogPanel from '@/components/AutomationLogPanel';
 
 interface Task {
   id: string;
@@ -499,6 +501,14 @@ export default function AILabPage() {
             </Card>
 
             <LearningPanel />
+            
+            <div className="mt-4">
+              <IntegrationsPanel />
+            </div>
+            
+            <div className="mt-4">
+              <AutomationLogPanel />
+            </div>
           </div>
         </div>
       </div>

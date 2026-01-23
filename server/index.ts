@@ -8,6 +8,7 @@ import regulationRoutes from './routes/regulation.js';
 import layersRoutes from './routes/layers.js';
 import analyzeRoutes from './routes/analyze.js';
 import learningRoutes from './routes/learning.js';
+import automationRoutes from './routes/automation.js';
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use('/api/regulation', regulationRoutes);
 app.use('/api/layers', layersRoutes);
 app.use('/api', analyzeRoutes);
 app.use('/api/learning', learningRoutes);
+app.use('/api', automationRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

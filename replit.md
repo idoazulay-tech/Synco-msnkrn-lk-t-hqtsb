@@ -73,7 +73,27 @@ A modular architecture for intelligent task management:
      - Anomaly detection (cognitive load, excessive must locks, stress)
      - Rule proposals after N observations + user confirmation
    - **Integration**: Hooks into Decision Engine for shouldAskForConfirmation flags
-6.  **Automation Layer**: Placeholder for calendar sync and triggers.
+6.  **Automation Layer** (`/automation`): FULL IMPLEMENTATION - 16 tests passing
+   - **AutomationLayer**: Main orchestrator with planExternalActions, executeActions, process methods
+   - **Directory Structure**:
+     - `types/` - Job, AuditLogEntry, ExternalAction, Integration, ConnectorResult
+     - `store/` - AutomationStore (singleton with integrations, jobs, auditLog, idempotencyKeys)
+     - `queue/` - jobQueue, worker, retryPolicy, rateLimiter, idempotency
+     - `router/` - actionRouter, externalActionMapper
+     - `connectors/` - Connector interface, MockConnector, GoogleCalendarConnector (scaffold)
+     - `policies/` - timeouts, thresholds
+     - `__tests__/` - 16 unit tests (all passing)
+   - **Features**:
+     - Internal-first: Updates InMemoryStore first, then triggers automations
+     - Idempotency: Prevents duplicate jobs with hash-based keys
+     - Job Queue: Status tracking (queued/running/success/failed/needs_user_action)
+     - Retry Policy: Exponential backoff, error classification (transient/permanent/auth)
+     - Rate Limiter: Per-provider request limits
+     - Audit Log: Hebrew summaries of all external actions
+     - Modular Connectors: Interface-based, easy to add new providers
+   - **Connectors**:
+     - MockConnector: Simulates success/failure for testing
+     - GoogleCalendarConnector: Scaffold with OAuth placeholder (TODO: implement OAuth)
 7.  **Feedback Layer**: Placeholder for day reviews.
 
 **Constraint Types Supported**: deadline, allowed_window, forbidden_window, energy_profile, reduced_load_day.
@@ -88,6 +108,13 @@ A modular architecture for intelligent task management:
 - `POST /api/learning/rule/decline` - Decline pending rule proposal
 - `POST /api/learning/rule/toggle` - Toggle rule status (pause/resume)
 - `POST /api/learning/process` - Process a learning event
+- `GET /api/integrations` - Get integration statuses
+- `POST /api/integrations/connect` - Connect an integration
+- `POST /api/integrations/disconnect` - Disconnect an integration
+- `GET /api/automation/jobs` - Get recent automation jobs
+- `GET /api/automation/audit` - Get audit log entries
+- `POST /api/automation/retry/:jobId` - Retry a failed job
+- `GET /api/automation/state` - Get full automation state
 
 ### AI Lab Frontend (`/ai-lab`)
 Visual interface for testing the full AI flow:
@@ -99,13 +126,16 @@ Visual interface for testing the full AI flow:
 - **QuestionModal**: Popup for answering Decision Engine questions
 - **ReflectionCard**: Displays reflection/micro-step messages
 - **LearningPanel**: Shows active rules, pending proposals, recent decisions with toggle controls
+- **IntegrationsPanel**: Shows integration statuses (Mock, Google Calendar) with connect/disconnect buttons
+- **AutomationLogPanel**: Shows audit log entries and job statuses with retry functionality
 
 ### Test Coverage
-- **Total**: 63 tests passing
+- **Total**: 79 tests passing
 - Layer 2 (Intent): 19 tests
 - Layer 3 (Decision): 12 tests
 - Layer 4 (Task): 12 tests
 - Layer 5 (Learning): 20 tests
+- Layer 6 (Automation): 16 tests
 
 ### Rule Engine / Voice-to-Task Engine
 Determines input as `task_or_event` or `journal_entry`. Extracts details for tasks (title, dates, times, location, etc.) and journals (mood, intensity, tags). Features smart title generation, phone call location inference, and identifies actionable tasks from journal entries.

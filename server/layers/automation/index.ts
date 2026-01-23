@@ -1,41 +1,20 @@
-// Layer 6: Automation Layer
-// External connections and automations (placeholder)
+// Layer 6: Automation Layer - Main Entry Point
 
-export interface AutomationTrigger {
-  id: string;
-  type: 'time' | 'location' | 'event' | 'task_complete';
-  condition: string;
-  action: string;
-}
-
-export interface CalendarSync {
-  provider: 'google' | 'outlook' | 'apple';
-  syncEnabled: boolean;
-  lastSync: Date | null;
-}
-
-// Placeholder for external integrations
-export class AutomationLayer {
-  private triggers: AutomationTrigger[] = [];
-  private calendarSync: CalendarSync | null = null;
-
-  async syncWithCalendar(provider: 'google' | 'outlook' | 'apple'): Promise<boolean> {
-    // Placeholder for calendar sync
-    console.log(`Calendar sync with ${provider} - not implemented yet`);
-    return false;
-  }
-
-  async addTrigger(trigger: AutomationTrigger): Promise<void> {
-    this.triggers.push(trigger);
-  }
-
-  async removeTrigger(triggerId: string): Promise<void> {
-    this.triggers = this.triggers.filter(t => t.id !== triggerId);
-  }
-
-  getTriggers(): AutomationTrigger[] {
-    return [...this.triggers];
-  }
-}
+export * from './types/automationTypes.js';
+export * from './store/automationStoreTypes.js';
+export * from './store/AutomationStore.js';
+export * from './AutomationLayer.js';
+export * from './queue/jobQueue.js';
+export * from './queue/worker.js';
+export * from './queue/retryPolicy.js';
+export * from './queue/rateLimiter.js';
+export * from './queue/idempotency.js';
+export * from './router/actionRouter.js';
+export * from './router/externalActionMapper.js';
+export * from './connectors/Connector.js';
+export * from './connectors/mock/MockConnector.js';
+export * from './connectors/google/GoogleCalendarConnector.js';
+export * from './policies/timeouts.js';
+export * from './policies/thresholds.js';
 
 // READY FOR NEXT LAYER: Feedback & Review Layer

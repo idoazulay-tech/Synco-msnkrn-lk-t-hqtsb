@@ -1,0 +1,264 @@
+אני ממשיך את פרויקט MA שנבנה לפי הפרומפטים הקודמים:
+- Layer 2: Intent & Context Engine
+- Layer 3: Decision Engine
+- Layer 4: Task & Time Engine + Express API + React UI
+- Layer 5: Learning Engine (DecisionLog, Pattern Detection, Rule Proposals, Confidence, Decay) + LearningPanel UI
+
+עכשיו אני רוצה שתבנה Layer 6: Automation Layer בצורה מלאה ומחוברת לכל מה שכבר קיים, כך שכל Action שמוגדר כ External Side Effect יוכל להתבצע בשירותים חיצוניים בצורה בטוחה, יציבה, ושקופה למשתמש.
+
+עקרונות חובה
+1) Internal-first: קודם כל MA מעדכן את ה InMemoryStore וה Timeline (Layer 4), ורק אחרי זה מפעיל Automations
+2) Idempotency: לא ליצור כפילויות אם המשתמש שלח שוב או הייתה רשת חלשה
+3) Job Queue: כל פעולה חיצונית נכנסת לתור Jobs ומבוצעת על ידי Worker
+4) Status: כל Job מחזיר סטטוס אמיתי ל UI: queued | running | success | failed | needs_user_action
+5) Reliability: retries עם backoff, timeout, rate limiting בסיסי
+6) Permissions: מסך Integrations בפרונט עם חיבור וניתוק שירותים
+7) Audit Log: כל פעולה חיצונית נשמרת ב auditLog ומוצגת למשתמש
+8) Modular: כל Connector הוא מודול נפרד עם interface קבוע כדי להוסיף שירותים נוספים בעתיד בלי לשבור כלום
+9) MVP: להתחיל עם Mock Connector יציב, ובנוסף להכין תשתית Google Calendar Connector (scaffold) עם נקודות חיבור, גם אם אין לנו credentials כרגע
+
+טכנולוגיה
+- TypeScript
+- Backend: Node + Express (קיים)
+- Front-End: React (קיים)
+- No external DB בשלב הזה, רק In-Memory
+- comments באנגלית בלבד
+
+מבנה תיקיות נדרש
+/src/layers/automation
+  index.ts
+  AutomationLayer.ts
+  router/
+    actionRouter.ts
+    externalActionMapper.ts
+  queue/
+    jobQueue.ts
+    worker.ts
+    retryPolicy.ts
+    rateLimiter.ts
+    idempotency.ts
+  connectors/
+    Connector.ts
+    mock/
+      MockConnector.ts
+    google/
+      GoogleCalendarConnector.ts
+      googleTypes.ts
+  policies/
+    timeouts.ts
+    thresholds.ts
+  store/
+    automationStoreTypes.ts
+  types/
+    automationTypes.ts
+  __tests__/
+    automationLayer.test.ts
+
+הרחבת Store מרכזי (חובה)
+להרחיב את InMemoryStore (Layer 4) עם:
+- integrations: { googleCalendar: { status: "connected|disconnected|error", accountEmail?: string } }
+- automationJobs: Job[]
+- auditLog: AuditLogEntry[]
+- idempotencyKeys: Record<string, { createdAtIso: string, jobId: string }>
+- lastAutomationErrors: string[]
+
+Job Type (חובה)
+{
+  id: string,
+  createdAtIso: string,
+  updatedAtIso: string,
+  status: "queued|running|success|failed|needs_user_action",
+  provider: "mock|google_calendar",
+  operation: "create|update|delete|sync",
+  entityType: "event|task|note",
+  entityId: string,
+  idempotencyKey: string,
+  payload: any,
+  attempts: number,
+  maxAttempts: number,
+  lastError: string | null,
+  result: any | null
+}
+
+Audit Log Entry (חובה)
+{
+  id: string,
+  tsIso: string,
+  provider: "mock|google_calendar",
+  operation: string,
+  entityType: string,
+  entityId: string,
+  status: "success|failed|needs_user_action",
+  summaryHebrew: string,
+  details: any
+}
+
+External Action Definition (חובה)
+לא כל actionPlan צריך לצאת החוצה.
+לכן נגדיר ExternalAction:
+{
+  provider: "mock|google_calendar",
+  operation: "create|update|delete",
+  entityType: "event",
+  entityId: string,
+  payload: any,
+  idempotencyKey: string
+}
+
+חיבור ל Flow הקיים (חובה)
+ב server/services/flowService.ts אחרי TaskTimeEngine.apply:
+1) לקרוא ל AutomationLayer.planExternalActions(updatedState, decisionOutput) כדי להפיק ExternalActions
+2) לכל ExternalAction להכניס Job לתור (enqueue)
+3) להחזיר ל UIInstructions מידע:
+   - jobsCreatedCount
+   - lastJobStatusSummary
+
+Action Router (חובה)
+router/actionRouter.ts מקבל החלטות:
+- אם provider=mock => להשתמש MockConnector
+- אם provider=google_calendar => להשתמש GoogleCalendarConnector
+externalActionMapper.ts יגדיר מיפוי:
+- create_event פנימי -> ExternalAction create event ב google_calendar (רק אם integration connected)
+- update_event -> ExternalAction update
+- cancel event -> ExternalAction delete
+אם integration לא מחובר:
+- לא ליצור Job, אלא ליצור AuditLogEntry מסוג needs_user_action עם summary בעברית שמבקש להתחבר
+- ולהחזיר UIInstructions שיפתח IntegrationsPanel
+
+Idempotency (חובה)
+idempotencyKey נוצר לפי:
+provider + operation + entityType + entityId + hash(payload)
+אם key כבר קיים ב store.idempotencyKeys:
+- לא ליצור Job חדש
+- להחזיר jobId קיים
+
+Job Queue + Worker (חובה)
+jobQueue.ts:
+- enqueue(job): מוסיף ל store.automationJobs עם status queued
+- getNextJob(): מחזיר queued לפי סדר
+- updateJobStatus()
+
+worker.ts:
+- poll loop כל 1 שניה (configurable)
+- לוקח job queued -> running
+- מפעיל connector.execute(operation, payload)
+- אם הצלחה -> success + audit log success
+- אם כשל -> retry לפי retryPolicy עד maxAttempts, ואז failed + audit log failed
+- אם חסר הרשאות -> needs_user_action
+
+Retry Policy (חובה)
+retryPolicy.ts:
+- backoff: 1s, 3s, 7s (דוגמה)
+- maxAttempts ברירת מחדל 3
+- classify errors:
+  - transient (retry)
+  - permanent (fail)
+  - auth (needs_user_action)
+
+Timeouts (חובה)
+timeouts.ts:
+- לכל provider + operation להגדיר timeout ms
+
+Rate Limiter (MVP)
+rateLimiter.ts:
+- להגביל ל X פעולות בדקה לכל provider
+- אם עברנו, להשאיר job queued לעתיד הקרוב
+
+Connectors (חובה)
+Connector interface ב connectors/Connector.ts:
+- name
+- validateIntegration(store): boolean
+- execute(operation, payload): Promise<{ ok: boolean, status: "success|failed|needs_user_action", data?: any, error?: string }>
+
+MockConnector (חובה MVP)
+MockConnector צריך "לזייף" הצלחה אמיתית:
+- create: מחזיר externalId
+- update: מחזיר ok
+- delete: מחזיר ok
+ואפשר לדמות כשל כש payload כולל מילה "fail" כדי לבדוק retries
+
+GoogleCalendarConnector (Scaffold חובה)
+לא נדרש חיבור אמיתי אם אין credentials, אבל חייב:
+- types בסיסיים
+- map פנימי: Event Entity -> Google Calendar event schema placeholder
+- validateIntegration: משתמש ב store.integrations.googleCalendar.status
+- execute: כרגע להחזיר needs_user_action אם disconnected
+ולכתוב TODO ברור איפה מכניסים OAuth ו API calls בעתיד
+
+Front-End Integrations UI (חובה פרקטי)
+להוסיף ב React:
+components/IntegrationsPanel.tsx
+components/AutomationLogPanel.tsx
+ולעדכן App.tsx עם Tabs:
+- Planner (קיים)
+- Learning (קיים)
+- Integrations (חדש)
+- Activity Log (חדש)
+
+IntegrationsPanel מציג:
+- Google Calendar: Connected/Disconnected
+- כפתור Connect / Disconnect
+בשלב MVP:
+Connect מדמה חיבור (Mock) דרך API כדי לראות את flow עובד.
+Google Calendar יישאר scaffold, אבל UI צריך להציג אותו.
+
+Activity Log מציג:
+- auditLog entries
+- status
+- summaryHebrew
+- זמן
+
+API Routes חדשים (חובה)
+GET  /api/integrations
+POST /api/integrations/connect
+POST /api/integrations/disconnect
+GET  /api/automation/jobs
+GET  /api/automation/audit
+POST /api/automation/retry/:jobId
+
+ב connect:
+- עבור mock: set connected
+- עבור google_calendar: set disconnected אבל להשאיר מסלול עתידי
+או להציג "needs_user_action" עם הודעה שהחיבור האמיתי יגיע בשלב OAuth
+
+UIInstructions (חובה)
+להרחיב את התשובות מהשרת כך שיכילו:
+{
+  automation: {
+    jobsCreated: number,
+    lastStatuses: Array<{ jobId, status, provider, operation }>,
+    needsUserAction: boolean
+  }
+}
+
+Unit Tests (חובה)
+automationLayer.test.ts לפחות 12 טסטים:
+1) enqueue יוצר job queued
+2) idempotency מונע כפילות
+3) worker מבצע success ומעדכן audit log
+4) transient error -> retry ואז success
+5) permanent error -> failed
+6) disconnected integration -> needs_user_action + audit log
+7) rate limiter משאיר queued
+8) timeout מסווג כ transient ומנסה שוב
+9) retryPolicy backoff מתעדכן
+10) actionRouter ממפה create_event ל ExternalAction נכון
+11) google scaffold מחזיר needs_user_action
+12) API endpoints מחזירים state נכון
+
+Integration Demo (חובה)
+לעדכן index.ts או flow demo כך ש:
+- create_event מייצר event פנימי
+- automation layer יוצר job mock
+- worker מבצע ומעדכן audit log
+וה UI יציג:
+- Timeline עם event
+- Activity Log עם success
+
+בסיום
+1) להריץ build
+2) להריץ tests
+3) לוודא שה Worker רץ
+4) לוודא שה UI מציג Integrations ו Activity Log
+5) להוסיף comment:
+// READY FOR NEXT LAYER: Feedback & Review Layer
