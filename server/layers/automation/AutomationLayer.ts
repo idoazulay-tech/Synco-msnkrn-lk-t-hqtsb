@@ -1,4 +1,5 @@
 // Layer 6: Automation Layer - Main Orchestrator
+// READY FOR NEXT LAYER: Feedback & Review Layer
 
 import type { ExternalAction, AutomationUIInstructions, Job } from './types/automationTypes.js';
 import type { StoreState } from '../task/store/storeTypes.js';

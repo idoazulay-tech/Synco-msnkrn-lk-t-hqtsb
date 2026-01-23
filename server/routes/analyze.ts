@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { getOrchestrator } from '../layers/index.js';
 import { TaskTimeEngine } from '../layers/task/TaskTimeEngine.js';
 import { getStore, resetStore } from '../layers/task/store/InMemoryStore.js';
+import { getAutomationLayer } from '../layers/automation/index.js';
 import type { DecisionOutput } from '../layers/decision/types/decisionTypes.js';
 import type { ReshufflePlan } from '../layers/task/types/scheduleTypes.js';
 
@@ -24,8 +25,20 @@ router.post('/analyze', async (req, res) => {
     const orchestrator = getOrchestrator();
     const result = await orchestrator.processInput(text, source);
     
-    // Apply decision to TaskTimeEngine
+    // Apply decision to TaskTimeEngine (Internal-first)
     const processResult = taskEngine.apply(result.decision as DecisionOutput);
+
+    // Trigger Automation Layer (external side effects)
+    const automationLayer = getAutomationLayer();
+    const actionPayload = result.decision.actionPlan?.payload || {};
+    const automationResult = automationLayer.process(
+      processResult.state,
+      {
+        actionType: result.decision.actionPlan?.actionType || 'none',
+        entityId: typeof actionPayload.entityId === 'string' ? actionPayload.entityId : '',
+        payload: actionPayload
+      }
+    );
 
     res.json({
       input: result.input,
@@ -33,7 +46,10 @@ router.post('/analyze', async (req, res) => {
       decision: result.decision,
       decomposition: result.decomposition,
       state: processResult.state,
-      uiInstructions: processResult.uiInstructions,
+      uiInstructions: {
+        ...processResult.uiInstructions,
+        automation: automationResult
+      },
       timestamp: result.timestamp
     });
   } catch (error) {
@@ -60,8 +76,20 @@ router.post('/answer', async (req, res) => {
     const orchestrator = getOrchestrator();
     const result = await orchestrator.processInput(answer, 'text');
     
-    // Apply to TaskTimeEngine
+    // Apply to TaskTimeEngine (Internal-first)
     const processResult = taskEngine.apply(result.decision as DecisionOutput);
+
+    // Trigger Automation Layer
+    const automationLayer = getAutomationLayer();
+    const answerActionPayload = result.decision.actionPlan?.payload || {};
+    const automationResult = automationLayer.process(
+      processResult.state,
+      {
+        actionType: result.decision.actionPlan?.actionType || 'none',
+        entityId: typeof answerActionPayload.entityId === 'string' ? answerActionPayload.entityId : '',
+        payload: answerActionPayload
+      }
+    );
 
     // Clear the question
     getStore().setLastQuestion(null);
@@ -71,7 +99,10 @@ router.post('/answer', async (req, res) => {
       intent: result.intent,
       decision: result.decision,
       state: processResult.state,
-      uiInstructions: processResult.uiInstructions,
+      uiInstructions: {
+        ...processResult.uiInstructions,
+        automation: automationResult
+      },
       timestamp: result.timestamp
     });
   } catch (error) {
