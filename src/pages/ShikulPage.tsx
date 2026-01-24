@@ -88,6 +88,45 @@ interface StateResponse {
   pendingPlanProposal: PendingPlanProposal | null;
 }
 
+interface OrgQuestion {
+  id: string;
+  textHebrew: string;
+  options?: string[];
+  expectedAnswerType: 'choice' | 'confirm' | 'duration' | 'free_text' | 'plan_choice' | 'time' | 'date';
+  relatedEntityId?: string;
+}
+
+interface OrgInquiry {
+  id: string;
+  createdAtIso: string;
+  status: 'pending' | 'resolved';
+  reason: 'missing_info' | 'conflict' | 'related_tasks' | 'time_clarification';
+  entity: {
+    type: 'task' | 'event';
+    id: string;
+    title: string;
+  };
+  message: {
+    titleHebrew: string;
+    bodyHebrew: string;
+  };
+  question: OrgQuestion;
+  meta: {
+    missingInfo: string[];
+    conflictId?: string;
+    relatedIds?: string[];
+  };
+}
+
+interface OrgFeedResponse {
+  pendingInquiries: OrgInquiry[];
+  pendingQuestion: OrgQuestion | null;
+  summary: {
+    pendingCount: number;
+    hasActiveQuestion: boolean;
+  };
+}
+
 const API_BASE = '/api';
 
 export default function ShikulPage() {
@@ -111,6 +150,13 @@ export default function ShikulPage() {
     queryKey: ['/api/state'],
     refetchInterval: 5000,
   });
+
+  const { data: orgData, isLoading: orgLoading, refetch: refetchOrg } = useQuery<OrgFeedResponse>({
+    queryKey: ['/api/org/feed'],
+    refetchInterval: 3000,
+  });
+
+  const orgInquiries = orgData?.pendingInquiries || [];
 
   const handleCheckInResponse = useCallback(async (checkIn: CheckInRequest, response: string) => {
     setSubmitting(checkIn.id);
@@ -149,13 +195,67 @@ export default function ShikulPage() {
     setResponses(prev => ({ ...prev, [id]: text }));
   };
 
-  const isLoading = feedbackLoading || stateLoading;
+  const isLoading = feedbackLoading || stateLoading || orgLoading;
   const pendingCheckIn = feedbackData?.pendingCheckIn;
   const pendingPlan = stateData?.pendingPlanProposal;
   const highPriorityFeedback = feedbackData?.feedbackFeed?.filter(f => f.priority === 'high' && !f.dismissed) || [];
   const otherFeedback = feedbackData?.feedbackFeed?.filter(f => f.priority !== 'high' && !f.dismissed).slice(0, 5) || [];
 
-  const hasItems = pendingCheckIn || pendingPlan || highPriorityFeedback.length > 0 || otherFeedback.length > 0 || unansweredMessages.length > 0;
+  const hasItems = pendingCheckIn || pendingPlan || highPriorityFeedback.length > 0 || otherFeedback.length > 0 || unansweredMessages.length > 0 || orgInquiries.length > 0;
+
+  const handleOrgInquiryResponse = useCallback(async (inquiry: OrgInquiry, response: string) => {
+    if (!response.trim()) return;
+    
+    setSubmitting(inquiry.id);
+    
+    try {
+      const apiResponse = await fetch('/api/org/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inquiryId: inquiry.id,
+          answer: response,
+        }),
+      });
+      
+      const result = await apiResponse.json();
+      
+      if (result.resolved) {
+        if (result.entity && result.entity.schedulingStatus === 'scheduled') {
+          const now = new Date();
+          let startTime = now;
+          let endTime = addMinutes(now, 30);
+          
+          if (result.entity.date) {
+            const dateStr = result.entity.date;
+            const timeStr = result.entity.time || '12:00';
+            startTime = new Date(`${dateStr}T${timeStr}`);
+            const duration = result.entity.duration || 30;
+            endTime = addMinutes(startTime, duration);
+          }
+          
+          addTask({
+            title: result.entity.title,
+            startTime,
+            endTime,
+            duration: result.entity.duration || 30,
+            status: startTime > now ? 'pending' : 'in_progress',
+            tags: [],
+          });
+        }
+        
+        queryClient.invalidateQueries({ queryKey: ['/api/org/feed'] });
+        setResponses(prev => ({ ...prev, [inquiry.id]: '' }));
+      } else if (result.stillPending) {
+        queryClient.invalidateQueries({ queryKey: ['/api/org/feed'] });
+        setResponses(prev => ({ ...prev, [inquiry.id]: '' }));
+      }
+    } catch (err) {
+      console.error('Failed to respond to org inquiry:', err);
+    } finally {
+      setSubmitting(null);
+    }
+  }, [queryClient, addTask]);
 
   // Handle answering a local MA message (e.g., providing missing info for task creation)
   const handleMAMessageResponse = async (message: MAMessage, response: string) => {
@@ -264,7 +364,10 @@ export default function ShikulPage() {
             <Button 
               variant="ghost" 
               size="icon" 
-              onClick={() => refetchFeedback()}
+              onClick={() => {
+                refetchFeedback();
+                refetchOrg();
+              }}
               data-testid="button-refresh"
             >
               <RefreshCw className="h-5 w-5" />
@@ -383,6 +486,117 @@ export default function ShikulPage() {
                               <Send className="h-4 w-4" />
                             )}
                           </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Org Inquiries (from API - persistent pending tasks/events) */}
+            {orgInquiries.length > 0 && (
+              <div className="space-y-3">
+                {orgInquiries.map((inquiry) => {
+                  const isConflict = inquiry.reason === 'conflict' || inquiry.reason === 'related_tasks';
+                  const isMissingInfo = inquiry.reason === 'missing_info';
+                  
+                  return (
+                    <Card 
+                      key={inquiry.id} 
+                      className={`border-r-4 ${isConflict 
+                        ? 'border-r-orange-500 bg-orange-50/50 dark:bg-orange-950/20' 
+                        : isMissingInfo 
+                          ? 'border-r-purple-500 bg-purple-50/50 dark:bg-purple-950/20'
+                          : 'border-r-blue-500'
+                      }`} 
+                      data-testid={`card-org-inquiry-${inquiry.id}`}
+                    >
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <Badge 
+                            variant="secondary" 
+                            className={`gap-1 ${isConflict 
+                              ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                              : isMissingInfo
+                                ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                            }`}
+                          >
+                            {isConflict ? (
+                              <>
+                                <AlertTriangle className="h-3 w-3" />
+                                {inquiry.reason === 'related_tasks' ? 'משימות קשורות' : 'חפיפה'}
+                              </>
+                            ) : isMissingInfo ? (
+                              <>
+                                <HelpCircle className="h-3 w-3" />
+                                חסר מידע
+                              </>
+                            ) : (
+                              <>
+                                <Bot className="h-3 w-3" />
+                                MA
+                              </>
+                            )}
+                          </Badge>
+                          <CardTitle className="text-base flex-1 text-right">
+                            {inquiry.message.titleHebrew}
+                          </CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <p className="text-foreground leading-relaxed">{inquiry.message.bodyHebrew}</p>
+                        
+                        <div className="bg-muted/50 rounded-lg p-3">
+                          <p className="font-medium text-sm mb-2">{inquiry.question.textHebrew}</p>
+                          
+                          {inquiry.question.options && inquiry.question.options.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-3">
+                              {inquiry.question.options.map((option, idx) => (
+                                <Button
+                                  key={idx}
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    updateResponse(inquiry.id, option);
+                                    handleOrgInquiryResponse(inquiry, option);
+                                  }}
+                                  disabled={submitting === inquiry.id}
+                                  data-testid={`button-org-option-${inquiry.id}-${idx}`}
+                                >
+                                  {option}
+                                </Button>
+                              ))}
+                            </div>
+                          )}
+                          
+                          <div className="flex gap-2">
+                            <Input
+                              value={responses[inquiry.id] || ''}
+                              onChange={(e) => updateResponse(inquiry.id, e.target.value)}
+                              placeholder="או הקלד תשובה חופשית..."
+                              className="flex-1"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && responses[inquiry.id]?.trim()) {
+                                  handleOrgInquiryResponse(inquiry, responses[inquiry.id]);
+                                }
+                              }}
+                              data-testid={`input-org-response-${inquiry.id}`}
+                            />
+                            <Button
+                              size="icon"
+                              onClick={() => handleOrgInquiryResponse(inquiry, responses[inquiry.id] || '')}
+                              disabled={!responses[inquiry.id]?.trim() || submitting === inquiry.id}
+                              data-testid={`button-send-org-response-${inquiry.id}`}
+                            >
+                              {submitting === inquiry.id ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Send className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
