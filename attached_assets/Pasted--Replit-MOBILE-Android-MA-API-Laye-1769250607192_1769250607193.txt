@@ -1,0 +1,154 @@
+אני רוצה שתיצור בפרויקט Replit רכיב MOBILE (Android) שמתחבר לשרת של MA (ה־API שכבר קיים בפרויקט Layers 1-7), כדי לאפשר קלט גם מתוך האפליקציה וגם מחוץ לאפליקציה, כולל כשהמסך כבוי.
+
+חשוב: אל תמציא יכולות מעבר למה שאני מפרט כאן. תבנה MVP יציב, עם מבנה מסודר, Interfaces, ו-Tests היכן שאפשר. כל Comments באנגלית בלבד.
+
+========================
+מטרה פונקציונלית
+========================
+1) מתוך האפליקציה: אפשר להזין Text או Audio, והקלט נשלח ל MA דרך API (POST /api/analyze או POST /api/answer בהתאם להקשר).
+2) מחוץ לאפליקציה: 
+   2.1 לחיצה רציפה על כפתור הגברת השמע (Volume Up) במשך 2 שניות פותחת הקלטת Microphone שמיועדת ל MA.
+   2.2 MA ממשיכה לעבוד גם כשהטלפון נעול והמסך כבוי: ההקלטה והשליחה מתבצעות באמצעות Foreground Service עם Notification קבוע.
+   2.3 MA שולחת התראות בטלפון עם: מה קרה, או שאלה ש-MA שואלת.
+   2.4 אני יכול לענות מההתראה: "כן" / "לא" או טקסט חופשי, בלי לפתוח את האפליקציה (Direct Reply).
+
+3) בתוך האפליקציה יש עמוד "שיקלול":
+   - רשימת בלוקים אחידים בעיצוב.
+   - לכל בלוק: אזור קבוע לשאלה, אזור קבוע לטקסט חופשי, אזור קבוע לכפתור קלט (Voice/Text).
+   - אם זו שאלה של כן/לא: יש כפתור "כן" וכפתור "לא" בנוסף.
+   - אם אין כן/לא: עדיין מיקומי השאלה, טקסט חופשי, וכפתור קלט נשארים באותו מקום, כדי לשמור אחידות ויזואלית.
+
+========================
+דגשים טכניים חשובים (Android)
+========================
+A) Volume Up long-press כטריגר גלובלי:
+- להשתמש ב Accessibility Service עם קבלת Key Events (FLAG_REQUEST_FILTER_KEY_EVENTS) כדי לזהות Volume Up גם כשהמסך כבוי.
+- למדוד press duration: KEY_DOWN ואז KEY_UP, אם >= 2000ms => trigger.
+- אם משתמש מפעיל שירותי נגישות אחרים, לוודא שלא שוברים את המכשיר: במצב קונפליקט להציג Notification שמסביר שהטריגר לא זמין.
+
+B) Microphone background:
+- להשתמש ב Foreground Service עם foregroundServiceType="microphone".
+- להציג Notification קבוע בזמן שהשירות פעיל.
+- להתחיל הקלטה בתוך השירות בלבד, בלי לפתוח Activity אם אפשר.
+- אם OS חוסם התחלת השירות מהרקע: להציג Notification שמבקש אישור משתמש (tap) שמפעיל Activity שקופה שמתחילה את ההקלטה ואז נסגרת.
+
+C) Notifications + Direct Reply:
+- ליצור Notification "MA Question" עם Action Reply באמצעות RemoteInput.
+- תשובה נשלחת לשרת דרך POST /api/answer.
+- לתמוך ב-2 סוגי תשובות:
+  - confirm: "כן"/"לא"
+  - free_text: טקסט חופשי
+
+D) חיבור ל MA API:
+- ליצור MAApiClient שמדבר עם השרת הקיים:
+  - POST /api/analyze { text }
+  - POST /api/answer { questionId, answer }
+  - GET /api/state (אופציונלי לעדכון UI)
+- אם נשלח Audio: לעשות Speech-to-Text מקומי או ענן? בשלב MVP:
+  - MVP: להשתמש ב Android SpeechRecognizer (on-device/Google) ולהוציא טקסט, ואז לשלוח טקסט בלבד ל /api/analyze.
+  - לא לשמור את האודיו בקבצים, רק טקסט.
+
+========================
+ארכיטקטורה נדרשת בפרויקט
+========================
+הפרויקט נשאר אותו פרויקט MA (Node + Express + React Web) אבל מוסיפים תיקייה לאפליקציית Android:
+
+/mobile/android
+  app/
+    src/main/java/com/ma/app/
+      MainActivity.kt
+      ui/
+        InputScreen.kt
+        ShikulScreen.kt
+        components/
+          QuestionBlockView.kt
+      services/
+        MaForegroundVoiceService.kt
+        MaAccessibilityKeyService.kt
+        MaNotificationReceiver.kt
+      api/
+        MAApiClient.kt
+        dto/
+          AnalyzeRequest.kt
+          AnswerRequest.kt
+          AnalyzeResponse.kt
+      state/
+        LocalStore.kt
+      utils/
+        KeyPressTimer.kt
+        PermissionHelper.kt
+        SpeechToTextManager.kt
+    src/main/AndroidManifest.xml
+  build.gradle
+  settings.gradle
+
+========================
+Flow מדויק (חוץ אפליקציה)
+========================
+1) Volume Up pressed >= 2s
+2) MaAccessibilityKeyService מזהה trigger
+3) אם אין permissions:
+   - להציג Notification "MA needs microphone permission" עם tap לפתיחת MainActivity למסך permissions
+4) אם יש permissions:
+   - להתחיל MaForegroundVoiceService
+   - Notification מצב: "Listening..."
+   - לבצע SpeechToText
+   - כשהטקסט מוכן:
+     - לשלוח ל POST /api/analyze
+     - לקבל response שכולל decision + UIInstructions
+     - אם response מכיל question:
+         - ליצור Notification עם Direct Reply
+     - אם response מכיל "מה קרה":
+         - ליצור Notification "Done" עם סיכום קצר
+
+========================
+Flow מדויק (בתוך האפליקציה)
+========================
+מסך InputScreen:
+- TextInput + כפתור Send
+- כפתור Microphone שמתחיל SpeechToText וממלא TextInput
+- שליחה ל /api/analyze
+
+מסך ShikulScreen:
+- מביא רשימת שאלות משרת (להשתמש ב /api/feedback או endpoint ייעודי אם כבר קיים, אחרת ליצור:
+  GET /api/questions/pending שמחזיר את pending question מה ContextManager + מה Feedback layer)
+- מציג בבלוקים אחידים:
+  - שורה 1: question text (מיקום קבוע)
+  - שורה 2: optional free text field (מיקום קבוע, גם אם ריק נשמר spacing)
+  - שורה 3: buttons area (מיקום קבוע):
+    - אם yes/no: כפתור "כן" וכפתור "לא"
+    - תמיד: כפתור "הקלט" + כפתור "שלח"
+- בלחיצה על כן/לא או שלח:
+  POST /api/answer { questionId, answer }
+
+========================
+Permissions + UX
+========================
+- בקשת הרשאות: RECORD_AUDIO, POST_NOTIFICATIONS (לפי גרסה), FOREGROUND_SERVICE, FOREGROUND_SERVICE_MICROPHONE
+- מסך Onboarding קצר שמסביר:
+  1) הפעלת Accessibility Service (כדי לזהות Volume Up)
+  2) הרשאת מיקרופון
+  3) הרשאת התראות
+
+========================
+בדיקות (MVP)
+========================
+1) Unit test ל KeyPressTimer: long press >= 2000ms
+2) Unit test ל SpeechToTextManager mock: מחזיר טקסט
+3) Integration test בסיסי: MAApiClient שולח analyze ומקבל response (mock server)
+4) Notification reply handler: RemoteInput -> POST /api/answer
+
+========================
+הערות חובה על מגבלות מערכת (לא להסתיר)
+========================
+- אם Android חוסם הפעלה מהרקע, יש לדרוש tap של המשתמש דרך Notification כדי להתחיל הקלטה.
+- Direct Reply עובד ללא פתיחת Activity, אבל חייב Receiver מסודר לטיפול בתשובה.
+
+========================
+תוצר סופי
+========================
+1) פרויקט MA ממשיך לעבוד כ-web
+2) יש תיקיית mobile/android שנבנית ומריצה אפליקציה
+3) יש טריגר Volume Up long press -> Voice -> MA -> Notification שאלות
+4) ניתן לענות להתראות בכן/לא/טקסט בלי לפתוח אפליקציה
+5) יש מסך שיקלול בתוך האפליקציה עם בלוקים אחידים בעיצוב
