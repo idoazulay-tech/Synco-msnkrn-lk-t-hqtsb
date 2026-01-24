@@ -2,6 +2,20 @@
 
 import type { IntentAnalysis, PrimaryIntent, ExtractedEntities } from './intentTypes';
 
+// PATCH 1: lastQuestionContext for follow-up answer parsing
+export type ExpectedAnswerType = 'choice' | 'free_text' | 'time' | 'date' | 'duration' | 'confirm' | 'plan_choice';
+export type TargetField = 'date' | 'time' | 'duration' | 'scope' | 'targetCancel' | 'clarifyIntent' | 'plan_choice' | 'unknown';
+
+export interface LastQuestionContext {
+  questionId: string;
+  expectedAnswerType: ExpectedAnswerType;
+  targetField: TargetField;
+  relatedEntityType: 'task' | 'event' | 'none';
+  relatedEntityId: string | null;
+  askedAtIso: string;
+  options?: string[];
+}
+
 export interface SessionState {
   turnId: string;
   lastIntent: PrimaryIntent | null;
@@ -11,6 +25,7 @@ export interface SessionState {
   lastTurnId: string | null;
   rollingCognitiveLoad: number[];
   conversationHistory: ConversationTurn[];
+  lastQuestionContext: LastQuestionContext | null;
   createdAt: Date;
   updatedAt: Date;
 }

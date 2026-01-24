@@ -12,6 +12,7 @@ export function createInitialState(): SessionState {
     lastTurnId: null,
     rollingCognitiveLoad: [],
     conversationHistory: [],
+    lastQuestionContext: null,
     createdAt: new Date(),
     updatedAt: new Date()
   };

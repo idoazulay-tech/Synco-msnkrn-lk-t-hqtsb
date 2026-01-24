@@ -3,6 +3,9 @@
 export type TaskStatus = 'pending' | 'done' | 'canceled';
 export type Urgency = 'low' | 'medium' | 'high';
 
+// PATCH 3: Task Type taxonomy for stable situationKeys
+export type TaskType = 'cooking' | 'dishes' | 'shopping' | 'work' | 'home' | 'health' | 'dog' | 'general';
+
 export interface ScheduledTime {
   dateIso: string;
   startTimeIso: string;
@@ -12,6 +15,7 @@ export interface ScheduledTime {
 export interface Task {
   id: string;
   title: string;
+  taskType: TaskType;
   status: TaskStatus;
   mustLock: boolean;
   urgency: Urgency;
@@ -22,12 +26,23 @@ export interface Task {
   updatedAtIso: string;
 }
 
+// PATCH 5: Recurrence for weekly fixed events (training)
+export type DayOfWeek = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
+
+export interface RecurrenceRule {
+  type: 'weekly_fixed';
+  daysOfWeek: DayOfWeek[];
+  startTime: string;      // "18:00"
+  durationMinutes: number;
+}
+
 export interface Event {
   id: string;
   title: string;
   people: string[];
   location: string;
   scheduled: ScheduledTime;
+  recurrence: RecurrenceRule | null;
   createdAtIso: string;
   updatedAtIso: string;
 }
@@ -64,6 +79,7 @@ export interface CreateEventPayload {
   people?: string[];
   location?: string;
   scheduled: ScheduledTime;
+  recurrence?: RecurrenceRule | null;
 }
 
 export interface ReschedulePayload {

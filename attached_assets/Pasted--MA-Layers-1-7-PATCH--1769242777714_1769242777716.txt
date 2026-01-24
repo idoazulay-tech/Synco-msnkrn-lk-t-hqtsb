@@ -1,0 +1,289 @@
+אני ממשיך את פרויקט MA שנבנה לפי כל הפרומפטים הקודמים (Layers 1-7).
+עכשיו אני רוצה לבצע PATCH מדויק שמוסיף רק את מה שחסר כדי שכל היכולות המעודכנות שסיכמנו יעבדו מקצה לקצה, בלי להמציא פיצ’רים חדשים ובלי לשנות את הארכיטקטורה הקיימת.
+
+הדגש: להוסיף 6 השלמות קריטיות שחסרות כרגע:
+1) lastQuestionContext ב ContextManager כדי שתשובות קצרות ("כן/לא/2/מחר") ייקשרו לשאלה הנכונה
+2) pendingPlanProposal ב Store עבור Plan A/B (Reshuffle) + UI לאישור תכנית
+3) taskType taxonomy + classifier בסיסי כדי ש Layer 5 (Learning) יוכל לבנות situationKey יציב ולא להתפוצץ
+4) מדיניות זמן (Time Parsing Policy) ל MVP בלי ספריות חיצוניות, עם הגדרה ברורה מה נתמך ומה לא
+5) Recurrence בסיסי לאימונים קבועים (weekly_fixed) כדי להתיישר עם ההחלטות שלנו על אירועים חוזרים
+6) feedbackCooldowns כדי למנוע spam והצפה (No Spam policy בשכבה 7)
+
+אסור:
+- לא להוסיף שירותים חיצוניים חדשים
+- לא להוסיף DB אמיתי
+- לא להוסיף מנגנון דיבור/אודיו
+- לא להוסיף יכולות שלא דיברנו עליהן
+
+כל התיקונים חייבים להיות מחוברים ל Layers הקיימות, עם tests, ועם UI שמציג פרקטית.
+
+========================
+A) PATCH 1: lastQuestionContext (Layer 2 + 3 + Server)
+========================
+
+דרישה
+להרחיב את /src/layers/intent/memory/ContextState.ts ואת ContextManager כך שישמר:
+lastQuestionContext: {
+  questionId: string,
+  expectedAnswerType: "choice|free_text|time|date|duration|confirm|plan_choice",
+  targetField: "date|time|duration|scope|targetCancel|clarifyIntent|plan_choice|unknown",
+  relatedEntityType: "task|event|none",
+  relatedEntityId: string | null,
+  askedAtIso: string
+} | null
+
+חוקים
+1) בכל פעם ש DecisionEngine מחזיר decision=ask, הוא חייב לקרוא ContextManager.setLastQuestionContext(...)
+2) כש Input קצר מאוד ("כן", "לא", "מחר", "2", "20 דקות"), Intent Engine יסמן context.isFollowUp=true
+3) Decision Engine חייב לדעת לפרש תשובת follow-up לפי lastQuestionContext:
+- אם targetField=time: "2" -> time entity
+- אם targetField=date: "מחר" -> date entity
+- אם targetField=confirm: "כן/לא" -> boolean
+- אם targetField=plan_choice: "A/B" או "תכנית 1/2" -> plan selection
+
+מימוש נדרש
+- להוסיף util חדש: /src/utils/answerParsers.ts
+  parseAnswerByContext(answerText, lastQuestionContext) -> partialEntities + flags
+- לעדכן Layer 2: אם detected follow-up, עדיין להחזיר IntentAnalysis רגיל, אבל להוסיף context.refersToPrevious=true
+- לעדכן Layer 3: לפני decide, אם follow-up ויש lastQuestionContext, לבצע merge:
+  mergedEntities = merge(lastEntities, currentEntities, parsedAnswerEntities)
+
+Tests
+- להוסיף טסטים ב intentEngine.test.ts עבור "כן", "לא", "מחר", "2", "20 דקות"
+- להוסיף טסטים ב decisionEngine.test.ts שמדמים lastQuestionContext ומוודאים ש follow-up מוביל ל execute
+
+========================
+B) PATCH 2: pendingPlanProposal עבור Reshuffle Plan A/B (Layer 4 + UI + API)
+========================
+
+דרישה
+להרחיב /src/layers/task/store/InMemoryStore.ts וה-types כך שיכילו:
+
+pendingPlanProposal: {
+  id: string,
+  createdAtIso: string,
+  reason: "reshuffle",
+  plans: Array<{
+    planId: "A"|"B",
+    titleHebrew: string,
+    summaryHebrew: string,
+    changes: Array<{ entityType: "task|event", entityId: string, change: "shorten|move|cancel", details: any }>
+  }>,
+  expiresAtIso: string
+} | null
+
+חוקים
+1) ReshufflePlanner תמיד מייצר בדיוק 2 plans (A,B) כמו שסיכמנו
+2) TaskTimeEngine.apply כשיש מצב reshuffle שלא ניתן לבצע בלי החלטת משתמש:
+- לא מחיל אוטומטית
+- שומר pendingPlanProposal ב store
+- מחזיר UIInstructions שמכריח פתיחת modal בחירה (plan_choice)
+
+מימוש UI
+- ליצור component חדש: /src/ui/src/components/PlanChoiceModal.tsx
+- modal מציג Plan A ו Plan B עם summaryHebrew וכפתור בחירה
+- הבחירה נשלחת ל:
+POST /api/answer
+{ questionId: "plan_choice", answer: "A" } או "B"
+
+מימוש Server
+- flowService: אם מתקבל answer עם questionId=plan_choice:
+  - לוודא pendingPlanProposal קיים ולא פג תוקף
+  - להחיל את השינויים של התכנית שנבחרה על store
+  - לנקות pendingPlanProposal
+  - להחזיר state מעודכן
+
+Tests
+- להוסיף tests ב taskEngine.test.ts:
+  - יצירת pendingPlanProposal
+  - בחירת Plan A מחילה שינויים
+  - בחירת Plan B מחילה שינויים
+  - expiry מונע ביצוע ומחזיר ask מחדש
+
+========================
+C) PATCH 3: taskType taxonomy + classifier (Layer 4 + 5)
+========================
+
+דרישה
+כדי ש Layer 5 יעבוד יציב, חייבים taskType עקבי.
+
+להוסיף ל Task:
+taskType: "cooking|dishes|shopping|work|home|health|dog|general"
+
+להוסיף classifier בסיסי (Rule-based) ב:
+- /src/layers/task/rules/taskTypeClassifier.ts
+
+כללים (עברית)
+- אם title כולל "לבשל" או "להכין אוכל" או "ארוחה" => cooking
+- אם title כולל "כלים" או "לשטוף" => dishes
+- אם title כולל "לקנות" או "קניות" => shopping
+- אם title כולל "עבודה" או "פגישה" => work
+- אם title כולל "לנקות" או "בית" או "סדר" => home
+- אם title כולל "רופא" או "תרופה" או "אימון" (לא אימון ספורט קבוע) => health
+- אם title כולל "קיטו" או "טיול" או "כלב" => dog
+- אחרת => general
+
+חיבור ל Layer 5
+- situationKey חייב להשתמש ב taskType במקום title raw
+דוגמה:
+"conflict:taskType=cooking vs taskType=dishes"
+
+עדכון Learning Engine
+- patternDetector משתמש ב taskType
+- ruleSchemas מתבסס על taskType
+
+Tests
+- test ל classifier
+- test ל situationKey יציב (לא תלוי בשמות משתנים)
+
+========================
+D) PATCH 4: Time Parsing Policy ל MVP (Layer 2 + 4)
+========================
+
+מטרה
+בלי להכניס ספריות חיצוניות, נגדיר מה נתמך כדי שזה יעבוד יציב.
+
+TimePolicy (חובה)
+להוסיף /src/layers/intent/rules/timePolicy.ts שמגדיר:
+
+נתמך:
+1) שעות בפורמט מספרי:
+   "ב-2" => 02:00 או 14:00 לפי הקשר (להלן)
+   "14:00"
+2) "היום", "מחר", "מחרתיים"
+3) ימים בשבוע: "ראשון..שישי" (להחזיר רק raw אם לא ניתן לחשב dateIso)
+4) durations:
+   "20 דקות", "חצי שעה"=30, "שעה"=60, "שעתיים"=120
+5) relative:
+   "עוד 20 דקות" => durationMinutes=20 (לא timeIso)
+
+חוק חשוב לשעה "2" בעברית
+אם אין AM/PM:
+- אם המשתמש כתב "בצהריים/אחהצ/ערב/בוקר" להשתמש בזה
+- אחרת: אם עכשיו (server time) אחרי 12:00, לפרש "2" כ-14:00, אם לפני 12:00 לפרש כ-02:00? לא.
+כדי למנוע טעויות, במצב כזה:
+- להחזיר time.raw="2"
+- time.iso=""
+- confidence נמוך
+- missingInfo יכלול "time_format_clarification"
+ואז DecisionEngine ישאל: "2 בבוקר או 2 בצהריים?" עם options.
+(זו עדיין שאלה אחת.)
+
+חיבור לשכבה 4
+Scheduler דורש iso כדי לשבץ.
+אם אין iso, TaskTimeEngine לא משבץ, אלא מחזיר ask דרך Decision flow.
+
+Tests
+- tests ל parsing durations
+- tests ל "ב-2" עם "בערב" => 14:00? לא. בערב => 20:00 אם כתוב 8. לכן כאן רק מגדירים: "ב-2 בערב" לא תקני. במצב כזה low confidence + ask.
+- tests ל "14:00" => iso תקין
+- tests ל "עוד 20 דקות" => durationMinutes=20
+
+========================
+E) PATCH 5: Recurrence weekly_fixed לאימונים קבועים (Layer 4 + UI)
+========================
+
+מטרה
+להוסיף רק מה שדיברנו: אירועים חוזרים כמו אימונים, לעומת משחקים שמשתנים.
+MVP: weekly_fixed בלבד.
+
+Event Recurrence
+להוסיף ל Event:
+recurrence: null | {
+  type: "weekly_fixed",
+  daysOfWeek: Array<"sun"|"mon"|"tue"|"wed"|"thu"|"fri"|"sat">,
+  startTime: string,   // "18:00"
+  durationMinutes: number
+}
+
+יצירה בפרונט (מינימלי, פרקטי)
+- להוסיף ב UI כפתור קטן: "הוסף אימון קבוע"
+- טופס קצר:
+  daysOfWeek (checkboxes)
+  startTime (input)
+  durationMinutes (number)
+  title (default: "אימון")
+
+API
+POST /api/action
+{ action: "create_recurring_training", payload: {...} }
+
+Scheduler
+- בעת בניית לוז ליום מסוים, ליצור instances (blocks) מה recurrence לאותו יום בלבד
+- לא לשמור אינספור מופעים ב store, רק blocks לטווח הנוכחי (היום/השבוע), כדי לשמור MVP פשוט
+
+Tests
+- יצירת event עם recurrence
+- ביום מתאים מופיע block
+- ביום לא מתאים לא מופיע block
+
+========================
+F) PATCH 6: feedbackCooldowns למניעת spam (Layer 7)
+========================
+
+דרישה
+להוסיף ל store:
+feedbackCooldowns: Record<string, { lastShownIso: string }>
+
+key schema:
+"{type}:{related.entityType}:{related.entityId}:{reason?}"
+
+Policy
+- אותה הודעה מסוג זהה לאותו נושא לא תופיע שוב לפני 6 שעות
+- daily_review לא יותר מפעם ב-20 שעות (כבר קיים, להשלים עם cooldown)
+- checkin אותו reason לא חוזר באותו יום אם user אמר "לא עכשיו"
+
+מימוש
+- ב FeedbackReviewLayer לפני שמוסיפים FeedbackMessage ל feed:
+  checkCooldown(key)
+  אם בתוך cooldown -> לא להוסיף הודעה
+
+Tests
+- יצירת הודעה, ואז ניסיון נוסף בתוך cooldown -> לא מתווסף
+- אחרי שינוי זמן (simulate), כן מתווסף
+
+========================
+G) UI + API Glue (חובה)
+========================
+
+להוסיף לריאקט:
+- PlanChoiceModal.tsx
+- IntegrationsPanel כבר קיים, לא לשנות מעבר לנדרש
+- DailyReview, FeedbackFeed כבר קיים, להוסיף cooldown logic רק בשרת
+
+להוסיף/לעדכן endpoints:
+- POST /api/answer תומך גם plan_choice וגם answer parsers לפי lastQuestionContext
+- POST /api/action להוסיף create_recurring_training
+
+========================
+H) Validation: End-to-End Scenarios (חובה להרצה)
+========================
+
+להוסיף ב README קטע "Quick Scenarios" ולוודא בריצה:
+1) "תכניס לי פגישה מחר ב-14:00 עם יוסי"
+   -> event נוצר -> block -> automation mock job -> audit log success -> feedback "עודכן"
+2) "דחוף אני צריך לקנות תבלין עכשיו זה 20 דקות"
+   -> נכנס reshuffle -> pendingPlanProposal -> PlanChoiceModal -> בחירה -> schedule מתעדכן
+3) Conflict:
+   ליצור 2 tasks שמתנגשות -> system asks 1 question -> user chooses -> decisionLog נשמר
+4) Pattern:
+   לעשות 3 פעמים בחירה דומה -> proposal מופיע -> confirm -> rule נהיה active -> בפעם הבאה פחות שאלות
+5) Recurring training:
+   ליצור אימון קבוע -> מופיע בטיימליין ביום מתאים
+
+========================
+I) Completion Checklist (חובה)
+========================
+
+בסיום ה-PATCH:
+1) להריץ build
+2) להריץ tests לכל layers (intent, decision, task, learning, automation, feedback)
+3) לוודא שה UI מציג:
+- PlanChoiceModal
+- Learning proposal
+- Feedback feed ללא spam
+- Integrations + Activity log
+- Timeline כולל recurring training
+
+להוסיף comment:
+// PATCH COMPLETE: MA LAYERS 1-7 FULLY COHERENT (UPDATED SPECS)

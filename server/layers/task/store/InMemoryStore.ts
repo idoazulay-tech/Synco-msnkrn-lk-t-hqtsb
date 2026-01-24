@@ -1,9 +1,9 @@
 // Layer 4: Task & Time Engine - In-Memory Store
 
-import type { Task, Event, Note, ScheduleBlock } from '../types/taskTypes.js';
+import type { Task, Event, Note, ScheduleBlock, TaskType } from '../types/taskTypes.js';
 import type { Question, Reflection } from '../../decision/types/decisionTypes.js';
 import type { SessionState } from '../../intent/types/contextTypes.js';
-import type { StoreState, DecisionLogEntry } from './storeTypes.js';
+import type { StoreState, DecisionLogEntry, PendingPlanProposal } from './storeTypes.js';
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -21,7 +21,8 @@ export class InMemoryStore {
       lastQuestion: null,
       lastReflection: null,
       contextState: null,
-      decisionLog: []
+      decisionLog: [],
+      pendingPlanProposal: null
     };
   }
 
@@ -30,10 +31,11 @@ export class InMemoryStore {
   }
 
   // Task CRUD
-  addTask(task: Omit<Task, 'id' | 'createdAtIso' | 'updatedAtIso'>): Task {
+  addTask(task: Omit<Task, 'id' | 'createdAtIso' | 'updatedAtIso' | 'taskType'> & { taskType?: TaskType }): Task {
     const now = new Date().toISOString();
     const newTask: Task = {
       ...task,
+      taskType: task.taskType || 'general',
       id: generateId(),
       createdAtIso: now,
       updatedAtIso: now
@@ -190,6 +192,24 @@ export class InMemoryStore {
     });
   }
 
+  // PATCH 2: Pending Plan Proposal
+  setPendingPlanProposal(proposal: PendingPlanProposal | null): void {
+    this.state.pendingPlanProposal = proposal;
+  }
+
+  getPendingPlanProposal(): PendingPlanProposal | null {
+    return this.state.pendingPlanProposal;
+  }
+
+  clearPendingPlanProposal(): void {
+    this.state.pendingPlanProposal = null;
+  }
+
+  isPlanProposalExpired(): boolean {
+    if (!this.state.pendingPlanProposal) return true;
+    return new Date(this.state.pendingPlanProposal.expiresAtIso) < new Date();
+  }
+
   // Reset
   reset(): void {
     this.state = {
@@ -200,7 +220,8 @@ export class InMemoryStore {
       lastQuestion: null,
       lastReflection: null,
       contextState: null,
-      decisionLog: []
+      decisionLog: [],
+      pendingPlanProposal: null
     };
   }
 }

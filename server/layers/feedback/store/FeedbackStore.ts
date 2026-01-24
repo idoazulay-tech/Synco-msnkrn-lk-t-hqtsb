@@ -27,7 +27,8 @@ function createInitialState(): FeedbackStoreState {
       completionRateByDay: [],
       stressSignalsByDay: []
     },
-    checkInCooldowns: new Map()
+    checkInCooldowns: new Map(),
+    feedbackCooldowns: new Map()
   };
 }
 
@@ -41,7 +42,8 @@ class FeedbackStore implements IFeedbackStore {
   getState(): FeedbackStoreState {
     return {
       ...this.state,
-      checkInCooldowns: new Map(this.state.checkInCooldowns)
+      checkInCooldowns: new Map(this.state.checkInCooldowns),
+      feedbackCooldowns: new Map(this.state.feedbackCooldowns)
     };
   }
   
@@ -126,6 +128,30 @@ class FeedbackStore implements IFeedbackStore {
     if (!cooldownUntil) return false;
     
     return new Date(cooldownUntil) > new Date();
+  }
+  
+  // PATCH 6: Feedback cooldowns
+  setFeedbackCooldown(key: string): void {
+    this.state.feedbackCooldowns.set(key, {
+      lastShownIso: new Date().toISOString()
+    });
+  }
+  
+  isFeedbackOnCooldown(key: string, cooldownHours: number = 6): boolean {
+    const entry = this.state.feedbackCooldowns.get(key);
+    if (!entry) return false;
+    
+    const lastShown = new Date(entry.lastShownIso);
+    const cooldownEnd = new Date(lastShown.getTime() + cooldownHours * 60 * 60 * 1000);
+    
+    return new Date() < cooldownEnd;
+  }
+  
+  buildFeedbackCooldownKey(type: string, entityType: string, entityId: string | null, reason?: string): string {
+    const parts = [type, entityType];
+    if (entityId) parts.push(entityId);
+    if (reason) parts.push(reason);
+    return parts.join(':');
   }
   
   reset(): void {

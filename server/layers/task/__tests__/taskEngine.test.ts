@@ -234,6 +234,7 @@ describe('schedulePlanner', () => {
       {
         id: 'task-1',
         title: 'משימה 1',
+        taskType: 'general',
         status: 'pending',
         mustLock: false,
         urgency: 'medium',
@@ -246,6 +247,7 @@ describe('schedulePlanner', () => {
       {
         id: 'task-2',
         title: 'משימה 2',
+        taskType: 'general',
         status: 'pending',
         mustLock: false,
         urgency: 'low',
@@ -276,6 +278,7 @@ describe('schedulePlanner', () => {
           startTimeIso: `${dateIso}T14:00:00.000Z`,
           endTimeIso: `${dateIso}T15:00:00.000Z`
         },
+        recurrence: null,
         createdAtIso: new Date().toISOString(),
         updatedAtIso: new Date().toISOString()
       }
@@ -295,6 +298,7 @@ describe('schedulePlanner', () => {
       {
         id: 'task-a',
         title: 'משימה א',
+        taskType: 'general',
         status: 'pending',
         mustLock: true,  // mustLock to be processed first
         urgency: 'high',
@@ -319,6 +323,7 @@ describe('reshufflePlanner', () => {
     const urgentTask: Task = {
       id: 'urgent',
       title: 'משימה דחופה',
+      taskType: 'general',
       status: 'pending',
       mustLock: true,
       urgency: 'high',
@@ -333,6 +338,7 @@ describe('reshufflePlanner', () => {
       {
         id: 'existing-1',
         title: 'משימה קיימת',
+        taskType: 'general',
         status: 'pending',
         mustLock: false,
         urgency: 'low',

@@ -266,7 +266,8 @@ describe('Automation Layer - Layer 6', () => {
         lastQuestion: null,
         lastReflection: null,
         contextState: null,
-        decisionLog: []
+        decisionLog: [],
+        pendingPlanProposal: null
       };
 
       const decisionOutput = {
@@ -291,7 +292,8 @@ describe('Automation Layer - Layer 6', () => {
         lastQuestion: null,
         lastReflection: null,
         contextState: null,
-        decisionLog: []
+        decisionLog: [],
+        pendingPlanProposal: null
       };
 
       const decisionOutput = {

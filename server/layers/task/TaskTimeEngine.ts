@@ -9,8 +9,10 @@ import type {
   CreateEventPayload,
   ReschedulePayload,
   CancelPayload,
-  LogNotePayload
+  LogNotePayload,
+  TaskType
 } from './types/taskTypes.js';
+import { classifyTaskType } from './rules/taskTypeClassifier.js';
 import type { 
   ScheduleResult, 
   ReshuffleResult,
@@ -39,9 +41,11 @@ function createDefaultUIInstructions(): UIInstructions {
   return {
     showQuestionModal: false,
     showReflectionCard: false,
+    showPlanChoiceModal: false,
     refreshTimeline: false,
     refreshTaskList: false,
     planOptions: null,
+    pendingPlanProposal: null,
     message: null,
     messageType: null
   };
@@ -157,6 +161,7 @@ export class TaskTimeEngine {
     
     const task = this.store.addTask({
       title: payload.title,
+      taskType: classifyTaskType(rawText),
       status: 'pending',
       mustLock: payload.mustLock ?? shouldBeMustLock(rawText),
       urgency: payload.urgency ?? detectUrgency(rawText),
@@ -199,7 +204,8 @@ export class TaskTimeEngine {
       title: payload.title,
       people: payload.people || [],
       location: payload.location || '',
-      scheduled: payload.scheduled
+      scheduled: payload.scheduled,
+      recurrence: payload.recurrence || null
     });
 
     // Add to schedule

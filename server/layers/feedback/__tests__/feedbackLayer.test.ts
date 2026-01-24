@@ -265,7 +265,8 @@ describe('Layer 7: Feedback & Review Layer', () => {
         lastQuestion: null,
         lastReflection: null,
         contextState: null,
-        decisionLog: []
+        decisionLog: [],
+        pendingPlanProposal: null
       };
       
       const result = layer.processPostAction({

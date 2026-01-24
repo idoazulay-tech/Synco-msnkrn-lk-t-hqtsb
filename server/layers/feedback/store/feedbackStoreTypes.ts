@@ -9,12 +9,18 @@ import type {
   StressSignalEntry
 } from '../types/feedbackTypes.js';
 
+// PATCH 6: Feedback Cooldowns for No-Spam policy
+export interface FeedbackCooldownEntry {
+  lastShownIso: string;
+}
+
 export interface FeedbackStoreState {
   feedbackFeed: FeedbackMessage[];
   lastDailyReviewIso: string | null;
   pendingCheckIn: CheckInRequest | null;
   stats: FeedbackStats;
   checkInCooldowns: Map<string, string>;
+  feedbackCooldowns: Map<string, FeedbackCooldownEntry>;
 }
 
 export interface IFeedbackStore {
@@ -36,6 +42,11 @@ export interface IFeedbackStore {
   
   setCheckInCooldown(reason: string, untilIso: string): void;
   isCheckInOnCooldown(reason: string): boolean;
+  
+  // PATCH 6: Feedback cooldowns
+  setFeedbackCooldown(key: string): void;
+  isFeedbackOnCooldown(key: string, cooldownHours: number): boolean;
+  buildFeedbackCooldownKey(type: string, entityType: string, entityId: string | null, reason?: string): string;
   
   reset(): void;
 }
