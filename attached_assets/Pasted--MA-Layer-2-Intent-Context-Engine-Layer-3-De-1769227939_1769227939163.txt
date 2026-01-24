@@ -1,0 +1,264 @@
+אני ממשיך את פרויקט MA שנבנה לפי הפרומפטים הקודמים:
+- Layer 2: Intent & Context Engine
+- Layer 3: Decision Engine
+- Layer 4: Task & Time Engine + Express API + React UI (Input, Analysis, Decision, Timeline, TaskList, QuestionModal, Actions)
+- Layer 5: Learning Engine + LearningPanel (Rules, Proposals, Confidence/Decay)
+- Layer 6: Automation Layer + Integrations UI + Activity Log + Job Queue/Worker
+
+עכשיו אני רוצה שתבנה את Layer 7: Feedback & Review Layer בצורה מלאה ומחוברת לכל מה שכבר קיים, באותם סטנדרטים:
+- Modular
+- יציב
+- מוכן להרחבות
+- פרקטי ומוצג בפרונט
+- מינימום עומס על המשתמש
+- כל פעולה מתורגמת לשיקוף + בקרה + למידה
+
+מטרה מרכזית של Layer 7
+לסגור את הלולאה:
+מה הובן -> מה הוחלט -> מה בוצע -> מה קרה בפועל -> מה למדנו -> מה הבא
+
+השכבה הזו אחראית ל:
+1) יצירת הודעות שיקוף קצרות וברורות (Reflection)
+2) יצירת Review יומי קצר (Daily Review)
+3) יצירת Feedback אחרי ביצוע פעולות חשובות (Post-Action Feedback)
+4) מדידה של פערים: Planned מול Actual
+5) העברת אותות ל Layer 5 (Learning) כדי לעדכן confidence ודפוסים
+6) יצירת UIInstructions שמציגים למשתמש את המינימום ההכרחי, בזמן הנכון
+7) יצירת “Micro-Step” שמחזיר תנועה גם כשהמשתמש בעומס או תקוע
+
+עקרונות חובה
+1) One-message rule: בכל turn המשתמש מקבל לכל היותר הודעת שיקוף אחת קצרה + צעד אחד קטן
+2) No spam: לא להקפיץ Review באמצע היום בלי סיבה
+3) Context-aware: אם cognitiveLoad=high, שיקוף יותר רך ופחות תובעני
+4) Outcome-driven: אם פעולה נכשלה/השתבשה, לתת מענה פרקטי מה עושים עכשיו
+5) Honest: אם חסר מידע או אין ודאות, להגיד במפורש
+6) Structured: כל feedback נבנה לפי templates ו policies מופרדים מהליבה
+
+טכנולוגיה
+- TypeScript
+- Backend: Express (קיים)
+- Front-End: React (קיים)
+- In-Memory Store (קיים) + הרחבות לשכבה 7
+- Unit tests
+- comments באנגלית בלבד
+
+מבנה תיקיות נדרש
+/src/layers/feedback
+  index.ts
+  FeedbackReviewLayer.ts
+  generators/
+    reflectionGenerator.ts
+    postActionGenerator.ts
+    dailyReviewGenerator.ts
+    microStepGenerator.ts
+  policies/
+    templates.ts
+    thresholds.ts
+    triggers.ts
+    tonePolicy.ts
+  analyzers/
+    gapAnalyzer.ts
+    successFailureAnalyzer.ts
+    overloadAnalyzer.ts
+  store/
+    feedbackStoreTypes.ts
+  types/
+    feedbackTypes.ts
+  __tests__/
+    feedbackLayer.test.ts
+
+הרחבת Store מרכזי (חובה)
+להוסיף ל InMemoryStore:
+- feedbackFeed: FeedbackMessage[]    // feed להצגה בפרונט
+- lastDailyReviewIso: string|null
+- pendingCheckIn: CheckInRequest|null
+- stats: {
+    plannedVsActual: Array<{ dateIso, plannedMinutes, actualMinutes }>,
+    completionRateByDay: Array<{ dateIso, completed, total }>,
+    stressSignalsByDay: Array<{ dateIso, level: "low|medium|high" }>
+  }
+
+FeedbackMessage (חובה)
+{
+  id: string,
+  tsIso: string,
+  type: "reflection|post_action|daily_review|system",
+  tone: "neutral|gentle|direct",
+  titleHebrew: string,
+  bodyHebrew: string,
+  microStepHebrew: string,
+  related: {
+    layer: "intent|decision|task|learning|automation",
+    entityType: "task|event|job|rule|none",
+    entityId: string|null
+  },
+  ui: {
+    showAs: "card|toast|modal",
+    priority: "low|medium|high"
+  }
+}
+
+CheckInRequest (חובה, מינימלי)
+לא עושים שיחה ארוכה.
+רק בקשה קצרה אחת כשצריך:
+{
+  id: string,
+  tsIso: string,
+  reason: "duration_mismatch|wrong_intent|stress_signal|automation_failed",
+  questionHebrew: string,
+  expectedAnswerType: "choice|free_text|confirm",
+  options: string[]
+}
+
+חיבור ל Flow הקיים (חובה)
+ב server/services/flowService.ts בכל פעולה:
+1) אחרי IntentAnalysis + DecisionOutput:
+   לקרוא ל FeedbackReviewLayer.generateReflection(intent, decision, context, store)
+   ולהחזיר reflectionCard אם צריך
+
+2) אחרי TaskTimeEngine.apply:
+   לקרוא ל gapAnalyzer אם יש נתוני זמן/סטטוס (למשל mark_done)
+   ואז postActionGenerator במידת הצורך
+
+3) אחרי Automation job status change:
+   successFailureAnalyzer יוצר feedback:
+   - success: הודעה קצרה "נשלח ליומן"
+   - failed/needs_user_action: הודעת פעולה פרקטית "צריך להתחבר ליומן"
+
+4) פעם ביום (trigger) או לפי בקשת משתמש:
+   dailyReviewGenerator מייצר Daily Review קצר
+
+Trigger Policies (חובה)
+ב-/policies/triggers.ts להגדיר מתי יוצרים Feedback:
+
+A) Reflection Trigger
+- אם decision=ask => ליצור Reflection קצר שמסביר מה חסר בשורה אחת
+- אם decision=reflect => ליצור ReflectionCard עם microStep
+- אם decision=execute && confidenceScore נמוך יחסית => ליצור שיקוף קצר "הבנתי כך וכך, מתקדם"
+
+B) Post-Action Trigger
+- אם mark_done => הודעת חיזוק קצרה + עדכון סטטיסטיקה
+- אם cancel => שיקוף קצר + הצעה לצעד חלופי קטן
+- אם reschedule => "סידרתי מחדש" + הצגת שינוי מרכזי אחד
+
+C) Gap Trigger (Planned vs Actual)
+- אם actualMinutes קיימים והפער > threshold (למשל 30%)
+  => להעלות pendingCheckIn אחד בלבד:
+     "הערכת הזמן הייתה גבוהה/נמוכה. לעדכן את הזמן ברירת מחדל למשימה הזו?"
+  options: ["כן", "לא עכשיו"]
+
+D) Stress/Overload Trigger
+overloadAnalyzer מזהה עומס לפי:
+- cognitiveLoad high פעמים רבות
+- הרבה ביטולים
+- הרבה jobs failed
+במצב כזה:
+- tone = gentle
+- microStep קטן מאוד
+- לא להציג Daily Review עד שהעומס יורד
+
+E) Daily Review Trigger
+להפעיל רק אם:
+- עברו לפחות 20 שעות מה lastDailyReviewIso
+- והמשתמש לא במצב עומס גבוה
+- או אם המשתמש ביקש מפורשות "תן סיכום יום"
+
+Tone Policy (חובה)
+tonePolicy.ts:
+- אם cognitiveLoad high => gentle
+- אם user mode הישגי (בעתיד) => direct
+- ברירת מחדל neutral
+הטון משפיע על templates בלבד, לא על לוגיקה.
+
+Templates (חובה)
+templates.ts יכיל תבניות עברית קצרות וברורות:
+
+Reflection Examples:
+- "הבנתי שאתה רוצה ליצור משימה: {taskName}. חסר לי רק: {missingInfoOne}."
+- "נראה שיש עומס. נבחר צעד אחד קטן: {microStep}."
+
+Post-Action Examples:
+- "סימנת בוצע: {title}. נשארו עוד {remaining}."
+- "ביטלנו: {title}. רוצה להעביר ליום אחר או למחוק לגמרי?"
+
+Automation Examples:
+- "עודכן ביומן: {eventTitle}."
+- "לא הצלחתי לעדכן ביומן. צריך חיבור מחדש ב Integrations."
+
+Daily Review (קצר, 5 שורות max):
+- "היום בוצעו: X מתוך Y."
+- "הדבר הכי תקוע: {topBlocker}."
+- "המשימה הכי חשובה למחר: {topMust}."
+- "הצעד הבא הכי קטן: {microStep}."
+
+MicroStep Generator (חובה)
+microStepGenerator.ts צריך לייצר צעד קטן לפי מצב:
+- אם עומס: "5 דקות לסדר דבר אחד קטן"
+- אם חסר מידע: "בחר שעה אחת"
+- אם הרבה משימות: "סמן משימה אחת כ Must"
+- אם דחיינות: "פתח משימה אחת והתחל רק בשלב הראשון"
+
+Integration עם Learning (חובה)
+אם המשתמש מאשר עדכון זמן / או מראה פערי זמן עקביים:
+- Feedback layer שולח signal ל LearningEngine:
+  updateDefaultDurationSuggestion(taskType, newMinutes)
+ואם המשתמש דוחה, לא להציק שוב מהר (cooldown).
+
+Front-End UI (חובה פרקטי)
+להוסיף ב React:
+components/FeedbackFeed.tsx
+components/DailyReviewCard.tsx
+components/CheckInModal.tsx
+
+Tabs ב App:
+- Planner
+- Learning
+- Integrations
+- Activity Log
+- Feedback (חדש) או לשלב Feed ב Planner בצד
+
+מה להציג:
+1) FeedbackFeed רשימת cards אחרונים (עד 20)
+2) CheckInModal מופיע רק אם pendingCheckIn קיים
+3) DailyReviewCard פעם ביום או לפי בקשה
+
+API Routes חדשים (חובה)
+GET  /api/feedback
+POST /api/feedback/checkin/respond
+POST /api/feedback/daily-review/request
+
+ב checkin respond:
+- "כן" => עדכן נתונים (למשל משך זמן) + שלח signal ל Learning
+- "לא עכשיו" => סמן cooldown ואל תחזור היום על אותו דבר
+
+Unit Tests (חובה)
+feedbackLayer.test.ts לפחות 14 טסטים:
+1) decision=ask מייצר reflection עם missingInfoOne
+2) decision=reflect מייצר reflection + microStep
+3) execute עם confidence נמוך מייצר שיקוף קצר
+4) mark_done מייצר post_action וחישוב completion
+5) cancel מייצר post_action עם הצעה
+6) reschedule מייצר הודעת שינוי
+7) automation success מייצר הודעת success
+8) automation needs_user_action מייצר הודעת action
+9) gapAnalyzer יוצר pendingCheckIn כשפער > threshold
+10) checkin respond "כן" שולח signal ל learning (simulate)
+11) checkin respond "לא עכשיו" יוצר cooldown
+12) dailyReviewGenerator לא רץ אם עומס גבוה
+13) dailyReviewGenerator רץ רק פעם ביום
+14) overloadAnalyzer משנה tone ל gentle
+
+Integration Demo (חובה)
+לעדכן flow demo כך ש:
+- שולחים input שמייצר ask -> רואים reflection
+- יוצרים task -> timeline משתנה -> post_action מופיע אחרי mark_done
+- יוצרים event -> automation job -> success -> feedback מופיע
+- מבקשים "תן סיכום יום" -> daily review מופיע
+
+בסיום
+1) להריץ build
+2) להריץ tests
+3) לוודא UI מציג FeedbackFeed, CheckInModal, Daily Review
+4) לוודא שאין spam: הודעה אחת לכל turn
+5) להוסיף comment סופי:
+// MA CORE COMPLETE: Layers 1-7 READY FOR EXPANSION
