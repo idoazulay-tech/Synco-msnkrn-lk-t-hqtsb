@@ -39,7 +39,19 @@ The backend is built with Express.js and TypeScript, using PostgreSQL via Prisma
 7.  **Feedback & Review Layer**: Generates reflections, post-action feedback, daily reviews, and micro-step suggestions. Includes a check-in system and dynamic tone based on stress levels.
 
 ### Mobile App (React Native + Expo)
-A companion mobile app allows voice and text input, interacts with the main server API, and provides an interface for questions and check-ins. It supports server URL configuration.
+A full-featured companion app providing complete access to all MA features:
+
+**Screens (4 tabs)**:
+- **Input (קלט)**: Text/voice input, full analysis results (intent, entities, confidence), feedback feed
+- **Shikul (שיקלול)**: Check-ins, plan choices (A/B), high-priority feedback items
+- **Review (סיכום)**: Daily stats, request review button, blocker/must/micro-step cards
+- **Settings (הגדרות)**: Server URL configuration, connection test
+
+**API Integration**: Full access to /api/analyze, /api/answer, /api/action, /api/state, /api/feedback, /api/feedback/checkin/respond, /api/feedback/daily-review/request
+
+**Running**: `cd mobile && npm install && npm start`, then scan QR with Expo Go
+
+**Limitations (MVP)**: Voice input is UI placeholder (STT needs native module), works only when app open
 
 ## External Dependencies
 
