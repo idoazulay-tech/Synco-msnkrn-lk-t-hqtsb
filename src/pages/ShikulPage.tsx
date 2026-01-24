@@ -21,7 +21,7 @@ import {
   Send,
   AlertTriangle
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link } from 'wouter';
 import { useMAStore, MAMessage } from '@/store/maStore';
 import { useTaskStore } from '@/store/taskStore';
 import { addMinutes } from 'date-fns';
@@ -156,7 +156,8 @@ export default function ShikulPage() {
     refetchInterval: 3000,
   });
 
-  const orgInquiries = orgData?.pendingInquiries || [];
+  const allOrgInquiries = orgData?.pendingInquiries || [];
+  const orgInquiries = allOrgInquiries.length > 0 ? [allOrgInquiries[0]] : [];
 
   const handleCheckInResponse = useCallback(async (checkIn: CheckInRequest, response: string) => {
     setSubmitting(checkIn.id);
@@ -497,6 +498,11 @@ export default function ShikulPage() {
             {/* Org Inquiries (from API - persistent pending tasks/events) */}
             {orgInquiries.length > 0 && (
               <div className="space-y-3">
+                {allOrgInquiries.length > 1 && (
+                  <div className="text-sm text-muted-foreground text-center">
+                    שאלה 1 מתוך {allOrgInquiries.length}
+                  </div>
+                )}
                 {orgInquiries.map((inquiry) => {
                   const isConflict = inquiry.reason === 'conflict' || inquiry.reason === 'related_tasks';
                   const isMissingInfo = inquiry.reason === 'missing_info';

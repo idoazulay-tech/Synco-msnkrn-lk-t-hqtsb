@@ -97,6 +97,7 @@ router.post('/respond', async (req: Request, res: Response) => {
     
     const updatedMissingInfo = [...inquiry.meta.missingInfo];
     let entityUpdate: Partial<PendingEntity> = {};
+    let conflictResolved = false;
     
     if (parsedAnswer.field === 'time' && parsedAnswer.value) {
       entityUpdate.time = parsedAnswer.value;
@@ -116,6 +117,18 @@ router.post('/respond', async (req: Request, res: Response) => {
       entityUpdate.duration = parseInt(parsedAnswer.value) || 30;
       const idx = updatedMissingInfo.indexOf('duration');
       if (idx > -1) updatedMissingInfo.splice(idx, 1);
+    }
+    
+    if (inquiry.reason === 'conflict' || inquiry.meta.missingInfo.includes('conflict')) {
+      const conflictChoices = ['להזיז את המשימה החדשה', 'להחליף את המשימה הקיימת', 'להשאיר חפיפה'];
+      const answerLower = answer.trim();
+      
+      if (conflictChoices.some(c => answerLower.includes(c) || c.includes(answerLower)) ||
+          answerLower.includes('להזיז') || answerLower.includes('להחליף') || answerLower.includes('חפיפה')) {
+        const idx = updatedMissingInfo.indexOf('conflict');
+        if (idx > -1) updatedMissingInfo.splice(idx, 1);
+        conflictResolved = true;
+      }
     }
     
     if (entity) {
