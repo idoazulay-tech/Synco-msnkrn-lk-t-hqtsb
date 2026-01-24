@@ -1,13 +1,19 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Send, RefreshCw, Trash2, Clock, CheckCircle2, XCircle, Lock, Unlock, Brain, MessageSquare, Zap, Calendar, Link, Activity } from 'lucide-react';
+import { Send, RefreshCw, Trash2, Clock, CheckCircle2, XCircle, Lock, Unlock, Brain, MessageSquare, Zap, Calendar, Home } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import LearningPanel from '@/components/LearningPanel';
 import IntegrationsPanel from '@/components/IntegrationsPanel';
 import AutomationLogPanel from '@/components/AutomationLogPanel';
+import { FeedbackFeed } from '@/components/FeedbackFeed';
+import { DailyReviewCard } from '@/components/DailyReviewCard';
+import { CheckInModal } from '@/components/CheckInModal';
+import { PlanChoiceModal } from '@/components/PlanChoiceModal';
 
 interface Task {
   id: string;
@@ -48,10 +54,48 @@ interface DecisionOutput {
 interface UIInstructions {
   showQuestionModal: boolean;
   showReflectionCard: boolean;
+  showPlanChoiceModal?: boolean;
   refreshTimeline: boolean;
   refreshTaskList: boolean;
   message: string | null;
   messageType: 'success' | 'warning' | 'error' | 'info' | null;
+}
+
+interface PendingPlanProposal {
+  id: string;
+  createdAtIso: string;
+  reason: 'reshuffle';
+  plans: Array<{
+    planId: 'A' | 'B';
+    titleHebrew: string;
+    summaryHebrew: string;
+    changes: Array<{
+      entityType: 'task' | 'event';
+      entityId: string;
+      change: 'shorten' | 'move' | 'cancel';
+      details: { newDuration?: number; newStartTime?: string; reason?: string };
+    }>;
+  }>;
+  expiresAtIso: string;
+}
+
+interface CheckInRequest {
+  id: string;
+  tsIso: string;
+  reason: 'duration_mismatch' | 'wrong_intent' | 'stress_signal' | 'automation_failed';
+  questionHebrew: string;
+  expectedAnswerType: 'choice' | 'free_text' | 'confirm';
+  options: string[];
+  relatedEntityId?: string;
+}
+
+interface DailyReviewData {
+  dateIso: string;
+  completed: number;
+  total: number;
+  topBlocker?: string;
+  topMust?: string;
+  microStep: string;
 }
 
 interface AnalyzeResponse {
@@ -61,13 +105,20 @@ interface AnalyzeResponse {
   state: {
     tasks: Task[];
     scheduleBlocks: ScheduleBlock[];
+    pendingPlanProposal?: PendingPlanProposal | null;
   };
   uiInstructions: UIInstructions;
+}
+
+interface FeedbackState {
+  pendingCheckIns: CheckInRequest[];
+  latestDailyReview?: DailyReviewData | null;
 }
 
 const API_BASE = '/api';
 
 export default function AILabPage() {
+  const queryClient = useQueryClient();
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [lastAnalysis, setLastAnalysis] = useState<AnalyzeResponse | null>(null);
@@ -80,6 +131,29 @@ export default function AILabPage() {
   const [showReflection, setShowReflection] = useState(false);
   const [reflectionText, setReflectionText] = useState('');
   const [message, setMessage] = useState<{ text: string; type: string } | null>(null);
+  
+  const [pendingPlanProposal, setPendingPlanProposal] = useState<PendingPlanProposal | null>(null);
+  const [showPlanChoice, setShowPlanChoice] = useState(false);
+  const [currentCheckIn, setCurrentCheckIn] = useState<CheckInRequest | null>(null);
+  const [showCheckIn, setShowCheckIn] = useState(false);
+  const [dailyReview, setDailyReview] = useState<DailyReviewData | null>(null);
+
+  const { data: feedbackData } = useQuery<FeedbackState>({
+    queryKey: ['/api/feedback'],
+    refetchInterval: 5000
+  });
+
+  useEffect(() => {
+    if (feedbackData) {
+      if (feedbackData.pendingCheckIns?.length > 0 && !showCheckIn) {
+        setCurrentCheckIn(feedbackData.pendingCheckIns[0]);
+        setShowCheckIn(true);
+      }
+      if (feedbackData.latestDailyReview) {
+        setDailyReview(feedbackData.latestDailyReview);
+      }
+    }
+  }, [feedbackData, showCheckIn]);
 
   const showMessage = useCallback((text: string, type: string) => {
     setMessage({ text, type });
@@ -103,6 +177,11 @@ export default function AILabPage() {
       if (data.state) {
         setTasks(data.state.tasks || []);
         setBlocks(data.state.scheduleBlocks || []);
+        
+        if (data.state.pendingPlanProposal) {
+          setPendingPlanProposal(data.state.pendingPlanProposal);
+          setShowPlanChoice(true);
+        }
       }
 
       if (data.uiInstructions?.showQuestionModal && data.decision.question.shouldAsk) {
@@ -120,6 +199,7 @@ export default function AILabPage() {
         showMessage(data.uiInstructions.message, data.uiInstructions.messageType || 'info');
       }
 
+      queryClient.invalidateQueries({ queryKey: ['/api/feedback'] });
       setInputText('');
     } catch (error) {
       console.error('Error analyzing:', error);
@@ -150,6 +230,7 @@ export default function AILabPage() {
 
       setShowQuestion(false);
       setAnswerText('');
+      queryClient.invalidateQueries({ queryKey: ['/api/feedback'] });
 
       if (data.uiInstructions?.message) {
         showMessage(data.uiInstructions.message, data.uiInstructions.messageType || 'info');
@@ -177,6 +258,8 @@ export default function AILabPage() {
         setBlocks(data.state.scheduleBlocks || []);
       }
 
+      queryClient.invalidateQueries({ queryKey: ['/api/feedback'] });
+
       if (data.uiInstructions?.message) {
         showMessage(data.uiInstructions.message, data.uiInstructions.messageType || 'info');
       }
@@ -194,10 +277,25 @@ export default function AILabPage() {
       if (data.state) {
         setTasks(data.state.tasks || []);
         setBlocks(data.state.scheduleBlocks || []);
+        if (data.state.pendingPlanProposal) {
+          setPendingPlanProposal(data.state.pendingPlanProposal);
+        }
       }
+      queryClient.invalidateQueries({ queryKey: ['/api/feedback'] });
     } catch (error) {
       console.error('Error loading state:', error);
     }
+  };
+
+  const handleClosePlanChoice = () => {
+    setShowPlanChoice(false);
+    setPendingPlanProposal(null);
+    loadState();
+  };
+
+  const handleCloseCheckIn = () => {
+    setShowCheckIn(false);
+    setCurrentCheckIn(null);
   };
 
   const formatTime = (isoString: string) => {
@@ -229,12 +327,18 @@ export default function AILabPage() {
   return (
     <div className="min-h-screen bg-background p-4" dir="rtl">
       <div className="max-w-7xl mx-auto space-y-4">
-        <header className="flex items-center justify-between">
+        <header className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Brain className="h-6 w-6 text-primary" />
             <h1 className="text-2xl font-bold">AI Lab - המפרקט</h1>
           </div>
           <div className="flex gap-2">
+            <Link to="/">
+              <Button variant="outline" size="sm" data-testid="button-home">
+                <Home className="h-4 w-4 ml-1" />
+                בית
+              </Button>
+            </Link>
             <Button 
               variant="outline" 
               size="sm" 
@@ -358,7 +462,7 @@ export default function AILabPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 flex-wrap">
                       <Badge 
                         data-testid="badge-decision"
                         className={`text-base px-3 py-1 ${
@@ -403,7 +507,7 @@ export default function AILabPage() {
                         className={`p-3 rounded-md border-r-4 ${getBlockColor(block.type)}`}
                         data-testid={`block-${block.id}`}
                       >
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                           <span className="font-medium">{block.title}</span>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Clock className="h-4 w-4" />
@@ -416,9 +520,11 @@ export default function AILabPage() {
                 )}
               </CardContent>
             </Card>
+
+            <FeedbackFeed />
           </div>
 
-          <div>
+          <div className="space-y-4">
             <Card data-testid="card-tasks">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg">רשימת משימות</CardTitle>
@@ -438,7 +544,7 @@ export default function AILabPage() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className={task.status === 'done' ? 'line-through' : ''}>
                                 {task.title}
                               </span>
@@ -446,7 +552,7 @@ export default function AILabPage() {
                                 <Lock className="h-3 w-3 text-red-500" />
                               )}
                             </div>
-                            <div className="flex items-center gap-2 mt-1">
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
                               <Badge className={`text-xs ${getUrgencyColor(task.urgency)}`}>
                                 {task.urgency}
                               </Badge>
@@ -461,7 +567,6 @@ export default function AILabPage() {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8"
                                   onClick={() => handleAction('mark_done', task.id)}
                                   data-testid={`button-done-${task.id}`}
                                 >
@@ -470,7 +575,6 @@ export default function AILabPage() {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8"
                                   onClick={() => handleAction('toggle_must_lock', task.id)}
                                   data-testid={`button-lock-${task.id}`}
                                 >
@@ -483,7 +587,6 @@ export default function AILabPage() {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8"
                                   onClick={() => handleAction('cancel', task.id, 'task')}
                                   data-testid={`button-cancel-${task.id}`}
                                 >
@@ -500,15 +603,16 @@ export default function AILabPage() {
               </CardContent>
             </Card>
 
+            <DailyReviewCard 
+              reviewData={dailyReview} 
+              onClose={() => setDailyReview(null)}
+            />
+
             <LearningPanel />
             
-            <div className="mt-4">
-              <IntegrationsPanel />
-            </div>
+            <IntegrationsPanel />
             
-            <div className="mt-4">
-              <AutomationLogPanel />
-            </div>
+            <AutomationLogPanel />
           </div>
         </div>
       </div>
@@ -554,6 +658,18 @@ export default function AILabPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PlanChoiceModal
+        proposal={pendingPlanProposal}
+        isOpen={showPlanChoice}
+        onClose={handleClosePlanChoice}
+      />
+
+      <CheckInModal
+        checkIn={currentCheckIn}
+        isOpen={showCheckIn}
+        onClose={handleCloseCheckIn}
+      />
     </div>
   );
 }
