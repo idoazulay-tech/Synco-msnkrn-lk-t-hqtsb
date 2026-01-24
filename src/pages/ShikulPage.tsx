@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Layers, 
+  MessageSquare, 
   HelpCircle, 
   GitBranch, 
   CheckCircle2, 
@@ -14,7 +14,9 @@ import {
   Clock, 
   Lightbulb,
   Home,
-  RefreshCw
+  RefreshCw,
+  Bot,
+  User
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -148,8 +150,8 @@ export default function ShikulPage() {
       <div className="sticky top-0 z-50 bg-card border-b">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Layers className="h-6 w-6 text-primary" />
-            <h1 className="text-xl font-bold">שיקלול</h1>
+            <MessageSquare className="h-6 w-6 text-primary" />
+            <h1 className="text-xl font-bold">ארגון</h1>
           </div>
           <div className="flex items-center gap-2">
             <Button 
@@ -179,7 +181,7 @@ export default function ShikulPage() {
             <CardContent className="flex flex-col items-center gap-4">
               <CheckCircle2 className="h-12 w-12 text-green-500" />
               <h3 className="text-lg font-medium">הכל מסודר!</h3>
-              <p className="text-muted-foreground">אין פריטים ממתינים לשיקלול</p>
+              <p className="text-muted-foreground">אין הודעות חדשות מ-MA</p>
             </CardContent>
           </Card>
         ) : (
