@@ -1,5 +1,7 @@
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'not_completed' | 'standby';
 
+export type SchedulingStatus = 'pending' | 'scheduled';
+
 export type HistoryEventType = 
   | 'created' 
   | 'started' 
@@ -8,6 +10,11 @@ export type HistoryEventType =
   | 'postponed' 
   | 'modified' 
   | 'moved';
+
+export interface CreatedFrom {
+  source: 'user_input' | 'org_response' | 'template' | 'manual';
+  tsIso: string;
+}
 
 export interface Tag {
   id: string;
@@ -35,6 +42,8 @@ export interface Task {
   endTime: Date;
   duration: number; // in minutes
   status: TaskStatus;
+  schedulingStatus?: SchedulingStatus; // 'pending' if missing info, 'scheduled' when complete
+  createdFrom?: CreatedFrom; // how this task was created
   tags: Tag[];
   images?: string[];
   isRecurring?: boolean;

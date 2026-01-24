@@ -1,0 +1,235 @@
+אני ממשיך את פרויקט MA שכבר נבנה לפי הפרומפטים הקודמים (Layers 1-7 + Patch).
+קיים מסך בשם "ארגון" שבו MA מציגה הודעות ושאלות.
+
+עכשיו אני רוצה PATCH שמתקן ומרחיב (רק לפי מה שכבר דיברנו) את ההתנהגות כך:
+
+מטרות חדות
+1) ברגע שנקלטת משימה/אירוע חדשים, אם חסר מידע לשיבוץ אמיתי בלוז, MA יוצרת מיד "הודעת בירור" במסך ארגון.
+2) אם לא עניתי על השאלה, היא נשארת במסך ארגון כ־Pending עד שאענה.
+3) כל עוד לא עניתי, המשימה לא נכנסת ליומן (לא משובצת בטיימליין ולא יוצאת לאוטומציה חיצונית).
+4) ברגע שעניתי, MA משלימה את המידע, משבצת, מעדכנת את הטיימליין, ואז ורק אז יוצרת ExternalActions (Layer 6) אם צריך.
+5) כל תשובת משתמש חייבת להירשם ל Learning (Layer 5) כ DecisionLog/Outcome לפי ההגדרות הקיימות, בלי להפוך כל דבר לכלל קבוע אוטומטית.
+
+אסור להמציא פיצ'רים חדשים מעבר למה שמפורט כאן. כן מותר להוסיף endpoints/שדות store מינימליים כדי שזה יעבוד.
+
+========================================
+A) להוסיף מצב "PendingScheduling" למשימות/אירועים (Layer 4 Store + Types)
+========================================
+כרגע משימות יכולות להיווצר בלי שיבוץ. אני רוצה לייצג זאת רשמית.
+
+להוסיף ל Task ו Event שדה:
+schedulingStatus: "pending" | "scheduled"
+
+כללים:
+- אם חסר מידע לשיבוץ (missingInfo לא ריק עבור intent מתאים), ליצור entity עם schedulingStatus="pending"
+- אסור ליצור block בטיימליין עבור entity במצב pending
+- אסור לשלוח ExternalActions (Layer 6) עבור entity במצב pending
+
+להוסיף גם:
+createdFrom: { source: "user_input" | "org_response", tsIso: string }
+
+========================================
+B) להוסיף Org Queue יציב: הודעה+שאלה שנשארות עד תשובה (Layer 7 + Store)
+========================================
+להרחיב InMemoryStore:
+
+store.org = {
+  pendingInquiries: Array<OrgInquiry>,
+  pendingQuestion: OrgQuestion | null,
+  lastShownInquiryId: string | null
+}
+
+OrgInquiry:
+{
+  id: string,
+  createdAtIso: string,
+  status: "pending" | "resolved",
+  reason: "missing_info" | "conflict" | "related_tasks" | "time_clarification",
+  entity: { type: "task|event", id: string },
+  message: {
+    titleHebrew: string,
+    bodyHebrew: string
+  },
+  question: OrgQuestion,
+  meta: {
+    missingInfo: string[],
+    conflictId?: string,
+    relatedIds?: string[]
+  }
+}
+
+חוקים:
+- ברגע שנוצר OrgInquiry חדש, הוא נכנס ל pendingInquiries עם status=pending
+- הוא נשאר שם עד שהמשתמש עונה והוא נפתר
+- לא לדרוס שאלה קיימת: אם כבר יש pendingQuestion, לא יוצרים עוד אחת. רק יוצרים עוד OrgInquiry ברשימה, אבל מציגים למשתמש תמיד את הראשונה בתור.
+
+========================================
+C) lastQuestionContext חובה לכל OrgQuestion (Layer 2+3)
+========================================
+כל OrgQuestion חייב לעדכן:
+ContextManager.lastQuestionContext
+כך שתשובות קצרות ("כן","לא","מחר","2","20 דקות","A") ייקשרו אוטומטית לשאלה הנכונה.
+
+expectedAnswerType נדרש:
+"choice|confirm|duration|free_text|plan_choice|time|date"
+
+========================================
+D) מתי יוצרים הודעת בירור מיד עם קליטת המשימה (Layer 2+3+4 Flow)
+========================================
+ב flowService.ts אחרי IntentAnalysis + DecisionEngine:
+
+1) אם intent הוא create_task או create_event:
+   - לייצר entity מיד (Task/Event) עם schedulingStatus:
+     - אם יש מספיק info => "scheduled"
+     - אם חסר info => "pending"
+   - אם "pending":
+     - ליצור OrgInquiry מיידי reason="missing_info"
+     - question חייב להיות "השאלה האחת שמקדמת הכי הרבה"
+     - להחזיר UIInstructions שמכוון את המשתמש לדף "ארגון" (badge/highlight)
+
+2) אם entity scheduled:
+   - להמשיך רגיל: TaskTimeEngine.apply -> timeline
+   - ואז Automation Layer אם צריך
+
+הערה קריטית:
+אם entity pending, לא לקרוא ל TaskTimeEngine.apply עבור entity זו (כי אין מה לשבץ),
+או לחלופין לקרוא אבל הוא חייב לסנן pending ולבנות timeline בלי זה.
+
+========================================
+E) איך בוחרים "השאלה האחת" החכמה (OrgInquiry Question Policy)
+========================================
+להוסיף קובץ:
+ /src/layers/decision/policies/orgInquiryQuestions.ts
+פונקציה:
+buildInquiryForMissingInfo(entity, missingInfo, store) -> OrgInquiry
+
+כללי סדר עדיפויות לשאלה אחת:
+1) אם חסר time או date => לשאול זמן/תאריך קודם (כי בלי זה אי אפשר לשבץ בכלל)
+2) אם חסר duration => לשאול משך
+3) אם יש ambiguity ("ב-2" בלי הקשר) => שאלה להבהרה (2 בבוקר או 2 בצהריים)
+4) אם יש conflict (אחרי שהיו blocks) => priority_order / is_done / merge_choice לפי הכללים שכבר הגדרנו
+
+תבניות שאלות (רק מה שצריך):
+A) חסר זמן:
+"באיזה שעה לשבץ את {title}?"
+options מהירים: ["עכשיו","בעוד 20 דק","14:00","16:00","20:00"] + טקסט חופשי
+expectedAnswerType: "time" או "choice" לפי המימוש
+
+B) חסר תאריך:
+"לאיזה יום זה?"
+options: ["היום","מחר","מחרתיים"]
+expectedAnswerType: "date"
+
+C) חסר משך:
+"כמה זמן לוקח לך לסיים את {title}?"
+options: ["5 דק","10 דק","20 דק","חצי שעה","שעה"]
+expectedAnswerType: "duration"
+
+D) ambiguity:
+"כשאמרת {raw}, למה התכוונת?"
+options: ["2 בצהריים","2 בבוקר"] (או לפי השעה הרלוונטית)
+expectedAnswerType: "choice"
+
+E) conflict + related:
+(כמו בפרומפט הקודם) אבל חובה להישאר One Question.
+
+========================================
+F) תשובה במסך ארגון: איך זה פותר ומשבץ (Server)
+========================================
+להוסיף endpoints:
+
+GET  /api/org/feed
+מחזיר:
+- org.pendingInquiries (רק pending)
+- org.pendingQuestion (או השאלה של inquiry ראשון)
+- state summary מינימלי (לא חובה הכל)
+
+POST /api/org/respond
+body:
+{
+  inquiryId: string,
+  answer: string
+}
+
+השרת עושה:
+1) למצוא OrgInquiry לפי inquiryId, לוודא status=pending
+2) לפרש answer לפי lastQuestionContext (parseAnswerByContext)
+3) לעדכן את entity (Task/Event) בהתאם:
+   - אם question היה date/time/duration => לעדכן שדות
+4) אחרי העדכון:
+   - לבדוק אם עדיין חסר מידע לשיבוץ:
+     - אם כן: לעדכן את אותו inquiry עם question חדשה (עדיין שאלה אחת בכל turn) ולהשאיר pending
+     - אם לא: לשנות schedulingStatus ל "scheduled"
+       ואז:
+       - להריץ TaskTimeEngine.apply -> לבנות timeline כולל entity החדשה
+       - להריץ detectConflicts:
+          אם נוצר conflict חדש, ליצור OrgInquiry חדש מסוג conflict (אבל לא להציג מיד אם כבר יש pendingQuestion, להכניס לתור)
+       - אם entity היא event ו integration מחובר: לייצר ExternalActions ולהפעיל Automation layer
+       - ליצור FeedbackMessage קצר: "שיבצתי את {title} בלוז"
+
+5) Learning:
+בכל POST /api/org/respond חייב להוסיף DecisionLog לשכבה 5:
+- situationKey לפי סוג השאלה:
+  - missing_time:{taskType}
+  - missing_duration:{taskType}
+  - conflict:taskType=A vs B
+- userChoice לפי answer
+בלי ליצור rule קבוע אוטומטית.
+
+========================================
+G) UI מסך "ארגון": עיצוב בלוקים אחיד + Pending
+========================================
+במסך "ארגון" להציג:
+
+1) רשימת Pending Inquiries (כרטיסים)
+- כל כרטיס מציג title + body + סטטוס "ממתין לתשובה"
+- לחיצה על כרטיס פותחת את הבלוק של השאלה (או scroll אליו)
+
+2) בלוק שאלה פעילה (תמיד אחת בלבד על המסך):
+- אזור שאלה קבוע (מיקום קבוע)
+- אזור טקסט חופשי קבוע (תמיד באותו מקום, גם אם לא חובה)
+- אזור כפתורים קבוע:
+  - אם yes/no => כפתור כן, כפתור לא
+  - תמיד => כפתור "שלח"
+  - אם יש קלט => כפתור "קלט" (voice/text לפי מה שכבר קיים)
+מיקום האלמנטים חייב להישאר קבוע בכל המצבים.
+
+לחיצה "שלח":
+POST /api/org/respond
+
+חובה:
+- אם inquiry נשאר pending, הבלוק מתעדכן עם השאלה החדשה
+- אם inquiry נפתר, הוא יורד מהרשימה ומופיע הודעת "סידרתי" קצרה
+
+========================================
+H) אינטגרציה עם Timeline/Calendar
+========================================
+חוק חד:
+- entity במצב pending לא נכנס לטיימליין ולא ליומן חיצוני
+- רק אחרי שהוא scheduled
+
+========================================
+I) בדיקות חובה
+========================================
+1) create_task עם missing duration:
+- entity נוצר pending
+- org inquiry נוצר מיד
+- timeline לא כולל את המשימה
+2) respond עם "20 דק":
+- entity עובר ל scheduled
+- timeline כולל את המשימה
+3) create_event עם חסר time:
+- inquiry נוצר עם question time
+4) conflict שנוצר אחרי שיבוץ:
+- inquiry conflict נוצר ונכנס לתור
+5) learning log:
+- כל org respond יוצר DecisionLog (simulate)
+
+========================================
+תוצר סופי
+========================================
+- ברגע שמזינים משימה/אירוע בלי מספיק מידע לשיבוץ, מופיעה מיד הודעת בירור בדף ארגון
+- השאלה נשארת שם עד תשובה
+- עד שאין תשובה, המשימה לא נכנסת ליומן ולא לטיימליין
+- כל תשובה מעדכנת את השיבוץ בפועל ומלמדת את MA לפי שכבה 5
+```0
