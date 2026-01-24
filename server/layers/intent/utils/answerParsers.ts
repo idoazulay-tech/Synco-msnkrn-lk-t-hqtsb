@@ -336,3 +336,144 @@ export function isShortFollowUpAnswer(text: string): boolean {
   
   return shortPatterns.some(pattern => pattern.test(normalized));
 }
+
+export interface UpdateResult {
+  field: 'time' | 'date' | 'duration' | 'choice' | 'confirm' | 'unknown';
+  value: string | null;
+  parsed: boolean;
+}
+
+export function parseAnswerToUpdate(
+  answerText: string,
+  expectedAnswerType: string,
+  options?: string[]
+): UpdateResult {
+  const normalized = answerText.trim().toLowerCase();
+  const raw = answerText.trim();
+  
+  if (expectedAnswerType === 'time') {
+    const timeMatch = raw.match(/(\d{1,2}):(\d{2})/);
+    if (timeMatch) {
+      const hours = parseInt(timeMatch[1], 10);
+      const minutes = parseInt(timeMatch[2], 10);
+      if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+        return {
+          field: 'time',
+          value: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`,
+          parsed: true,
+        };
+      }
+    }
+    
+    const numberMatch = raw.match(/^(\d{1,2})$/);
+    if (numberMatch) {
+      const hours = parseInt(numberMatch[1], 10);
+      if (hours >= 0 && hours < 24) {
+        const adjustedHours = hours < 7 ? hours + 12 : hours;
+        return {
+          field: 'time',
+          value: `${adjustedHours.toString().padStart(2, '0')}:00`,
+          parsed: true,
+        };
+      }
+    }
+    
+    if (normalized.includes('עכשיו')) {
+      const now = new Date();
+      return {
+        field: 'time',
+        value: `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
+        parsed: true,
+      };
+    }
+    
+    if (normalized.includes('בעוד 20 דק')) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 20);
+      return {
+        field: 'time',
+        value: `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
+        parsed: true,
+      };
+    }
+  }
+  
+  if (expectedAnswerType === 'date') {
+    const today = new Date();
+    
+    if (normalized.includes('היום')) {
+      return {
+        field: 'date',
+        value: today.toISOString().split('T')[0],
+        parsed: true,
+      };
+    }
+    
+    if (normalized.includes('מחר')) {
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return {
+        field: 'date',
+        value: tomorrow.toISOString().split('T')[0],
+        parsed: true,
+      };
+    }
+    
+    if (normalized.includes('מחרתיים')) {
+      const dayAfter = new Date(today);
+      dayAfter.setDate(dayAfter.getDate() + 2);
+      return {
+        field: 'date',
+        value: dayAfter.toISOString().split('T')[0],
+        parsed: true,
+      };
+    }
+  }
+  
+  if (expectedAnswerType === 'duration') {
+    const minutesMatch = raw.match(/(\d+)\s*דק/);
+    if (minutesMatch) {
+      return {
+        field: 'duration',
+        value: minutesMatch[1],
+        parsed: true,
+      };
+    }
+    
+    if (normalized.includes('חצי שעה')) {
+      return { field: 'duration', value: '30', parsed: true };
+    }
+    
+    if (normalized.match(/^שעה(\s+אחת)?$/)) {
+      return { field: 'duration', value: '60', parsed: true };
+    }
+    
+    if (normalized.includes('שעתיים')) {
+      return { field: 'duration', value: '120', parsed: true };
+    }
+    
+    const hoursMatch = raw.match(/(\d+)\s*שעות?/);
+    if (hoursMatch) {
+      return { field: 'duration', value: String(parseInt(hoursMatch[1]) * 60), parsed: true };
+    }
+  }
+  
+  if (expectedAnswerType === 'choice' && options) {
+    for (const option of options) {
+      if (normalized.includes(option.toLowerCase())) {
+        return { field: 'choice', value: option, parsed: true };
+      }
+    }
+  }
+  
+  if (expectedAnswerType === 'confirm') {
+    if (['כן', 'בטח', 'נכון', 'כמובן', 'אוקי', 'ok', 'yes'].some(y => normalized.includes(y))) {
+      return { field: 'confirm', value: 'yes', parsed: true };
+    }
+    if (['לא', 'ממש לא', 'no'].some(n => normalized.includes(n))) {
+      return { field: 'confirm', value: 'no', parsed: true };
+    }
+  }
+  
+  return { field: 'unknown', value: raw, parsed: false };
+}
