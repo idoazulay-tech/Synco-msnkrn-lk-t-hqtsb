@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { interpretInput, InterpretResult } from '../services/ruleEngine.js';
+import { interpretInput, InterpretResult, detectConflicts, ExistingTask } from '../services/ruleEngine.js';
 import { prisma } from '../lib/prisma.js';
 
 const router = Router();
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { text } = req.body;
+    const { text, existingTasks } = req.body;
     
     if (!text || typeof text !== 'string') {
       res.status(400).json({ error: 'Text is required' });
@@ -14,6 +14,31 @@ router.post('/', async (req: Request, res: Response) => {
     }
     
     const result: InterpretResult = interpretInput(text);
+    
+    // Check for conflicts if we have task info and existing tasks
+    if (result.mode === 'task_or_event' && result.task && existingTasks?.length > 0) {
+      const { start_date, start_time, end_time } = result.task;
+      
+      if (start_date && start_time) {
+        const newStartTime = new Date(`${start_date}T${start_time}`);
+        const newEndTime = end_time 
+          ? new Date(`${start_date}T${end_time}`)
+          : new Date(newStartTime.getTime() + 30 * 60 * 1000); // Default 30 min
+        
+        const conflict = detectConflicts(
+          result.task.title,
+          newStartTime,
+          newEndTime,
+          existingTasks as ExistingTask[]
+        );
+        
+        if (conflict.hasConflict) {
+          result.conflict = conflict;
+          result.task.needs_clarification = true;
+          result.task.clarifying_question = conflict.reorganizationQuestion || null;
+        }
+      }
+    }
     
     await prisma.insightLog.create({
       data: {

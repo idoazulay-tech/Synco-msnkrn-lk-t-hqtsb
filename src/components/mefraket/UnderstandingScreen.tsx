@@ -65,6 +65,19 @@ interface SuggestedTask {
   confidence: string;
 }
 
+interface ConflictInfo {
+  hasConflict: boolean;
+  conflictingTasks: Array<{
+    id: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+  }>;
+  isRelated: boolean;
+  relationReason?: string;
+  reorganizationQuestion?: string;
+}
+
 interface InterpretResult {
   mode: 'task_or_event' | 'journal_entry';
   task: TaskOutput | null;
@@ -76,6 +89,7 @@ interface InterpretResult {
     taskFile?: { id: string; title: string };
     taskRun?: { id: string };
   };
+  conflict?: ConflictInfo;
 }
 
 interface UnderstandingScreenProps {
@@ -222,14 +236,38 @@ export function UnderstandingScreen({ result, originalText, onReset, onClose }: 
   // Send clarifying questions to MA store for display in ארגון page
   useEffect(() => {
     if (result.task?.needs_clarification && result.task.clarifying_question && !questionSent) {
-      addMAMessage({
-        type: 'question',
-        text: result.task.clarifying_question,
-        taskTitle: result.task.title,
-      });
+      // Check if this is a conflict question
+      if (result.conflict?.hasConflict) {
+        addMAMessage({
+          type: 'conflict',
+          text: result.task.clarifying_question,
+          taskTitle: result.task.title,
+          conflict: result.conflict,
+          newTaskInfo: result.task.start_date && result.task.start_time ? {
+            title: result.task.title,
+            startTime: `${result.task.start_date}T${result.task.start_time}`,
+            endTime: result.task.end_time 
+              ? `${result.task.start_date}T${result.task.end_time}` 
+              : `${result.task.start_date}T${result.task.start_time}`,
+          } : undefined,
+        });
+        
+        // Also send a notification about the conflict
+        addNotification({
+          type: 'conflict',
+          title: 'זוהתה חפיפה בלוח',
+          message: `"${result.task.title}" מתנגש עם משימות קיימות. יש לבדוק בדף הארגון.`,
+        });
+      } else {
+        addMAMessage({
+          type: 'question',
+          text: result.task.clarifying_question,
+          taskTitle: result.task.title,
+        });
+      }
       setQuestionSent(true);
     }
-  }, [result, questionSent, addMAMessage]);
+  }, [result, questionSent, addMAMessage, addNotification]);
   
   const wasTaskCreated = result.action?.type === 'TASK_CREATED' || taskCreated;
   const canCreateTask = result.mode === 'task_or_event' && result.task && !wasTaskCreated;

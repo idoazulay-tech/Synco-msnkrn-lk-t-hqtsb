@@ -18,7 +18,8 @@ import {
   RefreshCw,
   Bot,
   User,
-  Send
+  Send,
+  AlertTriangle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useMAStore, MAMessage } from '@/store/maStore';
@@ -295,51 +296,98 @@ export default function ShikulPage() {
             {/* Local MA Questions (from input parsing) */}
             {unansweredMessages.length > 0 && (
               <div className="space-y-3">
-                {unansweredMessages.map((message) => (
-                  <Card key={message.id} className="border-r-4 border-r-blue-500" data-testid={`card-ma-message-${message.id}`}>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <Badge variant="secondary" className="gap-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                          <Bot className="h-3 w-3" />
-                          MA
-                        </Badge>
-                        <CardTitle className="text-base flex-1 text-right">
-                          {message.taskTitle ? `לגבי: ${message.taskTitle}` : 'שאלה'}
-                        </CardTitle>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-foreground leading-relaxed">{message.text}</p>
-                      
-                      <div className="flex gap-2">
-                        <Input
-                          value={responses[message.id] || ''}
-                          onChange={(e) => updateResponse(message.id, e.target.value)}
-                          placeholder="הקלד תשובה..."
-                          className="flex-1"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && responses[message.id]?.trim()) {
-                              handleMAMessageResponse(message, responses[message.id]);
-                            }
-                          }}
-                          data-testid={`input-ma-response-${message.id}`}
-                        />
-                        <Button
-                          size="icon"
-                          onClick={() => handleMAMessageResponse(message, responses[message.id] || '')}
-                          disabled={!responses[message.id]?.trim() || submitting === message.id}
-                          data-testid={`button-send-ma-response-${message.id}`}
-                        >
-                          {submitting === message.id ? (
-                            <RefreshCw className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Send className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                {unansweredMessages.map((message) => {
+                  const isConflict = message.type === 'conflict';
+                  
+                  return (
+                    <Card 
+                      key={message.id} 
+                      className={`border-r-4 ${isConflict ? 'border-r-orange-500 bg-orange-50/50 dark:bg-orange-950/20' : 'border-r-blue-500'}`} 
+                      data-testid={`card-ma-message-${message.id}`}
+                    >
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <Badge 
+                            variant="secondary" 
+                            className={`gap-1 ${isConflict 
+                              ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' 
+                              : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                            }`}
+                          >
+                            {isConflict ? (
+                              <>
+                                <AlertTriangle className="h-3 w-3" />
+                                חפיפה
+                              </>
+                            ) : (
+                              <>
+                                <Bot className="h-3 w-3" />
+                                MA
+                              </>
+                            )}
+                          </Badge>
+                          <CardTitle className="text-base flex-1 text-right">
+                            {message.taskTitle ? `לגבי: ${message.taskTitle}` : 'שאלה'}
+                          </CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Show conflict details if available */}
+                        {isConflict && message.conflict && (
+                          <div className="bg-orange-100/50 dark:bg-orange-900/30 rounded-lg p-3 space-y-2">
+                            <div className="text-sm font-medium text-orange-800 dark:text-orange-200">
+                              {message.conflict.isRelated ? (
+                                <span>{message.conflict.relationReason}</span>
+                              ) : (
+                                <span>משימות חופפות:</span>
+                              )}
+                            </div>
+                            <ul className="text-sm space-y-1 text-orange-700 dark:text-orange-300">
+                              {message.conflict.conflictingTasks.map((task) => (
+                                <li key={task.id} className="flex items-center gap-2">
+                                  <Clock className="h-3 w-3" />
+                                  <span>{task.title}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    ({new Date(task.startTime).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })} - {new Date(task.endTime).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })})
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        
+                        <p className="text-foreground leading-relaxed whitespace-pre-line">{message.text}</p>
+                        
+                        <div className="flex gap-2">
+                          <Input
+                            value={responses[message.id] || ''}
+                            onChange={(e) => updateResponse(message.id, e.target.value)}
+                            placeholder={isConflict ? "למשל: לקפל קודם, 20 דק. אחכ להכניס לארון 15 דק" : "הקלד תשובה..."}
+                            className="flex-1"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && responses[message.id]?.trim()) {
+                                handleMAMessageResponse(message, responses[message.id]);
+                              }
+                            }}
+                            data-testid={`input-ma-response-${message.id}`}
+                          />
+                          <Button
+                            size="icon"
+                            onClick={() => handleMAMessageResponse(message, responses[message.id] || '')}
+                            disabled={!responses[message.id]?.trim() || submitting === message.id}
+                            data-testid={`button-send-ma-response-${message.id}`}
+                          >
+                            {submitting === message.id ? (
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Send className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
 

@@ -7,6 +7,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { UnderstandingScreen } from './UnderstandingScreen';
 import { RegulationModal } from './RegulationModal';
+import { useTaskStore } from '@/store/taskStore';
+import { startOfDay, endOfDay, addDays } from 'date-fns';
 
 interface QuickInputPanelProps {
   mode: 'text' | 'voice';
@@ -72,6 +74,7 @@ export function QuickInputPanel({ mode, onClose, onModeChange }: QuickInputPanel
   const [error, setError] = useState<string | null>(null);
   const [showRegulation, setShowRegulation] = useState(false);
   
+  const tasks = useTaskStore((state) => state.tasks);
   const recognitionRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -162,10 +165,30 @@ export function QuickInputPanel({ mode, onClose, onModeChange }: QuickInputPanel
     setOriginalText(text.trim());
     
     try {
+      // Get existing tasks for conflict detection (today and tomorrow)
+      const today = new Date();
+      const dayStart = startOfDay(today);
+      const dayEnd = endOfDay(addDays(today, 1));
+      
+      const existingTasks = tasks
+        .filter(task => {
+          const taskStart = new Date(task.startTime);
+          return taskStart >= dayStart && taskStart <= dayEnd;
+        })
+        .map(task => ({
+          id: task.id,
+          title: task.title,
+          startTime: new Date(task.startTime).toISOString(),
+          endTime: new Date(task.endTime).toISOString(),
+        }));
+      
       const response = await fetch('/api/quick', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim() }),
+        body: JSON.stringify({ 
+          text: text.trim(),
+          existingTasks,
+        }),
       });
       
       if (!response.ok) {

@@ -48,12 +48,33 @@ export interface LearningLog {
   unclassified_phrases: string[];
 }
 
+export interface ConflictInfo {
+  hasConflict: boolean;
+  conflictingTasks: Array<{
+    id: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+  }>;
+  isRelated: boolean;
+  relationReason?: string;
+  reorganizationQuestion?: string;
+}
+
+export interface ExistingTask {
+  id: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+}
+
 export interface InterpretResult {
   mode: 'task_or_event' | 'journal_entry';
   task: TaskOutput | null;
   journal: JournalOutput | null;
   suggested_tasks_from_journal: SuggestedTask[];
   learning_log: LearningLog;
+  conflict?: ConflictInfo;
 }
 
 const TIME_SIGNALS = ['בשעה', 'שעה', 'בשעות', 'משעה', 'עד שעה', 'לפני', 'אחרי', 'בסביבות', 'בערך', 'לקראת', 'בבוקר', 'בצהריים', 'אחהצ', 'אחר הצהריים', 'בערב', 'בלילה', 'לפנות בוקר', 'עד הערב', 'בסוף היום', 'תחילת היום'];
@@ -552,6 +573,90 @@ function generateJournalTitle(text: string, tags: string[]): string {
   if (tags.includes('תקיעות')) return 'תחושת תקיעות';
   if (tags.length > 0) return `פריקה על ${tags[0]}`;
   return 'יומן';
+}
+
+// Keywords for detecting related tasks
+const TASK_CATEGORY_KEYWORDS: Record<string, string[]> = {
+  'כביסה': ['כביסה', 'לקפל', 'לתלות', 'מכונת כביסה', 'מייבש', 'בגדים', 'לגהץ', 'ארון בגדים'],
+  'ניקיון': ['לנקות', 'ניקיון', 'לשטוף', 'לסדר', 'למרוח', 'לארגן', 'לטאטא', 'שואב אבק'],
+  'קניות': ['לקנות', 'קניות', 'סופר', 'חנות', 'מכולת', 'להזמין'],
+  'בישול': ['לבשל', 'ארוחה', 'מטבח', 'לאפות', 'אוכל', 'ארוחת'],
+  'עבודה': ['עבודה', 'פרויקט', 'מייל', 'פגישה', 'ישיבה', 'משרד'],
+  'ילדים': ['ילדים', 'בית ספר', 'גן', 'חוגים', 'שיעורי בית'],
+};
+
+function findTaskCategory(title: string): string | null {
+  const lowerTitle = title.toLowerCase();
+  for (const [category, keywords] of Object.entries(TASK_CATEGORY_KEYWORDS)) {
+    if (keywords.some(kw => lowerTitle.includes(kw))) {
+      return category;
+    }
+  }
+  return null;
+}
+
+function tasksOverlap(
+  newStart: Date, 
+  newEnd: Date, 
+  existingStart: Date, 
+  existingEnd: Date
+): boolean {
+  return newStart < existingEnd && newEnd > existingStart;
+}
+
+export function detectConflicts(
+  newTaskTitle: string,
+  newStartTime: Date,
+  newEndTime: Date,
+  existingTasks: ExistingTask[]
+): ConflictInfo {
+  const conflictingTasks: ConflictInfo['conflictingTasks'] = [];
+  const newCategory = findTaskCategory(newTaskTitle);
+  let isRelated = false;
+  let relationReason: string | undefined;
+  
+  for (const task of existingTasks) {
+    const taskStart = new Date(task.startTime);
+    const taskEnd = new Date(task.endTime);
+    
+    if (tasksOverlap(newStartTime, newEndTime, taskStart, taskEnd)) {
+      conflictingTasks.push({
+        id: task.id,
+        title: task.title,
+        startTime: task.startTime,
+        endTime: task.endTime,
+      });
+      
+      // Check if tasks are related
+      const taskCategory = findTaskCategory(task.title);
+      if (newCategory && taskCategory && newCategory === taskCategory) {
+        isRelated = true;
+        relationReason = `שתי המשימות קשורות ל${newCategory}`;
+      }
+    }
+  }
+  
+  if (conflictingTasks.length === 0) {
+    return { hasConflict: false, conflictingTasks: [], isRelated: false };
+  }
+  
+  // Build reorganization question
+  let reorganizationQuestion: string;
+  
+  if (isRelated) {
+    const taskNames = [newTaskTitle, ...conflictingTasks.map(t => t.title)].join(' ו');
+    reorganizationQuestion = `ראיתי שיש חפיפה בין משימות שקשורות ל${relationReason?.split('ל')[1] || 'נושא דומה'}:\n• ${newTaskTitle}\n• ${conflictingTasks.map(t => t.title).join('\n• ')}\n\nאיזו משימה צריכה להיות קודם? וכמה זמן לוקחת כל אחת?`;
+  } else {
+    reorganizationQuestion = `יש חפיפה בלוח הזמנים:\n• "${newTaskTitle}" מתנגש עם "${conflictingTasks[0].title}"\n\nאיזו משימה קודמת? וכמה זמן כל אחת לוקחת?`;
+  }
+  
+  return {
+    hasConflict: true,
+    conflictingTasks,
+    isRelated,
+    relationReason,
+    reorganizationQuestion,
+  };
 }
 
 export function interpretInput(text: string): InterpretResult {

@@ -1,15 +1,33 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export interface ConflictInfo {
+  hasConflict: boolean;
+  conflictingTasks: Array<{
+    id: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+  }>;
+  isRelated: boolean;
+  relationReason?: string;
+}
+
 export interface MAMessage {
   id: string;
-  type: 'question' | 'info' | 'success' | 'warning';
+  type: 'question' | 'info' | 'success' | 'warning' | 'conflict';
   text: string;
   timestamp: Date;
   taskTitle?: string;
   options?: string[];
   answered?: boolean;
   response?: string;
+  conflict?: ConflictInfo;
+  newTaskInfo?: {
+    title: string;
+    startTime: string;
+    endTime: string;
+  };
 }
 
 export interface PlanOption {
