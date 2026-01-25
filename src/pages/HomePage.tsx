@@ -71,7 +71,7 @@ const NextTaskBanner = ({ task, onClick }: { task: Task; onClick: () => void }) 
     <motion.div
       initial={{ y: 20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      className="fixed bottom-20 left-4 right-4 z-20"
+      className="fixed bottom-20 left-4 right-28 z-20"
     >
       <div 
         onClick={onClick}

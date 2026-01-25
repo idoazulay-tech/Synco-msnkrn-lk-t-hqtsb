@@ -210,8 +210,8 @@ const TaskDetailPage = () => {
           )}
         </div>
 
-        <div className="fixed bottom-20 inset-x-0 p-4 bg-gradient-to-t from-background via-background to-transparent">
-          <div className="flex gap-3 max-w-lg mx-auto">
+        <div className="fixed bottom-20 left-0 right-0 p-4 pr-28 bg-gradient-to-t from-background via-background to-transparent">
+          <div className="flex gap-3 max-w-lg mr-auto">
             <Button 
               variant="outline" 
               size="lg" 

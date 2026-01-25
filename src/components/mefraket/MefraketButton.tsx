@@ -37,7 +37,7 @@ export function MefraketButton({ className }: MefraketButtonProps) {
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
             className={cn(
-              "fixed bottom-20 left-1/2 -translate-x-1/2 z-50",
+              "fixed bottom-[68px] right-2 z-50",
               className
             )}
           >
@@ -49,10 +49,10 @@ export function MefraketButton({ className }: MefraketButtonProps) {
                 <Button
                   size="lg"
                   onClick={handleTextClick}
-                  className="rounded-full h-14 w-14 bg-blue-500 hover:bg-blue-600 text-white shadow-lg"
+                  className="rounded-full h-12 w-12 bg-blue-500 hover:bg-blue-600 text-white shadow-lg"
                   data-testid="button-mefraket-text"
                 >
-                  <Keyboard className="h-6 w-6" />
+                  <Keyboard className="h-5 w-5" />
                 </Button>
               </motion.div>
               
@@ -63,10 +63,10 @@ export function MefraketButton({ className }: MefraketButtonProps) {
                 <Button
                   size="lg"
                   onClick={handleVoiceClick}
-                  className="rounded-full h-14 w-14 bg-orange-500 hover:bg-orange-600 text-white shadow-lg"
+                  className="rounded-full h-12 w-12 bg-orange-500 hover:bg-orange-600 text-white shadow-lg"
                   data-testid="button-mefraket-voice"
                 >
-                  <Mic className="h-6 w-6" />
+                  <Mic className="h-5 w-5" />
                 </Button>
               </motion.div>
             </div>
