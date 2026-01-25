@@ -3,6 +3,18 @@ export type Priority = 'low' | 'medium' | 'high';
 export type MoodHint = 'calm' | 'stressed' | 'angry' | 'sad' | 'anxious' | 'excited' | 'tired' | 'neutral';
 export type Flexibility = 'fixed' | 'flexible';
 
+// Relative anchor types for scheduling relative to timeline
+export type RelativeAnchorType = 
+  | 'after_current_block_end' 
+  | 'at_next_block_start' 
+  | 'after_next_block_end';
+
+export interface RelativeAnchor {
+  type: RelativeAnchorType;
+  confidence: number;
+  raw: string;
+}
+
 export interface TaskOutput {
   title: string;
   start_date: string | null;
@@ -20,6 +32,7 @@ export interface TaskOutput {
   confidence: 'high' | 'medium' | 'low';
   needs_clarification: boolean;
   clarifying_question: string | null;
+  relativeAnchor: RelativeAnchor | null;
 }
 
 export interface JournalOutput {
@@ -108,6 +121,56 @@ const DEEP_NEED_PHRASES = ['אני רוצה כבר', 'בא לי ש', 'אני ח�
 const JOURNAL_ONLY_PHRASES = ['יום מחורבן', 'אין לי כוח', 'אני בלחץ', 'אני מרגיש', 'נמאס לי', 'אני עייף', 'אני עצוב', 'אני כועס'];
 
 const FILLER_WORDS = ['אז', 'כאילו', 'אממ', 'אה', 'טוב', 'בבקשה', 'רגע', 'רק', 'פשוט', 'בעצם', 'ממש', 'כזה', 'זה', 'הזה', 'הזאת'];
+
+// Relative anchor patterns for scheduling relative to timeline
+const RELATIVE_ANCHOR_PATTERNS: { type: RelativeAnchorType; patterns: RegExp[] }[] = [
+  {
+    type: 'after_current_block_end',
+    patterns: [
+      /מהרגע\s*ש(ה)?משימה\s*(ה)?נוכחית\s*(נ)?גמרת?/,
+      /אחרי\s*(ה)?משימה\s*(ה)?נוכחית/,
+      /כש(אני)?\s*מסיים\s*(את\s*)?(מה\s*ש)?עכשיו/,
+      /ברגע\s*ש(אני)?\s*מסיים/,
+      /כשזה\s*נגמר/,
+      /אחרי\s*שאני\s*מסיים/,
+      /מסוף\s*המשימה\s*(ה)?נוכחית/
+    ]
+  },
+  {
+    type: 'at_next_block_start',
+    patterns: [
+      /מתחילת\s*(ה)?משימה\s*(ה)?באה/,
+      /מ(ה)?התחלה\s*(של\s*)?(ה)?משימה\s*(ה)?באה/,
+      /בתחילת\s*(ה)?משימה\s*(ה)?באה/,
+      /כש(ה)?משימה\s*(ה)?באה\s*מתחילה/
+    ]
+  },
+  {
+    type: 'after_next_block_end',
+    patterns: [
+      /אחרי\s*(ה)?משימה\s*(ה)?באה/,
+      /כש(ה)?משימה\s*(ה)?באה\s*(מ)?סתיימת?/,
+      /אחרי\s*ש(ה)?משימה\s*(ה)?באה\s*(נ)?גמרת?/,
+      /בסוף\s*(ה)?משימה\s*(ה)?באה/
+    ]
+  }
+];
+
+function extractRelativeAnchor(text: string): RelativeAnchor | null {
+  for (const { type, patterns } of RELATIVE_ANCHOR_PATTERNS) {
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        return {
+          type,
+          confidence: 0.9,
+          raw: match[0]
+        };
+      }
+    }
+  }
+  return null;
+}
 
 const TYPE_HINTS: Record<TaskType, string[]> = {
   meeting: ['פגישה', 'ישיבה', 'שיחה', 'זום', 'וידאו', 'ועידה', 'ראיון', 'דייט', 'תיאום'],
@@ -715,17 +778,20 @@ export function interpretInput(text: string): InterpretResult {
     const alreadyScheduled = isAlreadyScheduled(normalizedText);
     const title = cleanTitle(normalizedText, taskType, participants, alreadyScheduled);
     const priority = extractPriority(normalizedText);
+    const relativeAnchor = extractRelativeAnchor(normalizedText);
     
     const location = inferPhoneCallLocation(normalizedText, participants, explicitLocation);
     
     let confidence: 'high' | 'medium' | 'low' = 'high';
-    if (!date && !time) confidence = 'medium';
-    if ((taskType === 'meeting' || taskType === 'appointment') && !date) confidence = 'low';
+    // If we have relative anchor, we don't need explicit date/time
+    if (!date && !time && !relativeAnchor) confidence = 'medium';
+    if ((taskType === 'meeting' || taskType === 'appointment') && !date && !relativeAnchor) confidence = 'low';
 
     let needs_clarification = false;
     let clarifying_question: string | null = null;
 
-    if ((taskType === 'meeting' || taskType === 'appointment') && !date && !time) {
+    // Don't ask for time if we have a relative anchor
+    if ((taskType === 'meeting' || taskType === 'appointment') && !date && !time && !relativeAnchor) {
       needs_clarification = true;
       clarifying_question = 'מתי זה אמור להיות?';
     }
@@ -739,7 +805,7 @@ export function interpretInput(text: string): InterpretResult {
       start_time: time,
       end_date: date,
       end_time: end_time,
-      all_day: !time,
+      all_day: !time && !relativeAnchor,
       location,
       participants,
       type: taskType,
@@ -749,7 +815,8 @@ export function interpretInput(text: string): InterpretResult {
       source: 'voice',
       confidence,
       needs_clarification,
-      clarifying_question
+      clarifying_question,
+      relativeAnchor
     };
 
     return {

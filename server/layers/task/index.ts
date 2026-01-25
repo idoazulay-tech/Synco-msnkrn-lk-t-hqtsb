@@ -8,8 +8,119 @@ import type {
   PersonalTimeStat,
   PlanBlock,
   DayManagementResult,
-  DayQuestion
+  DayQuestion,
+  RelativeAnchorType
 } from '../types';
+
+// Timeline block for anchor resolution
+export interface TimelineBlock {
+  id: string;
+  startIso: string;
+  endIso: string;
+  title: string;
+}
+
+// Anchor resolution result
+export interface AnchorResolutionResult {
+  startIso: string | null;
+  anchorType: RelativeAnchorType;
+  resolvedFrom: 'current_block' | 'next_block' | 'fallback_now' | 'no_timeline';
+  blockTitle?: string;
+}
+
+/**
+ * Resolve the start time for a task based on a relative anchor
+ * 
+ * @param anchorType - The type of relative anchor
+ * @param timeline - Array of timeline blocks sorted by startIso
+ * @param nowIso - Current time in ISO format
+ * @returns The resolved start time or null if cannot resolve
+ */
+export function resolveAnchorStartIso(
+  anchorType: RelativeAnchorType,
+  timeline: TimelineBlock[],
+  nowIso: string
+): AnchorResolutionResult {
+  const now = new Date(nowIso);
+  
+  if (!timeline || timeline.length === 0) {
+    return {
+      startIso: nowIso,
+      anchorType,
+      resolvedFrom: 'no_timeline'
+    };
+  }
+  
+  // Find current block (now is between startIso and endIso)
+  const currentBlock = timeline.find(block => {
+    const start = new Date(block.startIso);
+    const end = new Date(block.endIso);
+    return now >= start && now < end;
+  });
+  
+  // Find next block (first block where startIso is after now)
+  const nextBlock = timeline.find(block => {
+    const start = new Date(block.startIso);
+    return start > now;
+  });
+  
+  switch (anchorType) {
+    case 'after_current_block_end':
+      if (currentBlock) {
+        return {
+          startIso: currentBlock.endIso,
+          anchorType,
+          resolvedFrom: 'current_block',
+          blockTitle: currentBlock.title
+        };
+      }
+      // Fallback: no current block, use now
+      return {
+        startIso: nowIso,
+        anchorType,
+        resolvedFrom: 'fallback_now'
+      };
+      
+    case 'at_next_block_start':
+      if (nextBlock) {
+        return {
+          startIso: nextBlock.startIso,
+          anchorType,
+          resolvedFrom: 'next_block',
+          blockTitle: nextBlock.title
+        };
+      }
+      // Fallback: no next block, use now
+      return {
+        startIso: nowIso,
+        anchorType,
+        resolvedFrom: 'fallback_now'
+      };
+      
+    case 'after_next_block_end':
+      if (nextBlock) {
+        return {
+          startIso: nextBlock.endIso,
+          anchorType,
+          resolvedFrom: 'next_block',
+          blockTitle: nextBlock.title
+        };
+      }
+      // Fallback: no next block, use now
+      return {
+        startIso: nowIso,
+        anchorType,
+        resolvedFrom: 'fallback_now'
+      };
+      
+    default:
+      return {
+        startIso: nowIso,
+        anchorType,
+        resolvedFrom: 'fallback_now'
+      };
+  }
+}
 
 // Default time estimates by task type
 const DEFAULT_ESTIMATES: Record<string, number> = {

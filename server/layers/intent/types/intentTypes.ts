@@ -53,6 +53,17 @@ export interface ContextInfo {
   assumptions: string[];
 }
 
+export type RelativeAnchorType = 
+  | 'after_current_block_end' 
+  | 'at_next_block_start' 
+  | 'after_next_block_end';
+
+export interface RelativeAnchor {
+  type: RelativeAnchorType;
+  confidence: number;
+  raw: string;
+}
+
 export interface ExtractedEntities {
   time: EntityValue<string>;
   date: EntityValue<string>;
@@ -63,6 +74,7 @@ export interface ExtractedEntities {
   urgency: EntityValue<UrgencyLevel>;
   must: EntityValue<boolean>;
   constraints: ConstraintData[];
+  relativeAnchor: RelativeAnchor | null;
 }
 
 export interface EntityValue<T> {

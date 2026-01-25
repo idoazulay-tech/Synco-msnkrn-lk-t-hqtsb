@@ -1,0 +1,127 @@
+הוסף ל-MA יכולת תזמון יחסית (Relative Scheduling) שמבוססת על הטיימליין הקיים, בלי להמציא פיצ’רים חדשים.
+
+מטרה:
+כשאני כותב/אומר משפטים כמו:
+- "תוסיף משימה להתקלח מתחילת המשימה הבאה"
+- "תוסיף משימה להתקלח אחרי המשימה הבאה"
+- "תוסיף משימה להתקלח מהרגע שהמשימה הנוכחית נגמרת"
+MA תבין שזה Anchor זמן יחסי, תאתר את הבלוק הרלוונטי בטיימליין, ותשבץ את המשימה החדשה בדיוק בזמן המתאים.
+
+חשוב:
+אם אין מספיק מידע לשיבוץ, MA תיצור OrgInquiry בדף "ארגון" (כמו שכבר הגדרנו) והמשימה תישאר pending ולא תיכנס ליומן עד תשובה.
+
+========================
+A) Intent + Entities (Layer 2)
+========================
+להרחיב את IntentAnalysis.entities עם שדה חדש:
+
+relativeAnchor:
+  | null
+  | {
+      type: "after_current_block_end" | "at_next_block_start" | "after_next_block_end",
+      confidence: number,
+      raw: string
+    }
+
+כללי זיהוי בעברית (Rule-based, MVP):
+1) אם הטקסט כולל "מהרגע שהמשימה הנוכחית נגמרת" / "אחרי המשימה הנוכחית" / "כשאני מסיים את מה שעכשיו"
+   => relativeAnchor.type = "after_current_block_end"
+2) אם הטקסט כולל "מתחילת המשימה הבאה" / "מהתחלה של המשימה הבאה"
+   => relativeAnchor.type = "at_next_block_start"
+3) אם הטקסט כולל "אחרי המשימה הבאה" / "כשהמשימה הבאה מסתיימת"
+   => relativeAnchor.type = "after_next_block_end"
+
+הערה:
+אל תחליף את time/date הרגילים. relativeAnchor הוא בנוסף.
+
+========================
+B) TaskTimeEngine Anchor Scheduling (Layer 4)
+========================
+להוסיף יכולת ב TaskTimeEngine לשבץ משימה לפי Anchor:
+
+function resolveAnchorStartIso(anchor, timeline, nowIso) -> string | null
+
+הגדרות:
+- current block = הבלוק שבו נמצא nowIso (אם קיים)
+- next block = הבלוק הראשון ש-startIso שלו אחרי nowIso
+
+כללים:
+1) after_current_block_end:
+   אם יש current block => startIso = current.endIso
+   אם אין current block => fallback: startIso = nowIso
+2) at_next_block_start:
+   אם יש next block => startIso = next.startIso
+   אם אין next block => startIso = nowIso
+3) after_next_block_end:
+   אם יש next block => startIso = next.endIso
+   אם אין next block => startIso = nowIso
+
+שיבוץ:
+- ליצור Task חדש (כרגיל) עם schedulingStatus:
+  - אם יש durationMinutes ידוע ו startIso ידוע => scheduled
+  - אם durationMinutes חסר => pending + OrgInquiry לשאלה על משך זמן
+- Scheduler צריך לשבץ את המשימה בזמן startIso כ-fixedStart (כלומר המשימה מתחילה בדיוק שם), ואז להמשיך לשבץ שאר משימות אחריה לפי הכללים הקיימים.
+- אם אין מקום בלוז לאחר anchor, להשתמש במנגנון Reshuffle Plan A/B שכבר קיים:
+  - לשמור pendingPlanProposal
+  - לשלוח PlanChoiceModal דרך "ארגון"
+
+========================
+C) OrgInquiry עבור Anchor (Layer 7 + Org)
+========================
+אם המשתמש ביקש Anchor, אבל חסר מידע קריטי לשיבוץ (בעיקר duration):
+- ליצור OrgInquiry מיידי reason="missing_info"
+- השאלה הראשונה חייבת להיות:
+  "כמה זמן לוקח לך להתקלח?"
+  options: "5 דק", "10 דק", "20 דק", "חצי שעה", "שעה"
+- עד שאין תשובה: המשימה נשארת pending ולא נכנסת ליומן
+
+בנוסף:
+אם resolveAnchorStartIso החזיר null (למשל timeline לא נטען):
+- OrgInquiry reason="missing_info"
+- שאלה אחת:
+  "מתי להתחיל את המשימה?"
+  options: "עכשיו", "בעוד 20 דק", "14:00", "16:00"
+
+========================
+D) Decision Engine Policy (Layer 3)
+========================
+אם יש relativeAnchor:
+- העדף execute עם anchorStart אם אפשר
+- אם חסר duration => ask דרך OrgInquiry (לא inline), כדי שהשאלה תישאר בדף "ארגון"
+
+========================
+E) Learning (Layer 5)
+========================
+כל שימוש ב-relativeAnchor נרשם כ-DecisionLog:
+- situationKey:
+  "anchor:{type}:taskType={taskType}"
+- choice:
+  startIso resolved + duration final
+לא ליצור כלל קבוע אוטומטי.
+
+========================
+F) Tests (חובה)
+========================
+1) parseRelativeAnchor:
+- "מתחילת המשימה הבאה" => at_next_block_start
+- "אחרי המשימה הבאה" => after_next_block_end
+- "מהרגע שהמשימה הנוכחית נגמרת" => after_current_block_end
+
+2) resolveAnchorStartIso:
+- timeline עם current block -> returns endIso
+- timeline עם next block -> returns startIso/endIso לפי type
+
+3) E2E:
+- יש timeline עם משימה פעילה עד 14:15 ומשימה הבאה מ-14:30 עד 15:00
+  "תוסיף משימה להתקלח מהרגע שהמשימה הנוכחית נגמרת" => start 14:15
+  "תוסיף משימה להתקלח מתחילת המשימה הבאה" => start 14:30
+  "תוסיף משימה להתקלח אחרי המשימה הבאה" => start 15:00
+
+========================
+תוצאה נדרשת
+========================
+- MA מזהה Anchor יחסי בעברית
+- MA מאתרת current/next block בטיימליין
+- MA משבצת את המשימה בדיוק בזמן הנגזר מה-Anchor
+- אם חסר משך זמן או מידע קריטי: שאלה נשארת בדף "ארגון" והמשימה לא נכנסת ליומן עד תשובה
+```0

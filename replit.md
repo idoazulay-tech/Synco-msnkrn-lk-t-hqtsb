@@ -29,6 +29,8 @@ Preferred communication style: Simple, everyday language.
     - **HaMefraket (המפרקט) - Smart ADHD Assistant**: Intelligent interface for quick input, insights, and self-regulation exercises.
     - **MA Auto-Task Creation**: When MA is confident about task details, tasks are automatically created and added to the calendar without manual confirmation.
     - **Clarifying Questions Loop**: When MA needs more information (uncertain about time, date, etc.), questions appear in the ארגון (Organization) page. User answers are re-analyzed by MA until task can be created with complete details.
+    - **Relative Scheduling (Anchor Scheduling)**: Schedule tasks relative to timeline using Hebrew phrases like "אחרי המשימה הנוכחית", "מתחילת המשימה הבאה", "אחרי המשימה הבאה". MA resolves anchor times from current/next tasks automatically.
+    - **Contextual Time Disambiguation**: Smart parsing of ambiguous time inputs (e.g., "12") based on linguistic context (בוקר/צהריים/ערב/לילה) and future-biased temporal proximity.
 
 ### Backend and AI Architecture
 The backend is built with Express.js and TypeScript, using PostgreSQL via Prisma. It incorporates a 7-Layer AI architecture for intelligent task management:

@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { interpretInput, InterpretResult, detectConflicts, ExistingTask } from '../services/ruleEngine.js';
+import { interpretInput, InterpretResult, detectConflicts, ExistingTask, RelativeAnchor } from '../services/ruleEngine.js';
 import { prisma } from '../lib/prisma.js';
 import { buildInquiryForMissingInfo, OrgInquiry, EntityInfo } from '../layers/decision/policies/orgInquiryQuestions.js';
 import { orgStore, pendingEntities } from './org.js';
+import { resolveAnchorStartIso, TimelineBlock } from '../layers/task/index.js';
 
 const router = Router();
 
@@ -16,6 +17,12 @@ interface PendingEntity {
   duration?: number;
   missingInfo: string[];
   createdAtIso: string;
+  relativeAnchor?: RelativeAnchor | null;
+  anchorResolved?: {
+    startIso: string;
+    resolvedFrom: string;
+    blockTitle?: string;
+  };
 }
 
 router.post('/', async (req: Request, res: Response) => {
@@ -70,12 +77,59 @@ router.post('/', async (req: Request, res: Response) => {
     
     if (result.mode === 'task_or_event' && result.task) {
       const missingInfo: string[] = [];
+      const relativeAnchor = result.task.relativeAnchor;
       
+      // If we have a relative anchor, we can resolve the time from the timeline
+      let anchorResolved: { startIso: string; resolvedFrom: string; blockTitle?: string } | undefined;
+      
+      if (relativeAnchor && existingTasks?.length > 0) {
+        // Convert existing tasks to timeline blocks and sort by startIso
+        const timelineBlocks: TimelineBlock[] = existingTasks
+          .map((t: ExistingTask) => ({
+            id: t.id,
+            startIso: t.startTime,
+            endIso: t.endTime,
+            title: t.title
+          }))
+          .sort((a: TimelineBlock, b: TimelineBlock) => new Date(a.startIso).getTime() - new Date(b.startIso).getTime());
+        
+        const nowIso = new Date().toISOString();
+        const resolution = resolveAnchorStartIso(relativeAnchor.type, timelineBlocks, nowIso);
+        
+        if (resolution.startIso) {
+          anchorResolved = {
+            startIso: resolution.startIso,
+            resolvedFrom: resolution.resolvedFrom,
+            blockTitle: resolution.blockTitle
+          };
+          
+          // Extract date and time from resolved ISO
+          const resolvedDate = new Date(resolution.startIso);
+          result.task.start_date = resolvedDate.toISOString().split('T')[0];
+          result.task.start_time = resolvedDate.toTimeString().slice(0, 5);
+        }
+      }
+      
+      // Only suppress date/time missingInfo when anchor was actually resolved
+      // If anchor exists but couldn't be resolved (no existingTasks), still ask for date/time
       if (!result.task.start_date) {
-        missingInfo.push('date');
+        if (!anchorResolved) {
+          missingInfo.push('date');
+        }
       }
       if (!result.task.start_time) {
-        missingInfo.push('start_time');
+        if (!anchorResolved) {
+          missingInfo.push('start_time');
+        }
+      }
+      
+      // If we have resolved anchor but no duration, we need to ask for duration
+      if (anchorResolved && !result.task.end_time) {
+        // Check if we have duration info
+        const hasDuration = result.task.start_time && result.task.end_time;
+        if (!hasDuration) {
+          missingInfo.push('duration');
+        }
       }
       
       if (missingInfo.length > 0 || result.task.needs_clarification) {
@@ -99,6 +153,8 @@ router.post('/', async (req: Request, res: Response) => {
           duration,
           missingInfo: missingInfo.length > 0 ? missingInfo : (result.conflict ? ['conflict'] : ['unknown']),
           createdAtIso: new Date().toISOString(),
+          relativeAnchor,
+          anchorResolved,
         };
         
         pendingEntities.set(entityId, pendingEntity);

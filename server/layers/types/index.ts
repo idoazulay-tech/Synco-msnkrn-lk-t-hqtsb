@@ -36,6 +36,18 @@ export type ConstraintType =
   | 'home_work_block'
   | 'reduced_load_day';
 
+// Relative anchor types for scheduling relative to timeline
+export type RelativeAnchorType = 
+  | 'after_current_block_end' 
+  | 'at_next_block_start' 
+  | 'after_next_block_end';
+
+export interface RelativeAnchor {
+  type: RelativeAnchorType;
+  confidence: number;
+  raw: string;
+}
+
 // Entities extracted from input
 export interface ExtractedEntities {
   time?: string;
@@ -46,6 +58,7 @@ export interface ExtractedEntities {
   task_name?: string;
   deadline?: string;
   constraints?: ConstraintData[];
+  relativeAnchor?: RelativeAnchor | null;
 }
 
 // Constraint data structure

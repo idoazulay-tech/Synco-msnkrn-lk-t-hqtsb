@@ -1,6 +1,6 @@
 // Step 5: Entity extraction
 
-import type { ExtractedEntities, ConstraintData, ConstraintType } from '../types';
+import type { ExtractedEntities, ConstraintData, ConstraintType, RelativeAnchor, RelativeAnchorType } from '../types';
 import { 
   TIME_PATTERNS, 
   DATE_PATTERNS, 
@@ -12,33 +12,155 @@ import {
 } from '../rules/patterns';
 import { URGENCY_KEYWORDS, MUST_KEYWORDS, ACTION_VERBS } from '../rules/keywords';
 
+// Relative anchor patterns for Hebrew
+const RELATIVE_ANCHOR_PATTERNS = {
+  afterCurrentBlockEnd: [
+    /מהרגע\s*ש(ה)?משימה\s*(ה)?נוכחית\s*(נ)?גמרת?/,
+    /אחרי\s*(ה)?משימה\s*(ה)?נוכחית/,
+    /כש(אני)?\s*מסיים\s*(את\s*)?(מה\s*ש)?עכשיו/,
+    /ברגע\s*ש(אני)?\s*מסיים/,
+    /כשזה\s*נגמר/,
+    /אחרי\s*שאני\s*מסיים/
+  ],
+  atNextBlockStart: [
+    /מתחילת\s*(ה)?משימה\s*(ה)?באה/,
+    /מ(ה)?התחלה\s*(של\s*)?(ה)?משימה\s*(ה)?באה/,
+    /בתחילת\s*(ה)?משימה\s*(ה)?באה/,
+    /כש(ה)?משימה\s*(ה)?באה\s*מתחילה/
+  ],
+  afterNextBlockEnd: [
+    /אחרי\s*(ה)?משימה\s*(ה)?באה/,
+    /כש(ה)?משימה\s*(ה)?באה\s*(מ)?סתיימת?/,
+    /אחרי\s*ש(ה)?משימה\s*(ה)?באה\s*(נ)?גמרת?/,
+    /בסוף\s*(ה)?משימה\s*(ה)?באה/
+  ]
+};
+
 function hebrewToNumber(word: string): number | null {
   return HEBREW_NUMBERS[word] ?? null;
 }
 
-function extractTime(text: string): { raw: string; normalized: string; confidence: number } {
+// Contextual Time Disambiguation - linguistic context keywords
+const TIME_CONTEXT_KEYWORDS = {
+  morning: { pattern: /בוקר/, range: [6, 11] },      // 06:00-11:59
+  noon: { pattern: /צהריים/, range: [12, 15] },      // 12:00-15:59
+  afternoon: { pattern: /אחה"צ|אחר\s*הצהריים/, range: [16, 18] }, // 16:00-18:59
+  evening: { pattern: /ערב/, range: [19, 21] },      // 19:00-21:59
+  night: { pattern: /לילה/, range: [22, 4] }         // 22:00-04:59
+};
+
+// Get linguistic time context from text
+function getTimeContext(text: string): { min: number; max: number; reason: string } | null {
+  for (const [name, { pattern, range }] of Object.entries(TIME_CONTEXT_KEYWORDS)) {
+    if (pattern.test(text)) {
+      return { min: range[0], max: range[1], reason: `linguistic:${name}` };
+    }
+  }
+  return null;
+}
+
+// Disambiguate time based on context (future-biased)
+function disambiguateHour(hour: number, nowHour: number, context: { min: number; max: number; reason: string } | null): { resolvedHour: number; reason: string } {
+  // If linguistic context exists, use it
+  if (context) {
+    // Night is special case (22-4 spans midnight)
+    if (context.reason === 'linguistic:night') {
+      if (hour <= 4) return { resolvedHour: hour, reason: context.reason };
+      if (hour >= 22) return { resolvedHour: hour, reason: context.reason };
+      if (hour === 12) return { resolvedHour: 0, reason: context.reason }; // "12 בלילה" = midnight
+      // For hours 1-4 in "night" context, keep them as-is (e.g., "2 בלילה" = 02:00)
+      if (hour >= 1 && hour <= 4) return { resolvedHour: hour, reason: context.reason };
+      // For hours 5-11 in night context, add 12 if that would be valid, otherwise clamp to range
+      const hour12 = (hour + 12) % 24;
+      if (hour12 >= 22 || hour12 <= 4) return { resolvedHour: hour12, reason: context.reason };
+      // Fallback: use original hour
+      return { resolvedHour: hour, reason: context.reason };
+    }
+    
+    // Morning context (6-11): handle low hours like "1 בבוקר" - clamp to min
+    if (context.reason === 'linguistic:morning') {
+      if (hour >= context.min && hour <= context.max) {
+        return { resolvedHour: hour, reason: context.reason };
+      }
+      // Hour doesn't fit, clamp to range boundaries
+      if (hour < context.min) {
+        return { resolvedHour: context.min, reason: context.reason };
+      }
+      return { resolvedHour: context.max, reason: context.reason };
+    }
+    
+    // For other contexts, adjust to fit range
+    if (hour >= context.min && hour <= context.max) {
+      return { resolvedHour: hour, reason: context.reason };
+    }
+    // If hour + 12 fits the range, use it
+    const hour12 = (hour + 12) % 24;
+    if (hour12 >= context.min && hour12 <= context.max) {
+      return { resolvedHour: hour12, reason: context.reason };
+    }
+    // Clamp to context range boundaries
+    if (hour < context.min) {
+      return { resolvedHour: context.min, reason: context.reason };
+    }
+    return { resolvedHour: context.max, reason: context.reason };
+  }
+  
+  // No linguistic context - use future-biased temporal proximity
+  const option1 = hour;
+  const option2 = (hour + 12) % 24;
+  
+  // Calculate hours until each option (future only)
+  const hoursUntil1 = option1 > nowHour ? option1 - nowHour : (24 - nowHour) + option1;
+  const hoursUntil2 = option2 > nowHour ? option2 - nowHour : (24 - nowHour) + option2;
+  
+  // Choose the nearest future option
+  if (hoursUntil1 <= hoursUntil2) {
+    return { resolvedHour: option1, reason: 'temporal_proximity' };
+  }
+  return { resolvedHour: option2, reason: 'temporal_proximity' };
+}
+
+function extractTime(text: string, nowOverride?: Date): { raw: string; normalized: string; confidence: number; reason?: string } {
+  const now = nowOverride || new Date();
+  const nowHour = now.getHours();
+  const context = getTimeContext(text);
+  
+  // Explicit time with colon (e.g., "14:30")
   let match = text.match(TIME_PATTERNS.explicit);
   if (match) {
     const hour = parseInt(match[1]);
     const minute = match[2] ? match[2].substring(1) : '00';
-    return { raw: match[0], normalized: `${hour.toString().padStart(2, '0')}:${minute}`, confidence: 0.95 };
+    // Full explicit time is already unambiguous
+    return { raw: match[0], normalized: `${hour.toString().padStart(2, '0')}:${minute}`, confidence: 0.95, reason: 'explicit' };
   }
   
+  // Hebrew word numbers (e.g., "בשלוש")
   match = text.match(TIME_PATTERNS.hebrewWords);
   if (match) {
     const num = hebrewToNumber(match[1]);
     if (num !== null) {
-      const hour = num < 7 ? num + 12 : num;
-      return { raw: match[0], normalized: `${hour.toString().padStart(2, '0')}:00`, confidence: 0.85 };
+      const { resolvedHour, reason } = disambiguateHour(num, nowHour, context);
+      return { raw: match[0], normalized: `${resolvedHour.toString().padStart(2, '0')}:00`, confidence: 0.85, reason };
     }
   }
   
+  // Short numeric time (e.g., "ב12", "12")
   match = text.match(TIME_PATTERNS.short);
   if (match) {
     const hour = parseInt(match[1]);
     const minute = match[2] ? match[2].substring(1) : '00';
-    const adjustedHour = hour < 7 ? hour + 12 : hour;
-    return { raw: match[0], normalized: `${adjustedHour.toString().padStart(2, '0')}:${minute}`, confidence: 0.8 };
+    const { resolvedHour, reason } = disambiguateHour(hour, nowHour, context);
+    return { raw: match[0], normalized: `${resolvedHour.toString().padStart(2, '0')}:${minute}`, confidence: 0.85, reason };
+  }
+  
+  // Standalone number (just "12" or "2")
+  const standaloneMatch = text.match(/\b(\d{1,2})\b/);
+  if (standaloneMatch) {
+    const hour = parseInt(standaloneMatch[1]);
+    if (hour >= 1 && hour <= 12) {
+      const { resolvedHour, reason } = disambiguateHour(hour, nowHour, context);
+      return { raw: standaloneMatch[0], normalized: `${resolvedHour.toString().padStart(2, '0')}:00`, confidence: 0.75, reason };
+    }
   }
   
   return { raw: '', normalized: '', confidence: 0 };
@@ -231,6 +353,49 @@ function extractConstraints(text: string): ConstraintData[] {
   return constraints;
 }
 
+function extractRelativeAnchor(text: string): RelativeAnchor | null {
+  // Check for after_current_block_end patterns
+  for (const pattern of RELATIVE_ANCHOR_PATTERNS.afterCurrentBlockEnd) {
+    const match = text.match(pattern);
+    if (match) {
+      return {
+        type: 'after_current_block_end',
+        confidence: 0.9,
+        raw: match[0]
+      };
+    }
+  }
+  
+  // Check for at_next_block_start patterns
+  for (const pattern of RELATIVE_ANCHOR_PATTERNS.atNextBlockStart) {
+    const match = text.match(pattern);
+    if (match) {
+      return {
+        type: 'at_next_block_start',
+        confidence: 0.9,
+        raw: match[0]
+      };
+    }
+  }
+  
+  // Check for after_next_block_end patterns
+  for (const pattern of RELATIVE_ANCHOR_PATTERNS.afterNextBlockEnd) {
+    const match = text.match(pattern);
+    if (match) {
+      return {
+        type: 'after_next_block_end',
+        confidence: 0.9,
+        raw: match[0]
+      };
+    }
+  }
+  
+  return null;
+}
+
+// Export for testing
+export { extractRelativeAnchor };
+
 export function extractEntities(text: string): ExtractedEntities {
   const time = extractTime(text);
   const date = extractDate(text);
@@ -241,6 +406,7 @@ export function extractEntities(text: string): ExtractedEntities {
   const urgency = extractUrgency(text);
   const must = extractMust(text);
   const constraints = extractConstraints(text);
+  const relativeAnchor = extractRelativeAnchor(text);
   
   return {
     time: { raw: time.raw, normalized: time.normalized, confidence: time.confidence },
@@ -251,6 +417,7 @@ export function extractEntities(text: string): ExtractedEntities {
     taskName: { raw: taskName.raw, normalized: taskName.normalized, confidence: taskName.confidence },
     urgency: { raw: urgency.raw, normalized: urgency.normalized, confidence: urgency.confidence },
     must: { raw: must.raw, normalized: must.normalized, confidence: must.confidence },
-    constraints
+    constraints,
+    relativeAnchor
   };
 }
