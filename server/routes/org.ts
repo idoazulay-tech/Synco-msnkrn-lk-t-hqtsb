@@ -2,6 +2,13 @@ import { Router, Request, Response } from 'express';
 import { buildInquiryForMissingInfo, getNextQuestionForEntity, OrgInquiry, EntityInfo } from '../layers/decision/policies/orgInquiryQuestions.js';
 import { parseAnswerToUpdate } from '../layers/intent/utils/answerParsers.js';
 import { prisma } from '../lib/prisma.js';
+import { 
+  processAnswerInContext, 
+  applyEvidenceToEntity,
+  createActiveContext,
+  getActiveContextForEntity
+} from '../layers/context/contextResolutionEngine.js';
+import type { QuestionGoal } from '../layers/context/activeQuestionContext.js';
 
 const router = Router();
 
@@ -69,26 +76,39 @@ router.post('/respond', async (req: Request, res: Response) => {
   try {
     const { inquiryId, answer } = req.body;
     
-    if (!inquiryId || !answer) {
-      res.status(400).json({ error: 'inquiryId and answer are required' });
+    // CCR Rule: Accept any answer - never reject
+    if (!answer) {
+      res.status(400).json({ error: 'answer is required' });
       return;
     }
     
+    // Find inquiry, but CCR allows processing even without perfect match
     const inquiryIndex = orgStore.pendingInquiries.findIndex(i => i.id === inquiryId);
-    if (inquiryIndex === -1) {
-      res.status(404).json({ error: 'Inquiry not found' });
+    let inquiry = inquiryIndex !== -1 ? orgStore.pendingInquiries[inquiryIndex] : null;
+    
+    // CCR: If no exact inquiry match, try to find any pending inquiry for this entity
+    if (!inquiry) {
+      inquiry = orgStore.pendingInquiries.find(i => i.status === 'pending') || null;
+    }
+    
+    if (!inquiry) {
+      // CCR: Even without inquiry, process the answer for any active context
+      const contextResult = processAnswerInContext(answer);
+      res.json({
+        success: true,
+        message: 'תשובה התקבלה',
+        contextResolution: contextResult
+      });
       return;
     }
     
-    const inquiry = orgStore.pendingInquiries[inquiryIndex];
-    if (inquiry.status !== 'pending') {
-      res.status(400).json({ error: 'Inquiry already resolved' });
-      return;
-    }
+    // CCR: Process answer in context first - extract ALL possible evidence
+    const contextResult = processAnswerInContext(answer, inquiry.entity.id);
     
     const entity = pendingEntities.get(inquiry.entity.id);
     const lastContext = orgStore.lastQuestionContext;
     
+    // Also use legacy parser for backward compatibility
     const parsedAnswer = parseAnswerToUpdate(
       answer,
       lastContext?.expectedAnswerType || inquiry.question.expectedAnswerType,
@@ -99,7 +119,34 @@ router.post('/respond', async (req: Request, res: Response) => {
     let entityUpdate: Partial<PendingEntity> = {};
     let conflictResolved = false;
     
-    if (parsedAnswer.field === 'time' && parsedAnswer.value) {
+    // CCR: Apply evidence from contextResolution (CCR engine)
+    for (const evidence of contextResult.extractedEvidence) {
+      if (evidence.type === 'time' && evidence.value) {
+        entityUpdate.time = evidence.value;
+        const idx = updatedMissingInfo.indexOf('time');
+        if (idx > -1) updatedMissingInfo.splice(idx, 1);
+        const idx2 = updatedMissingInfo.indexOf('start_time');
+        if (idx2 > -1) updatedMissingInfo.splice(idx2, 1);
+      }
+      if (evidence.type === 'date' && evidence.value) {
+        entityUpdate.date = evidence.value;
+        const idx = updatedMissingInfo.indexOf('date');
+        if (idx > -1) updatedMissingInfo.splice(idx, 1);
+      }
+      if (evidence.type === 'duration' && evidence.value) {
+        entityUpdate.duration = parseInt(evidence.value) || 30;
+        const idx = updatedMissingInfo.indexOf('duration');
+        if (idx > -1) updatedMissingInfo.splice(idx, 1);
+      }
+      if (evidence.type === 'conflict_resolution') {
+        const idx = updatedMissingInfo.indexOf('conflict');
+        if (idx > -1) updatedMissingInfo.splice(idx, 1);
+        conflictResolved = true;
+      }
+    }
+    
+    // Fallback: Also apply legacy parser results (for backward compatibility)
+    if (parsedAnswer.field === 'time' && parsedAnswer.value && !entityUpdate.time) {
       entityUpdate.time = parsedAnswer.value;
       const idx = updatedMissingInfo.indexOf('time');
       if (idx > -1) updatedMissingInfo.splice(idx, 1);
@@ -107,13 +154,13 @@ router.post('/respond', async (req: Request, res: Response) => {
       if (idx2 > -1) updatedMissingInfo.splice(idx2, 1);
     }
     
-    if (parsedAnswer.field === 'date' && parsedAnswer.value) {
+    if (parsedAnswer.field === 'date' && parsedAnswer.value && !entityUpdate.date) {
       entityUpdate.date = parsedAnswer.value;
       const idx = updatedMissingInfo.indexOf('date');
       if (idx > -1) updatedMissingInfo.splice(idx, 1);
     }
     
-    if (parsedAnswer.field === 'duration' && parsedAnswer.value) {
+    if (parsedAnswer.field === 'duration' && parsedAnswer.value && !entityUpdate.duration) {
       entityUpdate.duration = parseInt(parsedAnswer.value) || 30;
       const idx = updatedMissingInfo.indexOf('duration');
       if (idx > -1) updatedMissingInfo.splice(idx, 1);
@@ -175,6 +222,11 @@ router.post('/respond', async (req: Request, res: Response) => {
           stillPending: true,
           updatedInquiry: inquiry,
           message: 'עדיין צריך מידע נוסף',
+          contextResolution: {
+            goalAchieved: contextResult.goalAchieved,
+            extractedEvidence: contextResult.extractedEvidence,
+            nextAction: contextResult.nextAction
+          }
         });
         return;
       }

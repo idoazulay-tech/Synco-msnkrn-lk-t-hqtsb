@@ -8,6 +8,13 @@ import { getAutomationLayer } from '../layers/automation/index.js';
 import { getFeedbackLayer } from '../layers/feedback/index.js';
 import type { DecisionOutput } from '../layers/decision/types/decisionTypes.js';
 import type { ReshufflePlan } from '../layers/task/types/scheduleTypes.js';
+import { 
+  processAnswerInContext, 
+  applyEvidenceToEntity,
+  createActiveContext,
+  getActiveContextForEntity,
+  getLatestUnresolvedContext
+} from '../layers/context/contextResolutionEngine.js';
 
 const router = Router();
 const taskEngine = new TaskTimeEngine();
@@ -75,17 +82,35 @@ router.post('/analyze', async (req, res) => {
 });
 
 // POST /api/answer - Answer a question from Decision Engine
+// Implements Continuous Context Resolution rule
 router.post('/answer', async (req, res) => {
   try {
-    const { answer, questionId } = req.body;
+    const { answer, questionId, entityId } = req.body;
     
-    if (!answer || !questionId) {
+    if (!answer) {
       return res.status(400).json({ 
-        error: 'Missing answer or questionId' 
+        error: 'Missing answer' 
       });
     }
 
-    // Process the answer as new input with context
+    // CONTINUOUS CONTEXT RESOLUTION: Process answer in context
+    // Rule: Every user response is valid in active context
+    // Rule: Never treat response as "incorrect" or "irrelevant"
+    const contextResult = processAnswerInContext(answer, entityId);
+    
+    // Extract evidence from answer and apply to entity
+    if (contextResult.extractedEvidence.length > 0 && entityId) {
+      const updates = applyEvidenceToEntity(entityId, contextResult.extractedEvidence);
+      
+      // Log to DecisionLog (Layer 5)
+      console.log('[CCR] Evidence extracted:', {
+        entityId,
+        evidence: contextResult.extractedEvidence,
+        updates
+      });
+    }
+
+    // Also process through orchestrator for full intent analysis
     const orchestrator = getOrchestrator();
     const result = await orchestrator.processInput(answer, 'text');
     
@@ -104,8 +129,10 @@ router.post('/answer', async (req, res) => {
       }
     );
 
-    // Clear the question
-    getStore().setLastQuestion(null);
+    // Clear the question only if goal achieved (CCR rule: maintain context until resolved)
+    if (contextResult.goalAchieved) {
+      getStore().setLastQuestion(null);
+    }
 
     res.json({
       input: result.input,
@@ -116,7 +143,14 @@ router.post('/answer', async (req, res) => {
         ...processResult.uiInstructions,
         automation: automationResult
       },
-      timestamp: result.timestamp
+      timestamp: result.timestamp,
+      // CCR: Include context resolution result
+      contextResolution: {
+        goalAchieved: contextResult.goalAchieved,
+        extractedEvidence: contextResult.extractedEvidence,
+        nextAction: contextResult.nextAction,
+        followupQuestion: contextResult.followupQuestion
+      }
     });
   } catch (error) {
     console.error('Error in /api/answer:', error);
