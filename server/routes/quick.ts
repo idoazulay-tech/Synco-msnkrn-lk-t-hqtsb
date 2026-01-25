@@ -80,16 +80,23 @@ router.post('/', async (req: Request, res: Response) => {
       
       if (missingInfo.length > 0 || result.task.needs_clarification) {
         const entityId = crypto.randomUUID();
-        const entityType = result.task.type === 'event' ? 'event' : 'task';
+        const entityType: 'task' | 'event' = (result.task.type === 'meeting' || result.task.type === 'appointment') ? 'event' : 'task';
+        
+        let duration: number | undefined;
+        if (result.task.start_time && result.task.end_time) {
+          const [sh, sm] = result.task.start_time.split(':').map(Number);
+          const [eh, em] = result.task.end_time.split(':').map(Number);
+          duration = (eh * 60 + em) - (sh * 60 + sm);
+        }
         
         const pendingEntity: PendingEntity = {
           id: entityId,
           type: entityType,
           title: result.task.title,
           schedulingStatus: 'pending',
-          date: result.task.start_date,
-          time: result.task.start_time,
-          duration: result.task.duration_minutes,
+          date: result.task.start_date || undefined,
+          time: result.task.start_time || undefined,
+          duration,
           missingInfo: missingInfo.length > 0 ? missingInfo : (result.conflict ? ['conflict'] : ['unknown']),
           createdAtIso: new Date().toISOString(),
         };
@@ -100,9 +107,9 @@ router.post('/', async (req: Request, res: Response) => {
           id: entityId,
           type: entityType,
           title: result.task.title,
-          date: result.task.start_date,
-          time: result.task.start_time,
-          duration: result.task.duration_minutes,
+          date: result.task.start_date || undefined,
+          time: result.task.start_time || undefined,
+          duration,
         };
         
         let inquiry: OrgInquiry | null = null;
