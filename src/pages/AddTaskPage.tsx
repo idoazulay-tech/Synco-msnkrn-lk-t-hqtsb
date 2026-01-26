@@ -295,12 +295,14 @@ const AddTaskPage = () => {
             <button 
               onClick={() => setShowVoiceInput(!showVoiceInput)}
               className={cn(
-                'p-2 rounded-full transition-colors',
-                showVoiceInput ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
+                'p-3 rounded-full transition-all shadow-md',
+                showVoiceInput 
+                  ? 'bg-orange-500 text-white animate-pulse shadow-orange-500/50' 
+                  : 'bg-orange-500 hover:bg-orange-600 text-white'
               )}
               data-testid="button-voice-input"
             >
-              {showVoiceInput ? <Mic className="w-5 h-5 animate-pulse" /> : <Mic className="w-5 h-5" />}
+              {showVoiceInput ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
           </div>
           
