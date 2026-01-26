@@ -1,3 +1,6 @@
+import { parseTemporalHe } from '../layers/temporal/index.js';
+import type { TimePoint } from '../layers/temporal/types.js';
+
 export type TaskType = 'meeting' | 'appointment' | 'errand' | 'task' | 'reminder';
 export type Priority = 'low' | 'medium' | 'high';
 export type MoodHint = 'calm' | 'stressed' | 'angry' | 'sad' | 'anxious' | 'excited' | 'tired' | 'neutral';
@@ -243,6 +246,42 @@ function extractDate(text: string): { date: string | null; time: string | null; 
   let date: Date | null = null;
   let time: string | null = null;
   let end_time: string | null = null;
+
+  // First, try the temporal engine for comprehensive Hebrew parsing
+  try {
+    const temporal = parseTemporalHe(text, now);
+    if (temporal.confidence >= 0.7) {
+      if (temporal.type === 'timepoint') {
+        const tp = temporal as TimePoint;
+        if (tp.date) {
+          date = new Date(tp.date);
+        }
+        if (tp.time) {
+          time = tp.time;
+        }
+      } else if (temporal.type === 'datepoint') {
+        const dp = temporal as { date: string };
+        date = new Date(dp.date);
+      } else if (temporal.type === 'interval') {
+        const intv = temporal as { start?: string; end?: string };
+        if (intv.start) {
+          const startParts = intv.start.split('T');
+          if (startParts[0]) date = new Date(startParts[0]);
+          if (startParts[1]) time = startParts[1].substring(0, 5);
+        }
+        if (intv.end) {
+          const endParts = intv.end.split('T');
+          if (endParts[1]) end_time = endParts[1].substring(0, 5);
+        }
+      }
+      // If we got time from temporal engine, return early for time (but continue for date parsing)
+      if (time && date) {
+        return { date: date.toISOString().split('T')[0], time, end_time };
+      }
+    }
+  } catch {
+    // Fall through to legacy parsing
+  }
 
   // Handle "עכשיו" as current time - sets both date and time
   if (/עכשיו/.test(text)) {

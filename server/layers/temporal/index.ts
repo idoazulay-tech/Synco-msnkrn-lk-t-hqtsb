@@ -117,6 +117,28 @@ export function parseTemporalHe(
     };
   }
   
+  // Handle Hebrew word hours with ב prefix (e.g., "בשש", "בשמונה")
+  const hebrewHourWithBet: Record<string, number> = {
+    'באחת': 1, 'באחד': 1, 'בשתיים': 2, 'בשניים': 2, 'בשני': 2,
+    'בשלוש': 3, 'בארבע': 4, 'בחמש': 5, 'בשש': 6, 'בשבע': 7,
+    'בשמונה': 8, 'בתשע': 9, 'בעשר': 10, 'באחת עשרה': 11, 'בשתים עשרה': 12
+  };
+  
+  for (const [word, hourVal] of Object.entries(hebrewHourWithBet)) {
+    if (text.includes(word)) {
+      let hour = applyDayPartToHour(hourVal, dayPart);
+      return {
+        type: 'timepoint',
+        date: dateStr,
+        time: `${hour.toString().padStart(2, '0')}:00`,
+        timezone,
+        confidence: dayPart ? 0.95 : 0.85,
+        sourceText: text,
+        reason: 'simple_hour'
+      };
+    }
+  }
+
   const simpleHourMatch = text.match(/(?:ב-?)?(\d{1,2})(?:\s|$)/);
   if (simpleHourMatch) {
     let hour = parseInt(simpleHourMatch[1], 10);
