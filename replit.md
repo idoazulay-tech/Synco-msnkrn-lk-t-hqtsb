@@ -33,6 +33,25 @@ Preferred communication style: Simple, everyday language.
     - **Contextual Time Disambiguation**: Smart parsing of ambiguous time inputs (e.g., "12") based on linguistic context (בוקר/צהריים/ערב/לילה) and future-biased temporal proximity.
     - **TIME_SPOKEN_HE_IL_TO_DIGITAL**: Modular parser for spoken Hebrew time (e.g., "שמונה חמישים ותשע" → 8:59). Supports round hours ("שמונה בדיוק", "שמונה עגול"), all minute values 00-59, and validates output.
 
+### Temporal Engine (ma_temporal_engine_he_v1)
+A comprehensive Hebrew temporal expression parser integrated into MA's Intent Engine. Located at `server/layers/temporal/`.
+
+**Capabilities:**
+- **Spoken times**: "שמונה חמישים ותשע" → 08:59
+- **Quarter/Half expressions**: "עשר ורבע" → 10:15, "רבע לשמונה" → 07:45, "שלוש חסר רבע" → 02:45
+- **Day parts**: "8 בערב" → 20:00, "8 בבוקר" → 08:00
+- **Relative dates**: "מחר", "מחרתיים", "בעוד שבוע", "יום שני הבא"
+- **Durations**: "שעתיים", "חצי שעה", "45 דקות"
+- **Time intervals**: "מ-10 עד 12", "בין 8 ל-10"
+- **Recurrence patterns**: "כל יום שני", "פעמיים בשבוע"
+- **Ambiguous expressions**: "בערך", "לקראת", "סוף היום" → Returns hints instead of guessing
+
+**Output Types:** TimePoint, DatePoint, Duration, Interval, Recurrence, AmbiguousTime
+
+**API Endpoints:** `/api/temporal/parse`, `/api/temporal/suggest`, `/api/temporal/demo`
+
+**Integration:** Automatically used by `extractEntities` in the Intent Engine, with fallback to legacy parsers when confidence is low.
+
 ### Backend and AI Architecture
 The backend is built with Express.js and TypeScript, using PostgreSQL via Prisma. It incorporates a 7-Layer AI architecture for intelligent task management:
 1.  **Input Layer**: Text normalization.
