@@ -1,7 +1,64 @@
-# Task Timer App
+# Synco (סינקו) - Task Timer App
+**סלוגן:** "מסנכרן לך את הקצב"
+
+---
+
+## Development Methodology (מתודולוגיית פיתוח)
+
+### Protocol: Before Implementing Any Feature
+
+**שלב 1: סיווג ההנחיה**
+| סוג | הגדרה | דוגמאות |
+|-----|-------|---------|
+| A | חוק-על מערכת (System Law/Gate) | "אסור לשבץ משימות בשבת" |
+| B | לוגיקה פנימית של שכבה קיימת | שיפור parser קיים |
+| C | פיצ'ר חדש | הוספת תמיכה בסוג משימה חדש |
+| D | הרחבה/חיזוק פיצ'ר קיים | הוספת כפתור הקלטה לדף |
+
+**שלב 2: היררכיית שכבות Synco (עדיפות יורדת)**
+```
+1. Core / Laws / Gates (חוקי-על) ← תמיד גוברים
+   └── server/layers/decision/policies/
+   
+2. NLP & Time Understanding (הבנת שפה וזמן)
+   └── server/layers/temporal/
+   └── server/layers/intent/
+   └── server/services/ruleEngine.ts
+   
+3. Task Classification (סיווג משימות)
+   └── server/layers/task/rules/taskTypeClassifier.ts
+   └── server/layers/intent/rules/patterns.ts
+   
+4. Scheduler & Optimization (שיבוץ והזזה)
+   └── server/layers/task/planners/
+   └── server/layers/task/TaskTimeEngine.ts
+   
+5. UI & Integrations (ממשק וחיבורים)
+   └── src/pages/
+   └── src/components/
+   └── server/layers/automation/
+```
+
+**שלב 3: שמירת יכולות קיימות (חובה)**
+- אסור לשבור/לעקוף/להחליש פיצ'רים קיימים
+- אם נדרש קוד חדש לשמירת התנהגות - הוסף
+- אם מסדרים קבצים - עדכן imports, בדוק רגרסיות
+- אל תמחק קוד בלי תחליף עובד
+
+**שלב 4: בדיקת סתירות**
+- חוק-על תמיד קודם
+- אם יש ספק → needs_clarification
+
+**שלב 5: דיווח סיום**
+- שכבה שהושפעה
+- קבצים שהשתנו
+- מה נוסף/שונה
+- אישור: "לא נפגעו יכולות קיימות"
+
+---
 
 ## Overview
-The Task Timer App is a Hebrew-language task management and timer application built with React, designed to help users manage daily tasks through time-based scheduling. It focuses on providing an ADHD-friendly solution by simplifying interaction and promoting mental focus. Key features include a circular progress timer, calendar views, task completion tracking, and management of unscheduled standby tasks.
+Synco is a Hebrew-language task management and timer application built with React, designed to help users manage daily tasks through time-based scheduling. It focuses on providing an ADHD-friendly solution by simplifying interaction and promoting mental focus. Key features include a circular progress timer, calendar views, task completion tracking, and management of unscheduled standby tasks.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
