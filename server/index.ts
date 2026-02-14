@@ -13,6 +13,7 @@ import feedbackRoutes from './routes/feedback.js';
 import orgRoutes from './routes/org.js';
 import temporalRoutes from './routes/temporal.js';
 import { testQdrantConnection } from './lib/qdrant.js';
+import { initQdrantCollections } from './lib/qdrant-init.js';
 
 const app = express();
 
@@ -38,9 +39,10 @@ app.get('/api/health', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`HaMefraket server running on port ${PORT}`);
-  testQdrantConnection();
+  await testQdrantConnection();
+  await initQdrantCollections();
 });
 
 export { prisma };
