@@ -1,0 +1,279 @@
+1) הסבר מילולי
+
+Synco Brain v1 בנוי כמו מוח עם 3 אזורים:
+
+אזור A: מוח פעיל (בריפליט)
+
+זה השרת שלך שמקבל הודעה, מבין אותה, מחליט מה לעשות, ושואל שאלות כשהוא לא בטוח.
+
+אזור B: זיכרון ארוך (Qdrant)
+
+זה המחסן של המשמעויות. כל משפט, פעולה, כלל, ותובנה נשמרים שם בצורה שמאפשרת לחפש לפי משמעות, לא לפי מילים.
+
+אזור C: ספריית ידע והרחבה
+
+זה המקום שבו סינקו נהיה “חכם מטורף”:
+
+מאגר כלים ופרוטוקולים פנימי
+
+הרחבת ידע לפי צורך (מחקר ממוקד)
+אבל רק כשיש סיבה טובה, ולא על כל מילה.
+
+התוצאה:
+כל אינטראקציה מוסיפה שכבה למוח של המשתמש, אבל בתחילת הדרך הכל נשאר “למידה” עם שאלות ואישורים, בלי לכפות החלטות.
+
+2) הסבר טכני
+2.1 מודולים בריפליט (שרת Synco)
+
+זה מבנה מודולרי מומלץ. כל מודול הוא קובץ או שירות.
+
+Ingestion Service
+מקבל כל הודעה או פעולה מהאפליקציה ומייצר “אירוע” אחיד
+
+Understanding Service (OpenAI)
+מנתח את האירוע ומחזיר JSON מובנה:
+
+כוונה (intent)
+
+נושאים (topics)
+
+ישויות (entities) כמו כתובת, זמן, אדם, מקום, סכום
+
+עובדות שהמשתמש אמר
+
+תובנות אפשריות (candidate insights) עם confidence
+
+שאלת המשך מומלצת אחת (אם צריך)
+
+Memory Service (Qdrant)
+שומר embeddings ו metadata
+וגם עושה retrieval לפי משמעות
+
+Policy and Safety Gate
+מחליט מה מותר לעשות עכשיו לפי מצב המשתמש:
+
+Learning Mode (משתמש חדש)
+
+רגישות הפעולה
+
+חוקים מאושרים
+
+Planning Service
+בונה הצעות לוז, פירוק משימות, סדר עדיפויות, בופרים, דיילי פוקוס
+
+Curiosity Scheduler
+מייצר “משימות למידה” פנימיות כמו:
+
+ללמוד תחום מסוים בהיקף קטן
+
+לחפש מידע חיצוני רק כשנדרש
+הוא תמיד עובד עם מגבלות תקציב וחשיבות
+
+Response Composer
+מייצר תשובה למשתמש בשפה שהוא אוהב
+וגם מחזיר actions מוצעות
+
+2.2 Qdrant Collections חובה
+
+כדי שמוח יגדל נכון, מפרידים סוגי זיכרון. זה הכי חשוב.
+
+user_events
+כל דבר שקרה בפועל: הודעה, משימה, שינוי, ביטול, תוצאה
+
+user_insights
+מסקנות על המשתמש שנגזרות מאירועים, עם ראיות
+
+user_profile
+חוקים והעדפות מאושרים ויציבים
+
+synco_knowledge
+מאגר היכולות והידע הכללי של סינקו (פרוטוקולים וכלים)
+
+אופציונלי אבל מומלץ מאוד ב v1.1
+5) user_patterns
+דפוסים מחושבים (דחיינות, עומסים, שעות חזקות)
+
+2.3 שדות metadata מומלצים לכל קולקשן
+user_events
+
+userId
+
+eventId
+
+type : message | task | event | rule_candidate | preference_candidate | outcome
+
+timestamp
+
+source : user | system
+
+status : created | moved | done | skipped | canceled
+
+topics : רשימת תגיות
+
+entities : כתובת, שעה, מקום, סכום, אדם (לפי מה שנמצא)
+
+importance : low | medium | high
+
+user_insights
+
+userId
+
+insightId
+
+insightType : procrastination | preference | trigger | motivation | routine
+
+statement : משפט קצר וברור
+
+confidence : 0 עד 1
+
+evidenceEventIds : רשימת eventId שתומכים בזה
+
+createdAt
+
+status : proposed | confirmed | rejected
+
+user_profile
+
+userId
+
+profileItemId
+
+category : scheduling | communication | boundaries | energy | priorities
+
+ruleOrPreference : משפט קצר
+
+value : מספר/בוליאני/טקסט קצר
+
+confirmedByUser : true/false
+
+updatedAt
+
+synco_knowledge
+
+knowledgeId
+
+domain : travel | health | football | productivity | psychology
+
+title
+
+summary
+
+whenToUse
+
+contraindications : מתי לא להשתמש
+
+sources : אם זה הגיע ממחקר חיצוני
+
+updatedAt
+
+3) זרימת עבודה מלאה לכל הודעה של משתמש
+
+זה ה Flow הקבוע, והוא “הסוכן” בפועל.
+
+Receive
+הודעה נכנסת
+
+Ingest
+מייצרים event ושומרים אותו מיד
+
+Embed and Store
+יוצרים embedding לטקסט ושומרים ב user_events
+
+Retrieve Context
+שליפה סמנטית מ Qdrant:
+
+8 תוצאות הכי רלוונטיות מ user_events
+
+5 תוצאות מ user_profile
+
+5 תוצאות מ user_insights
+
+ואם צריך ידע כללי: 5 תוצאות מ synco_knowledge
+
+Understand
+שולחים ל OpenAI את ההודעה + ההקשרים שחזרו
+ומקבלים JSON עם ניתוח ותובנות
+
+Update Brain
+
+שומרים candidate insights ב user_insights כ proposed
+
+אם המשתמש אישר משהו במפורש, משדרגים ל user_profile
+
+Decide Actions
+Policy Gate:
+
+אם Learning Mode פעיל, פעולות רגישות דורשות אישור
+
+אם confidence נמוך, שואלים שאלה אחת במקום להחליט
+
+Respond
+מייצרים תשובה למשתמש + הצעה אחת עד שלוש
+עם שאלה אחת מקסימום אם צריך
+
+Schedule Curiosity
+אם חסר ידע כדי לעזור, יוצרים learning task קטן וממוקד
+
+4) Learning Mode לימים הראשונים
+
+זה מנגנון חובה כדי לשמור אמון.
+
+מצב ברירת מחדל למשתמש חדש: learning_mode = true
+
+חוקים:
+
+סינקו לא מזיז דברים חשובים לבד
+
+סינקו לא משנה חוקים לבד
+
+סינקו כן מציע טיוטות ומבקש אישור
+
+כל insight נשמר כ proposed עד שיש:
+
+אישור מפורש מהמשתמש, או
+
+2 עד 3 ראיות עקביות
+
+רמות הרשאה לפעולות
+
+Safe actions: הצעת סדר, פירוק משימה, הצעת חלון זמן
+
+Sensitive actions: הזזה של פגישה, שינוי כלל, מחיקה, קיצור שינה
+
+ב Learning Mode, sensitive תמיד אישור.
+
+5) Curiosity Engine חכם
+
+כדי להיות “מוח אינסופי” בלי להיחנק
+
+כל הודעה יכולה להוליד “משימת למידה” אבל רק אם:
+
+זה רלוונטי עכשיו, או
+
+זה צפוי לחזור, או
+
+חסר ידע כדי להציע פתרון טוב
+
+ואז עושים למידה בסקופ קטן:
+לא “ללמוד בריאות”, אלא “שיפור שינה לפני אימון”
+לא “ללמוד כדורגל”, אלא “סיבולת לכדורגל לפי לוז שבועי”
+
+מגבלות v1 מומלצות:
+
+עד 2 משימות למידה ביום למשתמש חדש
+
+עד 1 מחקר נושא בשבוע לכל תחום, אלא אם יש צורך דחוף
+
+6) מה צריך להגדיר ב Qdrant בפועל
+
+כן צריך לעשות שם דברים, אבל הם טכניים:
+
+ליצור את הקולקשנים
+
+להגדיר vector size לפי מודל embeddings שתבחר
+
+להגדיר index (ברירת מחדל של Qdrant לרוב מספיק)
+
+להחליט filtering לפי userId כדי להפריד משתמשים
+
+כל השאר, כולל סוכנים, לוגיקה, למידה, חיזוי, זה בריפליט.
