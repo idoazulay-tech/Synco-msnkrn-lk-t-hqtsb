@@ -33,8 +33,15 @@ function safeParseJson(str: unknown): Record<string, unknown> | null {
 function formatContext(context: BrainContext): string {
   const parts: string[] = [];
 
+  if (context._userMemories && context._userMemories.length > 0) {
+    parts.push("הודעות קודמות של המשתמש:");
+    context._userMemories.forEach(m => {
+      parts.push(`  - "${m.text}" (${m.timestamp})`);
+    });
+  }
+
   if (context.userProfile.length > 0) {
-    parts.push("פרופיל המשתמש:");
+    parts.push("\nפרופיל המשתמש:");
     context.userProfile.forEach(p => {
       const cat = p.payload.category || '';
       const key = p.payload.key || '';
@@ -53,9 +60,8 @@ function formatContext(context: BrainContext): string {
   if (context.recentEvents.length > 0) {
     parts.push("\nאירועים אחרונים:");
     context.recentEvents.forEach(e => {
-      const payload = safeParseJson(e.payload.payload) || e.payload;
-      const text = payload?.normalizedText || payload?.originalText || e.payload.type;
-      parts.push(`  - [${e.payload.type}] ${text} (${e.payload.timestamp})`);
+      const text = e.payload.text || e.payload.type;
+      parts.push(`  - ${text} (${e.payload.timestamp})`);
     });
   }
 

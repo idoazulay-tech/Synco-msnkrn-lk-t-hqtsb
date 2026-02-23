@@ -2,6 +2,7 @@ import { qdrant } from "../../lib/qdrant.js";
 import { generateEmbedding } from "../utils/openai-client.js";
 import type { BrainEvent, MemorySearchResult, BrainInsight, UserProfileEntry } from "../types/index.js";
 import { createTextForEmbedding } from "./ingestion.js";
+import { v4 as uuid } from "uuid";
 import { v5 as uuidv5 } from "uuid";
 
 const COLLECTIONS = {
@@ -11,14 +12,90 @@ const COLLECTIONS = {
   knowledge: "synco_knowledge",
 } as const;
 
-export async function storeEvent(event: BrainEvent): Promise<string> {
+export interface UserMemoryHit {
+  text: string;
+  timestamp: string;
+  score: number;
+}
+
+export async function storeUserMessage(
+  userId: string,
+  text: string,
+  meta?: { type?: string; source?: string }
+): Promise<string> {
+  const pointId = uuid();
+
   if (!qdrant) {
-    console.warn("Qdrant not available, skipping event storage");
+    console.warn("[Memory] Qdrant not available, skipping event storage");
+    return pointId;
+  }
+
+  const { vector, isFallback } = await generateEmbedding(text);
+  const timestamp = new Date().toISOString();
+
+  await qdrant.upsert(COLLECTIONS.events, {
+    wait: true,
+    points: [{
+      id: pointId,
+      vector,
+      payload: {
+        userId,
+        text,
+        timestamp,
+        type: meta?.type ?? "message",
+        source: meta?.source ?? "user",
+        isFallbackEmbedding: isFallback,
+      },
+    }],
+  });
+
+  console.log(`[Memory] saved event ${pointId} for user ${userId} (fallback=${isFallback})`);
+  return pointId;
+}
+
+export async function searchUserMemory(
+  userId: string,
+  queryText: string,
+  limit: number = 5
+): Promise<UserMemoryHit[]> {
+  if (!qdrant) return [];
+
+  const { vector } = await generateEmbedding(queryText);
+
+  const results = await qdrant.search(COLLECTIONS.events, {
+    vector,
+    limit,
+    with_payload: true,
+    filter: {
+      must: [{ key: "userId", match: { value: userId } }],
+    },
+  });
+
+  console.log(`[Memory] retrieved ${results.length} memories for user ${userId}`);
+
+  return results.map(r => ({
+    text: String(r.payload?.text ?? ""),
+    timestamp: String(r.payload?.timestamp ?? ""),
+    score: r.score,
+  }));
+}
+
+export async function storeEvent(event: BrainEvent): Promise<string> {
+  const text = event.payload.normalizedText || event.payload.originalText;
+  if (typeof text === "string") {
+    return storeUserMessage(event.userId, text, {
+      type: event.type,
+      source: event.source,
+    });
+  }
+
+  if (!qdrant) {
+    console.warn("[Memory] Qdrant not available, skipping event storage");
     return event.id;
   }
 
-  const text = createTextForEmbedding(event);
-  const { vector } = await generateEmbedding(text);
+  const embeddingText = createTextForEmbedding(event);
+  const { vector, isFallback } = await generateEmbedding(embeddingText);
 
   await qdrant.upsert(COLLECTIONS.events, {
     wait: true,
@@ -27,16 +104,16 @@ export async function storeEvent(event: BrainEvent): Promise<string> {
       vector,
       payload: {
         userId: event.userId,
+        text: embeddingText,
         type: event.type,
-        payload: JSON.stringify(event.payload),
         timestamp: event.timestamp.toISOString(),
         source: event.source,
-        status: "active",
-        importance: calculateImportance(event),
+        isFallbackEmbedding: isFallback,
       },
     }],
   });
 
+  console.log(`[Memory] saved event ${event.id} for user ${event.userId} (fallback=${isFallback})`);
   return event.id;
 }
 

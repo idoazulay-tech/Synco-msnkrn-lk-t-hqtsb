@@ -1,5 +1,5 @@
 import { ingestEvent, type RawInput } from "./services/ingestion.js";
-import { storeEvent, storeInsight, buildContext } from "./services/memory.js";
+import { storeEvent, storeInsight, storeUserMessage, searchUserMemory, buildContext } from "./services/memory.js";
 import { analyzeWithContext } from "./services/understanding.js";
 import { evaluatePolicy, getUserLearningState, updateLearningState } from "./services/policy.js";
 import { scheduleCuriosityQuestions, getNextCuriosityQuestion, markCuriosityAnswered, getPendingCuriosity } from "./services/curiosity.js";
@@ -9,29 +9,22 @@ import type { BrainResponse, BrainContext } from "./types/index.js";
 export async function processBrainInput(
   userId: string,
   text: string,
-  type: RawInput['type'] = 'manual_input',
+  type: RawInput['type'] = 'message',
   extraPayload?: Record<string, unknown>
 ): Promise<BrainResponse> {
-  const rawInput: RawInput = {
-    userId,
-    text,
-    type,
-    payload: extraPayload,
-    source: 'user',
-  };
-
-  const event = ingestEvent(rawInput);
-
   await updateLearningState(userId, 'event');
 
-  const [, memoryContext] = await Promise.all([
-    storeEvent(event),
-    buildContext(text, userId),
+  const [, memories] = await Promise.all([
+    storeUserMessage(userId, text, { type, source: "user" }),
+    searchUserMemory(userId, text, 5),
   ]);
+
+  const memoryContext = await buildContext(text, userId);
 
   const context: BrainContext = {
     userId,
     ...memoryContext,
+    _userMemories: memories,
   };
 
   const understanding = await analyzeWithContext(text, context);

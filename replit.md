@@ -169,7 +169,7 @@ Located at `server/brain/`. An AI-powered learning system with long-term memory 
 
 **6 Services Pipeline:**
 1. **Ingestion** (`services/ingestion.ts`): Normalizes Hebrew text, extracts metadata, creates embedding text
-2. **Memory** (`services/memory.ts`): Stores/retrieves from Qdrant with semantic search, persists learning state
+2. **Memory** (`services/memory.ts`): `storeUserMessage(userId, text, meta)` saves to user_events with userId/text/timestamp/type/isFallbackEmbedding. `searchUserMemory(userId, queryText, limit)` retrieves with MUST userId filter. Also: `buildContext()`, `storeLearningState()`, `storeInsight()`
 3. **Understanding** (`services/understanding.ts`): OpenAI analysis with Hebrew system prompt, validates JSON output
 4. **Policy Gate** (`services/policy.ts`): Trust progression (learning → cautious → trusted), persisted in Qdrant
 5. **Curiosity** (`services/curiosity.ts`): Schedules proactive questions, deduplication, priority queue

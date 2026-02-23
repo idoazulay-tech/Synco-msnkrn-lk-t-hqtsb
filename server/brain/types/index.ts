@@ -1,7 +1,7 @@
 export interface BrainEvent {
   id: string;
   userId: string;
-  type: 'task_created' | 'task_completed' | 'task_skipped' | 'task_postponed' |
+  type: 'message' | 'task_created' | 'task_completed' | 'task_skipped' | 'task_postponed' |
         'schedule_changed' | 'preference_expressed' | 'feedback_given' |
         'check_in_response' | 'voice_input' | 'manual_input';
   payload: Record<string, unknown>;
@@ -40,12 +40,19 @@ export interface MemorySearchResult {
   collection: string;
 }
 
+export interface UserMemoryHit {
+  text: string;
+  timestamp: string;
+  score: number;
+}
+
 export interface BrainContext {
   userId: string;
   recentEvents: MemorySearchResult[];
   relevantInsights: MemorySearchResult[];
   userProfile: MemorySearchResult[];
   knowledgeHints: MemorySearchResult[];
+  _userMemories?: UserMemoryHit[];
 }
 
 export interface PolicyDecision {
