@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import HomePage from "./pages/HomePage";
 import DayViewPage from "./pages/DayViewPage";
 import MonthViewPage from "./pages/MonthViewPage";
@@ -18,6 +18,11 @@ import AILabPage from "./pages/AILabPage";
 import ShikulPage from "./pages/ShikulPage";
 import NotFound from "./pages/NotFound";
 import OnboardingPage from "./pages/OnboardingPage";
+
+const RescheduleRedirect = () => {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/task/${id}/edit`} replace />;
+};
 
 const defaultQueryFn = async ({ queryKey }: { queryKey: readonly unknown[] }) => {
   const url = queryKey[0] as string;
@@ -49,7 +54,7 @@ const App = () => (
           <Route path="/day" element={<DayViewPage />} />
           <Route path="/month" element={<MonthViewPage />} />
           <Route path="/task/:id" element={<TaskDetailPage />} />
-          <Route path="/task/:id/reschedule" element={<EditTaskPage />} />
+          <Route path="/task/:id/reschedule" element={<RescheduleRedirect />} />
           <Route path="/task/:id/edit" element={<EditTaskPage />} />
           <Route path="/add" element={<AddTaskPage />} />
           <Route path="/standby" element={<StandbyPage />} />

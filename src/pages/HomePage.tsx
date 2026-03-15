@@ -262,7 +262,7 @@ const HomePage = () => {
               <Button
                 variant="outline"
                 className="flex-1 gap-2"
-                onClick={() => navigate('/day')}
+                onClick={() => navigate(`/task/${currentTask.id}/edit`)}
                 data-testid="button-dismiss-task"
               >
                 <Calendar className="w-4 h-4" />

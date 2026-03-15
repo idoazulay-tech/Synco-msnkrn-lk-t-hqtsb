@@ -140,7 +140,6 @@ const EditTaskPage = () => {
       tags: selectedTags,
       repeat: repeatRule || undefined,
       isAllDay: isAllDay || undefined,
-      status: 'pending',
     });
 
     toast({
