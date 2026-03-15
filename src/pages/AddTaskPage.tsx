@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X, Calendar, Archive, AlertCircle, ChevronDown, ChevronUp, Repeat } from 'lucide-react';
-import { format, setHours, setMinutes, startOfDay } from 'date-fns';
+import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X, Calendar, Archive, AlertCircle, ChevronDown, ChevronUp, Repeat, Sun } from 'lucide-react';
+import { format, setHours, setMinutes, startOfDay, endOfDay } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -60,6 +60,7 @@ const AddTaskPage = () => {
   const [isListening, setIsListening] = useState(false);
   const [conflicts, setConflicts] = useState<Task[]>([]);
   const [showExtraOptions, setShowExtraOptions] = useState(false);
+  const [isAllDay, setIsAllDay] = useState(false);
   const [showRepeatPanel, setShowRepeatPanel] = useState(false);
   const [repeatRule, setRepeatRule] = useState<RecurringRule | null>(null);
   const [repeatFreq, setRepeatFreq] = useState<RepeatFrequency>('daily');
@@ -240,10 +241,15 @@ const AddTaskPage = () => {
 
     if (mode === 'calendar') {
       const taskDate = new Date(selectedDate);
-      const taskStartTime = setMinutes(setHours(startOfDay(taskDate), startHour), startMinute);
-      const taskEndTime = setMinutes(setHours(startOfDay(taskDate), endTime.hour), endTime.minute);
+      const taskStartTime = isAllDay
+        ? startOfDay(taskDate)
+        : setMinutes(setHours(startOfDay(taskDate), startHour), startMinute);
+      const taskEndTime = isAllDay
+        ? endOfDay(taskDate)
+        : setMinutes(setHours(startOfDay(taskDate), endTime.hour), endTime.minute);
+      const taskDuration = isAllDay ? 24 * 60 : actualDurationMinutes;
 
-      if (conflicts.length > 0 && settings.conflictAlerts) {
+      if (!isAllDay && conflicts.length > 0 && settings.conflictAlerts) {
         addNotification({
           type: 'conflict',
           title: 'נוספה משימה עם חפיפה',
@@ -257,10 +263,11 @@ const AddTaskPage = () => {
         location: location.trim() || undefined,
         startTime: taskStartTime,
         endTime: taskEndTime,
-        duration: actualDurationMinutes,
+        duration: taskDuration,
         status: 'pending',
         tags: selectedTags,
         repeat: repeatRule || undefined,
+        isAllDay: isAllDay || undefined,
       });
 
       toast({
@@ -434,7 +441,23 @@ const AddTaskPage = () => {
                 onChange={(e) => setSelectedDate(e.target.value)}
                 data-testid="input-date"
               />
-              
+
+              <button
+                onClick={() => setIsAllDay(!isAllDay)}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border',
+                  isAllDay
+                    ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                    : 'bg-secondary/50 text-muted-foreground border-border hover:border-primary/40'
+                )}
+                data-testid="button-toggle-allday"
+              >
+                <Sun className="w-4 h-4" />
+                <span>כל היום</span>
+                {isAllDay && <span className="text-xs opacity-70">✓</span>}
+              </button>
+
+              {!isAllDay && (
               <div className="space-y-4 bg-muted/30 rounded-lg p-4" dir="rtl">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex-1">
@@ -467,6 +490,7 @@ const AddTaskPage = () => {
                   onDurationSelect={handleDurationSelect}
                 />
               </div>
+              )}
             </motion.div>
           )}
 

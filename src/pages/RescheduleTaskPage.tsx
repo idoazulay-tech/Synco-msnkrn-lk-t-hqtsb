@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Clock, MapPin, Tag, FileText, ChevronDown, ChevronUp, Repeat, X } from 'lucide-react';
-import { format, setHours, setMinutes, startOfDay, differenceInMinutes, addDays } from 'date-fns';
+import { ArrowRight, Clock, MapPin, Tag, FileText, ChevronDown, ChevronUp, Repeat, X, Sun } from 'lucide-react';
+import { format, setHours, setMinutes, startOfDay, endOfDay, differenceInMinutes, addDays } from 'date-fns';
 import { he } from 'date-fns/locale';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,7 @@ const EditTaskPage = () => {
   const [selectedTags, setSelectedTags] = useState<TagType[]>([]);
   const [showExtraOptions, setShowExtraOptions] = useState(false);
 
+  const [isAllDay, setIsAllDay] = useState(false);
   const [showRepeatPanel, setShowRepeatPanel] = useState(false);
   const [repeatRule, setRepeatRule] = useState<RecurringRule | null>(null);
   const [repeatFreq, setRepeatFreq] = useState<RepeatFrequency>('daily');
@@ -65,6 +66,8 @@ const EditTaskPage = () => {
         setRepeatEndDate(task.repeat.endDate || '');
         setRepeatEndCount(task.repeat.endCount || 10);
       }
+
+      setIsAllDay(task.isAllDay || false);
 
       if (task.description || task.location || (task.tags && task.tags.length > 0)) {
         setShowExtraOptions(true);
@@ -119,8 +122,13 @@ const EditTaskPage = () => {
     }
 
     const taskDate = new Date(selectedDate);
-    const taskStartTime = setMinutes(setHours(startOfDay(taskDate), startHour), startMinute);
-    const taskEndTime = setMinutes(setHours(startOfDay(taskDate), endTime.hour), endTime.minute);
+    const taskStartTime = isAllDay
+      ? startOfDay(taskDate)
+      : setMinutes(setHours(startOfDay(taskDate), startHour), startMinute);
+    const taskEndTime = isAllDay
+      ? endOfDay(taskDate)
+      : setMinutes(setHours(startOfDay(taskDate), endTime.hour), endTime.minute);
+    const taskDuration = isAllDay ? 24 * 60 : actualDurationMinutes;
 
     updateTask(task.id, {
       title: title.trim(),
@@ -128,9 +136,10 @@ const EditTaskPage = () => {
       location: location.trim() || undefined,
       startTime: taskStartTime,
       endTime: taskEndTime,
-      duration: actualDurationMinutes,
+      duration: taskDuration,
       tags: selectedTags,
       repeat: repeatRule || undefined,
+      isAllDay: isAllDay || undefined,
       status: 'pending',
     });
 
@@ -204,6 +213,21 @@ const EditTaskPage = () => {
               data-testid="input-edit-date"
             />
 
+            <button
+              onClick={() => setIsAllDay(!isAllDay)}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border',
+                isAllDay
+                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                  : 'bg-secondary/50 text-muted-foreground border-border hover:border-primary/40'
+              )}
+              data-testid="button-toggle-allday"
+            >
+              <Sun className="w-4 h-4" />
+              <span>כל היום</span>
+              {isAllDay && <span className="text-xs opacity-70">✓</span>}
+            </button>
+
             <div className="grid grid-cols-3 gap-2">
               <Button
                 variant="outline"
@@ -231,6 +255,7 @@ const EditTaskPage = () => {
               </Button>
             </div>
 
+            {!isAllDay && (
             <div className="space-y-4 bg-muted/30 rounded-lg p-4" dir="rtl">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex-1">
@@ -258,6 +283,7 @@ const EditTaskPage = () => {
               </div>
               <DurationPresets selectedDuration={durationMinutes} onDurationSelect={handleDurationSelect} />
             </div>
+            )}
           </motion.div>
 
           <button

@@ -79,11 +79,42 @@ const StandbyPage = () => {
   const [showTimePicker, setShowTimePicker] = useState(false);
 
   useEffect(() => {
-    if (templateCategories.length === 0) {
-      DEFAULT_CATEGORIES.forEach((cat, index) => {
-        addCategory({ name: cat.name, color: cat.color });
+    if (localStorage.getItem('synco_cabinet_seeded')) return;
+    if (templateCategories.length > 0) return;
+
+    const CABINET_SEED: { name: string; color: string; templates: { title: string; duration: number }[] }[] = [
+      { name: 'עבודה', color: '#3B82F6', templates: [{ title: 'פגישת צוות', duration: 60 }, { title: 'כתיבת דוח', duration: 90 }, { title: 'שיחת לקוח', duration: 30 }] },
+      { name: 'כסף', color: '#22C55E', templates: [{ title: 'תשלום חשבונות', duration: 15 }, { title: 'בדיקת חשבון בנק', duration: 10 }, { title: 'תכנון תקציב', duration: 30 }] },
+      { name: 'עסק', color: '#8B5CF6', templates: [{ title: 'פגישת עסקים', duration: 60 }, { title: 'הכנת הצעת מחיר', duration: 45 }] },
+      { name: 'בריאות', color: '#EF4444', templates: [{ title: 'ביקור רופא', duration: 60 }, { title: 'לקיחת תרופות', duration: 5 }, { title: 'בדיקות שגרתיות', duration: 45 }] },
+      { name: 'אימון', color: '#F59E0B', templates: [{ title: 'ריצה בוקר', duration: 30 }, { title: 'חדר כושר', duration: 60 }, { title: 'יוגה', duration: 45 }] },
+      { name: 'בית', color: '#10B981', templates: [{ title: 'ניקיון שבועי', duration: 120 }, { title: 'כביסה', duration: 30 }, { title: 'קניות לבית', duration: 45 }] },
+      { name: 'זוגיות', color: '#EC4899', templates: [{ title: 'דייט', duration: 120 }, { title: 'שיחה עם בן/בת זוג', duration: 20 }] },
+      { name: 'משפחה', color: '#A855F7', templates: [{ title: 'ביקור הורים', duration: 120 }, { title: 'ארוחת משפחה', duration: 90 }, { title: 'שיחה עם הילדים', duration: 15 }] },
+      { name: 'חברים', color: '#14B8A6', templates: [{ title: 'מפגש חברים', duration: 120 }, { title: 'שיחת טלפון', duration: 15 }] },
+      { name: 'סידורים', color: '#06B6D4', templates: [{ title: 'דואר', duration: 20 }, { title: 'תשלומים', duration: 15 }, { title: 'ביורוקרטיה', duration: 30 }] },
+      { name: 'למידה', color: '#6366F1', templates: [{ title: 'שיעור', duration: 60 }, { title: 'קריאת ספר', duration: 30 }, { title: 'קורס אונליין', duration: 45 }] },
+      { name: 'פיתוח עצמי', color: '#84CC16', templates: [{ title: 'מדיטציה', duration: 15 }, { title: 'כתיבת יומן', duration: 20 }, { title: 'רפלקציה', duration: 15 }] },
+      { name: 'סינקו', color: '#F97316', templates: [{ title: 'הגדרת יעדים', duration: 20 }, { title: 'סיכום שבוע', duration: 30 }, { title: 'תכנון מחר', duration: 10 }] },
+      { name: 'תכנון', color: '#0EA5E9', templates: [{ title: 'תכנון שבועי', duration: 30 }, { title: 'הגדרת עדיפויות', duration: 20 }] },
+      { name: 'ניהול זמן', color: '#78716C', templates: [{ title: 'סקירת משימות', duration: 15 }, { title: 'תעדוף', duration: 15 }, { title: 'ניקוי רשימה', duration: 10 }] },
+      { name: 'דיגיטל', color: '#0284C7', templates: [{ title: 'בדיקת אימיילים', duration: 20 }, { title: 'ניקוי תיבת דואר', duration: 15 }] },
+      { name: 'תקשורת', color: '#7C3AED', templates: [{ title: 'מענה להודעות', duration: 15 }, { title: 'שיחות חזרה', duration: 20 }] },
+      { name: 'אדמיניסטרציה', color: '#64748B', templates: [{ title: 'מסמכים', duration: 30 }, { title: 'חוזים וטפסים', duration: 45 }] },
+      { name: 'אירועים', color: '#D97706', templates: [{ title: 'הכנה לאירוע', duration: 60 }, { title: 'תיאום לוגיסטיקה', duration: 30 }] },
+      { name: 'חגים', color: '#DC2626', templates: [{ title: 'הכנות לחג', duration: 60 }, { title: 'קניית מתנות', duration: 45 }] },
+      { name: 'ימי הולדת', color: '#BE185D', templates: [{ title: 'קניית מתנה', duration: 30 }, { title: 'הכנת הפתעה', duration: 60 }] },
+      { name: 'הערות חשובות', color: '#059669', templates: [{ title: 'תיעוד מחשבות', duration: 10 }, { title: 'רשימת מטלות', duration: 15 }] },
+    ];
+
+    CABINET_SEED.forEach(catData => {
+      const newCat = addCategory({ name: catData.name, color: catData.color });
+      catData.templates.forEach(tmpl => {
+        addTemplate({ title: tmpl.title, duration: tmpl.duration, categoryId: newCat.id, tags: [] });
       });
-    }
+    });
+
+    localStorage.setItem('synco_cabinet_seeded', '1');
   }, []);
 
   const sortedTemplates = getTemplatesSorted();

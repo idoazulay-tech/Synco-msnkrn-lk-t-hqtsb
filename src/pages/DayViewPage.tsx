@@ -481,6 +481,35 @@ const DayViewPage = () => {
           </div>
         </header>
 
+        {(() => {
+          const allDayByDate = datesInView.map(date => ({
+            date,
+            tasks: getTasksForDay(date).filter(t => t.isAllDay),
+          })).filter(d => d.tasks.length > 0);
+          if (allDayByDate.length === 0) return null;
+          return (
+            <div className="border-b border-border bg-amber-50/50 dark:bg-amber-900/10 px-3 py-2 flex gap-2 flex-wrap" data-testid="allday-strip">
+              <div className="w-14 flex-shrink-0 flex items-center">
+                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase">כל היום</span>
+              </div>
+              <div className="flex-1 flex flex-wrap gap-1.5">
+                {allDayByDate.map(({ date, tasks }) =>
+                  tasks.map(task => (
+                    <button
+                      key={task.id}
+                      onClick={() => navigate(`/task/${task.id}`)}
+                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-300 dark:hover:bg-amber-700 transition-colors"
+                      data-testid={`allday-task-${task.id}`}
+                    >
+                      {task.title}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         <div 
           ref={timelineRef}
           className="flex-1 overflow-y-auto pb-20"
@@ -502,7 +531,8 @@ const DayViewPage = () => {
 
             {datesInView.map((date) => {
               const dayStart = startOfDay(date);
-              const tasks = getTasksForDay(date);
+              const allTasks = getTasksForDay(date);
+              const tasks = allTasks.filter(t => !t.isAllDay);
               const positions = calculateTaskPositions(tasks, dayStart);
               const isToday = isSameDay(date, currentTime);
 

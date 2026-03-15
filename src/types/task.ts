@@ -66,6 +66,7 @@ export interface Task {
   flexibility?: TaskFlexibility;
   canMove?: boolean;
   repeat?: RecurringRule | null;
+  isAllDay?: boolean;
   tags: Tag[];
   images?: string[];
   createdAt: Date;
