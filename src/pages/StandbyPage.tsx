@@ -253,11 +253,11 @@ const StandbyPage = () => {
       <Card className={cn("flex items-center gap-2", compact ? "p-2" : "p-3")}>
         <button
           onClick={() => openScheduleDialog(template)}
-          className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center hover:bg-primary/20 transition-colors"
-          title="שבץ עכשיו"
+          className="flex-shrink-0 px-2 py-1 rounded-full bg-primary/10 flex items-center gap-1 hover:bg-primary/20 transition-colors"
           data-testid={`button-schedule-${template.id}`}
         >
-          <Clock className="w-4 h-4 text-primary" />
+          <Clock className="w-3.5 h-3.5 text-primary" />
+          <span className="text-xs font-medium text-primary">שבץ</span>
         </button>
         
         <div className="flex-1 min-w-0">
