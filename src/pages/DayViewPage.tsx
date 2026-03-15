@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, ChevronLeft, Plus, GripVertical } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Plus, GripVertical, Repeat } from 'lucide-react';
 import { format, addDays, subDays, startOfDay, addHours, addMinutes, isSameHour, isSameDay, differenceInMinutes, setHours, setMinutes } from 'date-fns';
 import { he } from 'date-fns/locale';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -9,6 +9,7 @@ import { useTaskStore } from '@/store/taskStore';
 import { useTaskTimer } from '@/hooks/useTaskTimer';
 import { Task } from '@/types/task';
 import { cn } from '@/lib/utils';
+import { isRecurringOccurrence } from '@/lib/recurringEngine';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -60,6 +61,7 @@ const TaskItem = ({
 }) => {
   const { percentage, remainingTime, isUrgent, isWarning } = useTaskTimer(isActive ? task : null);
   const isOverlapping = position.totalColumns > 1 && position.column > 0;
+  const isOccurrence = isRecurringOccurrence(task.id);
 
   const getProgressColor = () => {
     if (isUrgent) return 'bg-timer-urgent';
@@ -93,19 +95,21 @@ const TaskItem = ({
         zIndex: isDragging ? 100 : (isActive ? 20 : 10),
       }}
     >
-      <div 
-        className="absolute top-0 left-0 right-0 h-3 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-100 bg-black/10"
-        onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, task.id, 'top'); }}
-        onTouchStart={(e) => { e.stopPropagation(); onResizeStart(e, task.id, 'top'); }}
-      >
-        <div className="w-8 h-1 bg-white/50 rounded-full" />
-      </div>
+      {!isOccurrence && (
+        <div 
+          className="absolute top-0 left-0 right-0 h-3 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-100 bg-black/10"
+          onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, task.id, 'top'); }}
+          onTouchStart={(e) => { e.stopPropagation(); onResizeStart(e, task.id, 'top'); }}
+        >
+          <div className="w-8 h-1 bg-white/50 rounded-full" />
+        </div>
+      )}
 
       <div 
-        className="flex-1 p-2 cursor-grab active:cursor-grabbing"
+        className={cn("flex-1 p-2", isOccurrence ? "cursor-pointer" : "cursor-grab active:cursor-grabbing")}
         onClick={onClick}
-        onMouseDown={(e) => onDragStart(e, task.id)}
-        onTouchStart={(e) => onDragStart(e, task.id)}
+        onMouseDown={(e) => !isOccurrence && onDragStart(e, task.id)}
+        onTouchStart={(e) => !isOccurrence && onDragStart(e, task.id)}
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
@@ -114,6 +118,7 @@ const TaskItem = ({
               (isActive || !isOverlapping) && 'text-primary-foreground',
               isOverlapping && !isActive && 'text-slate-900 dark:text-white'
             )}>
+              {isOccurrence && <Repeat className="w-3 h-3 inline-block ml-1" />}
               {task.title}
             </p>
             <p className={cn(
@@ -148,13 +153,15 @@ const TaskItem = ({
         </div>
       )}
 
-      <div 
-        className="absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-100 bg-black/10"
-        onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, task.id, 'bottom'); }}
-        onTouchStart={(e) => { e.stopPropagation(); onResizeStart(e, task.id, 'bottom'); }}
-      >
-        <div className="w-8 h-1 bg-white/50 rounded-full" />
-      </div>
+      {!isOccurrence && (
+        <div 
+          className="absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-100 bg-black/10"
+          onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, task.id, 'bottom'); }}
+          onTouchStart={(e) => { e.stopPropagation(); onResizeStart(e, task.id, 'bottom'); }}
+        >
+          <div className="w-8 h-1 bg-white/50 rounded-full" />
+        </div>
+      )}
     </motion.div>
   );
 };

@@ -82,6 +82,7 @@ Preferred communication style: Simple, everyday language.
     - **Voice Input (קלט קולי)**: Web Speech API for Hebrew speech recognition, integrated with HaMekolel.
     - **Conflict Detection**: Visual warnings for overlapping tasks.
     - **Notification System**: In-app notifications with user-configurable settings.
+    - **Recurring Tasks (חזרה)**: Frontend-only recurring task engine. Supports daily/weekly/monthly/yearly frequencies, day-of-week selection for weekly, end constraints (never/date/count). Pure expansion engine in `src/lib/recurringEngine.ts` generates virtual occurrences with stable IDs (`${masterId}_occ_${YYYY-MM-DD}`). Occurrences appear in DayView, MonthView, and HomePage. Non-draggable in DayView. Repeat settings panel in AddTaskPage. Recurring badge in TaskDetailPage.
     - **Mental Focus Feature (מיקוד מנטלי)**: Motivational phrases during tasks based on completion.
     - **HaMefraket (המפרקט) - Smart ADHD Assistant**: Intelligent interface for quick input, insights, and self-regulation exercises.
     - **MA Auto-Task Creation**: When MA is confident about task details, tasks are automatically created and added to the calendar without manual confirmation.

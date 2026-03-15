@@ -38,6 +38,18 @@ export interface HistoryEntry {
 export type TaskPriority = 'low' | 'medium' | 'high';
 export type TaskFlexibility = 'fixed' | 'flexible' | 'anytime';
 
+export type RepeatFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+export type RepeatEndType = 'never' | 'date' | 'count';
+
+export interface RecurringRule {
+  frequency: RepeatFrequency;
+  interval: number;
+  daysOfWeek?: number[];
+  endType: RepeatEndType;
+  endDate?: string;
+  endCount?: number;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -47,16 +59,15 @@ export interface Task {
   endTime: Date;
   duration: number; // in minutes
   status: TaskStatus;
-  schedulingStatus?: SchedulingStatus; // 'pending' if missing info, 'scheduled' when complete
-  timeConstraintType?: TimeConstraintType; // Time Constraint Layer classification
-  createdFrom?: CreatedFrom; // how this task was created
+  schedulingStatus?: SchedulingStatus;
+  timeConstraintType?: TimeConstraintType;
+  createdFrom?: CreatedFrom;
   priority?: TaskPriority;
   flexibility?: TaskFlexibility;
   canMove?: boolean;
+  repeat?: RecurringRule | null;
   tags: Tag[];
   images?: string[];
-  isRecurring?: boolean;
-  recurringPattern?: string;
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;

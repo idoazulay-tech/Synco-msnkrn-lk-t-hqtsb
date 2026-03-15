@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Task, StandbyTask, HistoryEntry, Tag, DEFAULT_TAGS, TaskTemplate, TemplateCategory } from '@/types/task';
 import { addHours, addMinutes, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
+import { expandRecurring, getMasterTaskId } from '@/lib/recurringEngine';
 
 interface TaskState {
   tasks: Task[];
@@ -178,10 +179,9 @@ export const useTaskStore = create<TaskState>()(
 
       getCurrentTask: () => {
         const now = new Date();
-        const tasks = get().tasks;
+        const todayTasks = get().getTasksForDay(now);
         
-        // Find all tasks that are currently active (now is within their time range)
-        const activeTasks = tasks.filter((task) => {
+        const activeTasks = todayTasks.filter((task) => {
           if (task.status === 'completed' || task.status === 'not_completed') {
             return false;
           }
@@ -190,7 +190,6 @@ export const useTaskStore = create<TaskState>()(
           return isWithinInterval(now, { start: startTime, end: endTime });
         });
         
-        // Return the first one by start time (earliest started task gets priority)
         if (activeTasks.length === 0) return null;
         
         return activeTasks.sort((a, b) => 
@@ -202,14 +201,43 @@ export const useTaskStore = create<TaskState>()(
         const dayStart = startOfDay(date);
         const dayEnd = endOfDay(date);
         
-        return get().tasks.filter((task) => {
+        const regularTasks = get().tasks.filter((task) => {
           const startTime = new Date(task.startTime);
           return isWithinInterval(startTime, { start: dayStart, end: dayEnd });
-        }).sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+        });
+
+        const recurringOccurrences: Task[] = [];
+        get().tasks.forEach((task) => {
+          if (task.repeat) {
+            const occurrences = expandRecurring(task, dayStart, dayEnd);
+            recurringOccurrences.push(...occurrences.filter((occ) => {
+              const occStart = new Date(occ.startTime);
+              return isWithinInterval(occStart, { start: dayStart, end: dayEnd });
+            }));
+          }
+        });
+
+        return [...regularTasks, ...recurringOccurrences]
+          .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
       },
 
       getTaskById: (id: string) => {
-        return get().tasks.find((task) => task.id === id);
+        const direct = get().tasks.find((task) => task.id === id);
+        if (direct) return direct;
+        
+        if (id.includes('_occ_')) {
+          const masterId = getMasterTaskId(id);
+          const master = get().tasks.find((task) => task.id === masterId);
+          if (master) {
+            const dateStr = id.substring(id.lastIndexOf('_occ_') + 5);
+            const occDate = new Date(dateStr);
+            if (!isNaN(occDate.getTime())) {
+              const occurrences = expandRecurring(master, startOfDay(occDate), endOfDay(occDate));
+              return occurrences.find((occ) => occ.id === id);
+            }
+          }
+        }
+        return undefined;
       },
 
       addHistoryEntry: (taskId, entry) => {

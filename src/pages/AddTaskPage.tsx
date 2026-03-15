@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X, Calendar, Archive, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowRight, Mic, MicOff, MapPin, Clock, Tag, FileText, X, Calendar, Archive, AlertCircle, ChevronDown, ChevronUp, Repeat } from 'lucide-react';
 import { format, setHours, setMinutes, startOfDay } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -19,12 +19,13 @@ import {
 } from '@/components/ui/select';
 import { useTaskStore } from '@/store/taskStore';
 import { useNotificationStore } from '@/store/notificationStore';
-import { DEFAULT_TAGS, Tag as TagType, Task } from '@/types/task';
+import { DEFAULT_TAGS, Tag as TagType, Task, RecurringRule, RepeatFrequency, RepeatEndType } from '@/types/task';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { HaMekolel } from '@/components/task/HaMekolel';
 import { VoiceInput } from '@/components/voice/VoiceInput';
 import { ParsedDateTime } from '@/lib/hebrewDateParser';
+import { formatRecurringSummary } from '@/lib/recurringEngine';
 
 const AddTaskPage = () => {
   const navigate = useNavigate();
@@ -59,6 +60,13 @@ const AddTaskPage = () => {
   const [isListening, setIsListening] = useState(false);
   const [conflicts, setConflicts] = useState<Task[]>([]);
   const [showExtraOptions, setShowExtraOptions] = useState(false);
+  const [showRepeatPanel, setShowRepeatPanel] = useState(false);
+  const [repeatRule, setRepeatRule] = useState<RecurringRule | null>(null);
+  const [repeatFreq, setRepeatFreq] = useState<RepeatFrequency>('daily');
+  const [repeatDays, setRepeatDays] = useState<number[]>([]);
+  const [repeatEndType, setRepeatEndType] = useState<RepeatEndType>('never');
+  const [repeatEndDate, setRepeatEndDate] = useState('');
+  const [repeatEndCount, setRepeatEndCount] = useState(10);
 
   const endTime = useMemo(() => {
     const totalMinutes = startHour * 60 + startMinute + durationMinutes;
@@ -252,6 +260,7 @@ const AddTaskPage = () => {
         duration: actualDurationMinutes,
         status: 'pending',
         tags: selectedTags,
+        repeat: repeatRule || undefined,
       });
 
       toast({
@@ -583,6 +592,175 @@ const AddTaskPage = () => {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {mode === 'calendar' && (
+            <div className="space-y-3">
+              {repeatRule && !showRepeatPanel && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 text-primary text-sm font-medium">
+                  <Repeat className="w-4 h-4" />
+                  <span>חוזר: {formatRecurringSummary(repeatRule)}</span>
+                  <button
+                    onClick={() => { setRepeatRule(null); }}
+                    className="mr-auto p-0.5 rounded hover:bg-primary/20"
+                    data-testid="button-remove-repeat"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={() => setShowRepeatPanel(!showRepeatPanel)}
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-2"
+                data-testid="button-toggle-repeat"
+              >
+                <Repeat className="w-4 h-4" />
+                <span className="font-medium">↺ חזרה</span>
+                {repeatRule && <span className="w-2 h-2 rounded-full bg-primary" />}
+              </button>
+
+              <AnimatePresence>
+                {showRepeatPanel && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <Card className="p-4 space-y-4 border-primary/30">
+                      <div className="space-y-2">
+                        <span className="text-sm font-medium text-muted-foreground">תדירות</span>
+                        <div className="grid grid-cols-4 gap-2">
+                          {([
+                            { value: 'daily' as RepeatFrequency, label: 'כל יום' },
+                            { value: 'weekly' as RepeatFrequency, label: 'כל שבוע' },
+                            { value: 'monthly' as RepeatFrequency, label: 'כל חודש' },
+                            { value: 'yearly' as RepeatFrequency, label: 'כל שנה' },
+                          ] as const).map(opt => (
+                            <button
+                              key={opt.value}
+                              onClick={() => setRepeatFreq(opt.value)}
+                              className={cn(
+                                'py-2 px-1 rounded-lg text-xs font-medium transition-all border',
+                                repeatFreq === opt.value
+                                  ? 'bg-primary text-primary-foreground border-primary'
+                                  : 'bg-secondary/50 text-foreground border-border hover:border-primary/50'
+                              )}
+                              data-testid={`button-freq-${opt.value}`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {repeatFreq === 'weekly' && (
+                        <div className="space-y-2">
+                          <span className="text-sm font-medium text-muted-foreground">ימים בשבוע</span>
+                          <div className="flex gap-1.5 justify-center" dir="rtl">
+                            {[
+                              { day: 0, label: 'א' },
+                              { day: 1, label: 'ב' },
+                              { day: 2, label: 'ג' },
+                              { day: 3, label: 'ד' },
+                              { day: 4, label: 'ה' },
+                              { day: 5, label: 'ו' },
+                              { day: 6, label: 'ש' },
+                            ].map(d => (
+                              <button
+                                key={d.day}
+                                onClick={() => setRepeatDays(prev =>
+                                  prev.includes(d.day) ? prev.filter(x => x !== d.day) : [...prev, d.day]
+                                )}
+                                className={cn(
+                                  'w-9 h-9 rounded-full text-sm font-bold transition-all',
+                                  repeatDays.includes(d.day)
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-secondary/50 text-foreground hover:bg-secondary'
+                                )}
+                                data-testid={`button-day-${d.day}`}
+                              >
+                                {d.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <span className="text-sm font-medium text-muted-foreground">סיום</span>
+                        <div className="grid grid-cols-3 gap-2">
+                          {([
+                            { value: 'never' as RepeatEndType, label: 'ללא סוף' },
+                            { value: 'date' as RepeatEndType, label: 'עד תאריך' },
+                            { value: 'count' as RepeatEndType, label: 'מספר פעמים' },
+                          ] as const).map(opt => (
+                            <button
+                              key={opt.value}
+                              onClick={() => setRepeatEndType(opt.value)}
+                              className={cn(
+                                'py-2 px-1 rounded-lg text-xs font-medium transition-all border',
+                                repeatEndType === opt.value
+                                  ? 'bg-primary text-primary-foreground border-primary'
+                                  : 'bg-secondary/50 text-foreground border-border hover:border-primary/50'
+                              )}
+                              data-testid={`button-end-${opt.value}`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {repeatEndType === 'date' && (
+                          <Input
+                            type="date"
+                            value={repeatEndDate}
+                            onChange={(e) => setRepeatEndDate(e.target.value)}
+                            className="mt-2"
+                            data-testid="input-repeat-end-date"
+                          />
+                        )}
+
+                        {repeatEndType === 'count' && (
+                          <div className="flex items-center gap-3 mt-2">
+                            <Input
+                              type="number"
+                              min={1}
+                              max={365}
+                              value={repeatEndCount}
+                              onChange={(e) => setRepeatEndCount(Number(e.target.value))}
+                              className="w-24"
+                              data-testid="input-repeat-end-count"
+                            />
+                            <span className="text-sm text-muted-foreground">מופעים</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <Button
+                        onClick={() => {
+                          const rule: RecurringRule = {
+                            frequency: repeatFreq,
+                            interval: 1,
+                            endType: repeatEndType,
+                            ...(repeatFreq === 'weekly' && repeatDays.length > 0 ? { daysOfWeek: repeatDays } : {}),
+                            ...(repeatEndType === 'date' && repeatEndDate ? { endDate: repeatEndDate } : {}),
+                            ...(repeatEndType === 'count' ? { endCount: repeatEndCount } : {}),
+                          };
+                          setRepeatRule(rule);
+                          setShowRepeatPanel(false);
+                        }}
+                        className="w-full"
+                        data-testid="button-confirm-repeat"
+                      >
+                        אשר חזרה
+                      </Button>
+                    </Card>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
 
         <div className="fixed bottom-0 inset-x-0 p-4 bg-gradient-to-t from-background via-background to-transparent">

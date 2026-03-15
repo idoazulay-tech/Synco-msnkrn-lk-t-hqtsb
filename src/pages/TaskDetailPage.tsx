@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRight, MapPin, Clock, Tag, FileText, CalendarDays, Check } from 'lucide-react';
+import { ArrowRight, MapPin, Clock, Tag, FileText, CalendarDays, Check, Repeat } from 'lucide-react';
 import { format } from 'date-fns';
 import { he } from 'date-fns/locale';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -10,6 +10,7 @@ import { useTaskStore } from '@/store/taskStore';
 import { useTaskTimer } from '@/hooks/useTaskTimer';
 import { cn } from '@/lib/utils';
 import { CompactSchedule, ScheduleToggle } from '@/components/layout/CompactSchedule';
+import { isRecurringOccurrence, formatRecurringSummary } from '@/lib/recurringEngine';
 
 const TaskDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -124,6 +125,22 @@ const TaskDetailPage = () => {
               </p>
             </div>
           </motion.div>
+
+          {task.repeat && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.12 }}
+              className="flex items-center gap-3 p-3 rounded-xl bg-primary/10 border border-primary/20"
+              data-testid="badge-recurring"
+            >
+              <Repeat className="w-5 h-5 text-primary" />
+              <div>
+                <p className="text-sm font-medium text-primary">↺ חוזר</p>
+                <p className="text-xs text-muted-foreground">{formatRecurringSummary(task.repeat)}</p>
+              </div>
+            </motion.div>
+          )}
 
           {task.location && (
             <motion.div
