@@ -34,6 +34,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { TimeWheelPicker } from '@/components/ui/time-wheel-picker';
 import { DurationPresets } from '@/components/ui/duration-presets';
 import { TaskTemplate, TemplateCategory, DEFAULT_CATEGORIES, DEFAULT_TAGS, Tag as TagType } from '@/types/task';
@@ -380,27 +385,34 @@ const StandbyPage = () => {
                 <div className="space-y-2">
                   {frequentTemplates.length > 0 ? (
                     frequentTemplates.map(template => (
-                      <Card key={template.id} className="p-2">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{template.title}</p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatDuration(template.duration)}
-                              </span>
-                              {template.usageCount > 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  x{template.usageCount}
-                                </span>
-                              )}
+                      <Popover key={template.id}>
+                        <PopoverTrigger asChild>
+                          <Card className="p-2.5 cursor-pointer hover:bg-muted/40 transition-colors" data-testid={`frequent-template-${template.id}`}>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{template.title}</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {formatDuration(template.duration)}
+                                  </span>
+                                  {template.usageCount > 0 && (
+                                    <span className="text-xs text-muted-foreground">
+                                      x{template.usageCount}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                             </div>
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
+                          </Card>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-2" align="start">
+                          <div className="flex items-center gap-1.5">
                             <Button
                               size="sm"
-                              variant="outline"
-                              className="h-7 text-xs px-2"
+                              variant="default"
+                              className="h-8 text-xs px-3"
                               onClick={() => quickSchedule(template, 0)}
                               data-testid={`quick-now-${template.id}`}
                             >
@@ -408,8 +420,8 @@ const StandbyPage = () => {
                             </Button>
                             <Button
                               size="sm"
-                              variant="ghost"
-                              className="h-7 text-xs px-2"
+                              variant="outline"
+                              className="h-8 text-xs px-3"
                               onClick={() => quickSchedule(template, 1)}
                               data-testid={`quick-1h-${template.id}`}
                             >
@@ -417,8 +429,8 @@ const StandbyPage = () => {
                             </Button>
                             <Button
                               size="sm"
-                              variant="ghost"
-                              className="h-7 text-xs px-2"
+                              variant="outline"
+                              className="h-8 text-xs px-3"
                               onClick={() => quickSchedule(template, 2)}
                               data-testid={`quick-2h-${template.id}`}
                             >
@@ -427,15 +439,15 @@ const StandbyPage = () => {
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-7 text-xs px-1.5"
+                              className="h-8 text-xs px-2"
                               onClick={() => openScheduleDialog(template)}
                               data-testid={`quick-custom-${template.id}`}
                             >
-                              <Clock className="w-3.5 h-3.5" />
+                              <Clock className="w-4 h-4" />
                             </Button>
                           </div>
-                        </div>
-                      </Card>
+                        </PopoverContent>
+                      </Popover>
                     ))
                   ) : (
                     <p className="text-sm text-muted-foreground py-4 text-center">אין נתונים עדיין</p>
