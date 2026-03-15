@@ -262,19 +262,20 @@ const HomePage = () => {
               <Button
                 variant="outline"
                 className="flex-1 gap-2"
-                onClick={() => handleComplete(false)}
+                onClick={() => navigate('/day')}
                 data-testid="button-dismiss-task"
               >
-                <X className="w-4 h-4" />
-                דחה
+                <Calendar className="w-4 h-4" />
+                דחה / הזז
               </Button>
               <Button
                 variant="ghost"
-                size="icon"
+                className="gap-1"
                 onClick={() => navigate(`/task/${currentTask.id}`)}
                 data-testid="button-task-details"
               >
-                <Eye className="w-5 h-5" />
+                <Eye className="w-4 h-4" />
+                פרטים
               </Button>
             </div>
           </motion.div>
