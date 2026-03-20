@@ -18,6 +18,7 @@ import AILabPage from "./pages/AILabPage";
 import ShikulPage from "./pages/ShikulPage";
 import NotFound from "./pages/NotFound";
 import OnboardingPage from "./pages/OnboardingPage";
+import PriorityPlannerPage from "./pages/PriorityPlannerPage";
 
 const RescheduleRedirect = () => {
   const { id } = useParams<{ id: string }>();
@@ -65,6 +66,7 @@ const App = () => (
           <Route path="/ai-lab" element={<AILabPage />} />
           <Route path="/shikul" element={<ShikulPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
+          <Route path="/planner" element={<PriorityPlannerPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

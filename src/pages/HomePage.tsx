@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, Inbox, Clock, Plus, Check, X, Eye } from 'lucide-react';
+import { Calendar, Inbox, Clock, Plus, Check, X, Eye, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format, differenceInMinutes, differenceInHours, differenceInDays, addDays } from 'date-fns';
 import { he } from 'date-fns/locale';
@@ -171,15 +171,27 @@ const HomePage = () => {
             </div>
             <h1 className="text-2xl font-bold text-foreground mb-2">אין משימה פעילה</h1>
             <p className="text-muted-foreground mb-6">הזמן שלך פנוי כרגע</p>
-            <Button
-              size="lg"
-              onClick={() => navigate('/add')}
-              className="gap-2"
-              data-testid="button-add-task-empty"
-            >
-              <Plus className="w-5 h-5" />
-              הוסף משימה
-            </Button>
+            <div className="flex flex-col gap-2 items-center">
+              <Button
+                size="lg"
+                onClick={() => navigate('/planner')}
+                className="gap-2 w-full"
+                data-testid="button-plan-day"
+              >
+                <Zap className="w-5 h-5" />
+                תכנן את היום
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => navigate('/add')}
+                className="gap-2 w-full"
+                data-testid="button-add-task-empty"
+              >
+                <Plus className="w-5 h-5" />
+                הוסף משימה
+              </Button>
+            </div>
           </motion.div>
 
           {nextTask && (
