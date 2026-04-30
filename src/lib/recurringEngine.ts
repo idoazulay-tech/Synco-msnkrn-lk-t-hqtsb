@@ -127,7 +127,7 @@ export function expandRecurring(task: Task, rangeStart: Date, rangeEnd: Date): T
   const occurrences: Task[] = [];
 
   for (const candidate of candidates) {
-    if (isSameDay(candidate, anchorDay)) continue;
+    if (isBefore(candidate, anchorDay)) continue;
     if (candidate.getTime() < dayStartMs) continue;
 
     const occStart = new Date(candidate.getTime() + hoursOffset);

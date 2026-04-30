@@ -154,7 +154,8 @@ export const useTaskStore = create<TaskState>()(
       },
 
       scheduleStandbyTask: (id, startTime, endTime) => {
-        const standbyTask = get().standbyTasks.find((t) => t.id === id);
+        const resolvedId = getMasterTaskId(id);
+        const standbyTask = get().standbyTasks.find((t) => t.id === resolvedId);
         if (!standbyTask) return;
 
         const scheduledTask: Task = {
@@ -167,7 +168,7 @@ export const useTaskStore = create<TaskState>()(
             ...standbyTask.history,
             {
               id: crypto.randomUUID(),
-              taskId: id,
+              taskId: resolvedId,
               eventType: 'moved',
               timestamp: new Date(),
               details: `Scheduled from standby to ${startTime.toISOString()}`,
@@ -176,7 +177,7 @@ export const useTaskStore = create<TaskState>()(
         };
 
         set((state) => ({
-          standbyTasks: state.standbyTasks.filter((t) => t.id !== id),
+          standbyTasks: state.standbyTasks.filter((t) => t.id !== resolvedId),
           tasks: [...state.tasks, scheduledTask],
         }));
       },
@@ -207,7 +208,9 @@ export const useTaskStore = create<TaskState>()(
         
         const regularTasks = get().tasks.filter((task) => {
           const startTime = new Date(task.startTime);
-          return isWithinInterval(startTime, { start: dayStart, end: dayEnd });
+          const endTime = new Date(task.endTime);
+          return isWithinInterval(startTime, { start: dayStart, end: dayEnd }) ||
+            (isWithinInterval(endTime, { start: dayStart, end: dayEnd }) && !isWithinInterval(startTime, { start: dayStart, end: dayEnd }));
         });
 
         const recurringOccurrences: Task[] = [];
@@ -234,7 +237,8 @@ export const useTaskStore = create<TaskState>()(
           const master = get().tasks.find((task) => task.id === masterId);
           if (master) {
             const dateStr = id.substring(id.lastIndexOf('_occ_') + 5);
-            const occDate = new Date(dateStr);
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const occDate = new Date(y, m - 1, d);
             if (!isNaN(occDate.getTime())) {
               const occurrences = expandRecurring(master, startOfDay(occDate), endOfDay(occDate));
               return occurrences.find((occ) => occ.id === id);
