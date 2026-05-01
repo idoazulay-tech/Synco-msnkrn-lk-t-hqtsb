@@ -6,7 +6,7 @@ import {
   ChevronLeft, Clock, Calendar, Zap,
   ArrowRight, MapPin
 } from 'lucide-react';
-import { format, addMinutes, setHours, setMinutes } from 'date-fns';
+import { format, addMinutes, setHours, setMinutes, isToday, isTomorrow, isYesterday, parseISO } from 'date-fns';
 import { he } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -59,6 +59,20 @@ const FLEX_COLORS: Record<TaskFlexibility, string> = {
   flexible: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   anytime: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
 };
+
+function getDateLabel(dateStr: string): { label: string; isToday: boolean } {
+  try {
+    // Parse as local date (YYYY-MM-DD) without UTC shift
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    if (isToday(date)) return { label: 'היום', isToday: true };
+    if (isTomorrow(date)) return { label: 'מחר', isToday: false };
+    if (isYesterday(date)) return { label: 'אתמול', isToday: false };
+    return { label: format(date, 'EEEE, d בMMMM', { locale: he }), isToday: false };
+  } catch {
+    return { label: dateStr, isToday: false };
+  }
+}
 
 function formatTime(hour: number | null, minute: number | null): string {
   if (hour === null) return 'שעה לא נקבעה';
@@ -267,8 +281,9 @@ export default function PriorityPlannerPage() {
           approved: false,
           editing: false,
         }))
-        // Sort chronologically: tasks without time go last
+        // Sort: by date first, then by time within the day (no-time tasks last within each day)
         .sort((a: ParsedTask, b: ParsedTask) => {
+          if (a.date !== b.date) return a.date < b.date ? -1 : 1;
           if (a.hour === null && b.hour === null) return 0;
           if (a.hour === null) return 1;
           if (b.hour === null) return -1;
@@ -502,22 +517,48 @@ export default function PriorityPlannerPage() {
               </div>
 
               <div className="space-y-2">
-                {parsedTasks.map((task, index) => (
-                  <TaskReviewCard
-                    key={task.id}
-                    task={task}
-                    index={index}
-                    isVoiceEditing={voiceEditingId === task.id}
-                    liveTranscript={voiceEditingId === task.id ? liveTranscript : ''}
-                    isListening={isListening && voiceEditingId === task.id}
-                    onToggleApprove={() => toggleApprove(task.id)}
-                    onRemove={() => removeTask(task.id)}
-                    onToggleEdit={() => toggleEdit(task.id)}
-                    onUpdateField={(field, val) => updateField(task.id, field, val)}
-                    onStartVoiceEdit={() => startListening(task.id)}
-                    onStopVoiceEdit={stopListening}
-                  />
-                ))}
+                {parsedTasks.map((task, index) => {
+                  const isNewDay = index === 0 || parsedTasks[index - 1].date !== task.date;
+                  const { label: dayLabel, isToday: dayIsToday } = getDateLabel(task.date);
+                  return (
+                    <div key={task.id}>
+                      {isNewDay && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={cn(
+                            'flex items-center gap-2 px-1 pt-2 pb-1',
+                            index > 0 ? 'mt-3' : ''
+                          )}
+                        >
+                          <div className={cn(
+                            'flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full',
+                            dayIsToday
+                              ? 'bg-primary/10 text-primary'
+                              : 'bg-muted text-muted-foreground'
+                          )}>
+                            <Calendar className="w-3 h-3" />
+                            {dayLabel}
+                          </div>
+                          <div className="flex-1 h-px bg-border" />
+                        </motion.div>
+                      )}
+                      <TaskReviewCard
+                        task={task}
+                        index={index}
+                        isVoiceEditing={voiceEditingId === task.id}
+                        liveTranscript={voiceEditingId === task.id ? liveTranscript : ''}
+                        isListening={isListening && voiceEditingId === task.id}
+                        onToggleApprove={() => toggleApprove(task.id)}
+                        onRemove={() => removeTask(task.id)}
+                        onToggleEdit={() => toggleEdit(task.id)}
+                        onUpdateField={(field, val) => updateField(task.id, field, val)}
+                        onStartVoiceEdit={() => startListening(task.id)}
+                        onStopVoiceEdit={stopListening}
+                      />
+                    </div>
+                  );
+                })}
               </div>
 
               {parsedTasks.length === 0 && (
