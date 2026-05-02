@@ -11,7 +11,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#3b82f6"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.ma.mobile"
@@ -22,15 +24,24 @@
         "backgroundColor": "#3b82f6"
       },
       "package": "com.ma.mobile",
-      "permissions": ["RECORD_AUDIO"]
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "scheme": "ma-mobile",
     "extra": {
-      "apiUrl": "https://your-replit-url.replit.dev"
+      "apiUrl": "https://your-replit-url.replit.dev",
+      "router": {},
+      "eas": {
+        "projectId": "7aa5e459-5be5-4291-825a-d8197e57264c"
+      }
     },
-    "plugins": ["expo-router"]
+    "plugins": [
+      "expo-router"
+    ],
+    "sdkVersion": "54.0.0"
   }
 }
