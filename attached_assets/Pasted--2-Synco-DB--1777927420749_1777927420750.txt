@@ -1,0 +1,302 @@
+שלב 2ג בפרויקט Synco: חיבור "אשר סידור" ושמירת השיבוץ ב-DB רק אחרי אישור משתמש.
+
+חשוב מאוד:
+אל תשנה את schedulePlanner.
+אל תשנה את buildSchedule.
+אל תשנה את userTaskToScheduleAdapter.
+אל תשנה את recurringEngine.
+אל תשנה את hebrewDateParser.
+אל תוסיף Auth.
+אל תוסיף Google Calendar.
+אל תשנה UI רחב.
+אל תחליף את DayViewPage כולו.
+אל תשמור שיבוץ אוטומטית אחרי Preview.
+שמירה תתבצע רק אחרי לחיצה מפורשת של המשתמש על כפתור אישור.
+
+רקע:
+בשלב 2א נוצר endpoint:
+POST /api/planner/schedule
+
+בשלב 2ב נוצרו:
+src/lib/api/plannerClient.ts
+src/components/planner/PlanMyDayButton.tsx
+
+והוסף חיבור קטן ל:
+src/pages/DayViewPage.tsx
+
+הזרימה כרגע:
+לחיצה על "סדר לי את היום"
+→ קריאה ל-/api/planner/schedule
+→ הצגת Preview
+→ כפתור "נראה טוב" סוגר בלבד
+→ אין שמירה ל-DB
+
+המטרה עכשיו:
+להפוך את "נראה טוב" לכפתור אישור אמיתי:
+"אשר סידור ושמור"
+
+כאשר המשתמש לוחץ:
+המערכת תשמור את startTime/endTime לכל משימה ששובצה ב-DB.
+אחרי שמירה מוצלחת, ה-UI יתעדכן ויציג את המשימות בזמנים החדשים.
+
+העיקרון:
+Preview לא משנה נתונים.
+Apply/Confirm משנה נתונים רק אחרי אישור.
+
+לפני כל שינוי:
+1. בדוק את הקבצים:
+   - src/components/planner/PlanMyDayButton.tsx
+   - src/lib/api/plannerClient.ts
+   - src/store/taskStore.ts
+   - src/types/task.ts
+   - server/routes/planner.ts
+   - server/routes/user-tasks.ts או כל route קיים של user tasks
+   - prisma/schema.prisma
+
+2. בדוק האם כבר קיים PUT לעדכון UserTask.
+3. בדוק מה שם השדות המדויק ב-DB:
+   - startTime
+   - endTime
+   - duration
+   - status
+   - priority
+   - flexibility
+
+4. גבה כל קובץ שאתה משנה.
+
+החלטה טכנית:
+אם קיימת דרך עדכון יחידנית ב-API, עדיין עדיף ליצור endpoint ייעודי לשמירת שיבוץ כדי למנוע partial save.
+
+צור endpoint חדש:
+
+POST /api/planner/apply-schedule
+
+body:
+{
+  "userId": "default-user",
+  "date": "2026-05-04",
+  "items": [
+    {
+      "taskId": "task-id",
+      "startTime": "09:00",
+      "endTime": "09:30"
+    }
+  ]
+}
+
+ה-endpoint צריך:
+1. לוודא שיש userId.
+2. לוודא שיש date.
+3. לוודא ש-items הוא array לא ריק.
+4. לסנן פריטים חסרים או לא תקינים.
+5. להמיר date + startTime/endTime ל-DateTime תקין.
+6. לעדכן רק משימות ששייכות לאותו userId.
+7. לא לעדכן משימות deleted.
+8. לא לעדכן משימות completed אלא אם כבר כך המערכת עובדת היום. עדיף לא לעדכן completed.
+9. להשתמש ב-Prisma transaction אם אפשר.
+10. להחזיר response אחיד.
+
+response מוצלח:
+{
+  "ok": true,
+  "date": "2026-05-04",
+  "userId": "default-user",
+  "updatedCount": 3,
+  "updatedTasks": [
+    {
+      "id": "...",
+      "title": "...",
+      "startTime": "...",
+      "endTime": "..."
+    }
+  ],
+  "skipped": [],
+  "warnings": []
+}
+
+response חלקי או בעייתי:
+{
+  "ok": false,
+  "error": "message",
+  "updatedCount": 0,
+  "warnings": [...]
+}
+
+חשוב:
+אם יש שגיאה באמצע, לא להשאיר DB במצב חלקי.
+אם transaction לא אפשרי מסיבה טכנית, עצור ודווח במקום לעשות שמירה חלקית.
+
+Frontend:
+עדכן את:
+src/lib/api/plannerClient.ts
+
+הוסף פונקציה:
+applySchedule(dateIso, scheduledTasks)
+
+היא תשלח:
+POST /api/planner/apply-schedule
+
+היא תשתמש ב-scheduledTasks שחזרו מה-preview.
+כל scheduledTask כולל:
+id
+startTime
+endTime
+
+שים לב:
+אם השדה נקרא id בתוצאה אבל ב-DB צריך taskId, המר אותו ב-client ל-taskId.
+
+עדכן את:
+src/components/planner/PlanMyDayButton.tsx
+
+שנה את הכפתור:
+"נראה טוב"
+ל:
+"אשר סידור ושמור"
+
+בלחיצה:
+1. הצג loading:
+   "שומר את הסידור..."
+2. קרא ל-plannerClient.applySchedule()
+3. אם הצליח:
+   - סגור את ה-preview או הצג הודעת הצלחה
+   - הצג הודעה:
+     "הסידור נשמר בהצלחה."
+   - רענן את משימות היום מה-store או מה-API לפי הדרך הקיימת בפרויקט
+   - ודא שה-DayView מציג את הזמנים החדשים
+4. אם נכשל:
+   - אל תסגור את ה-preview
+   - הצג:
+     "לא הצלחתי לשמור את הסידור. שום שינוי לא נשמר."
+   - אל תשנה את local state כאילו נשמר
+
+חשוב מאוד:
+אל תעדכן localStorage כאילו השמירה הצליחה לפני שה-DB החזיר success.
+ה-DB הוא מקור האמת בשלב הזה.
+
+אם taskStore עדיין עובד גם עם localStorage:
+לא לשבור אותו.
+אחרי שמירה מוצלחת, עדכן את ה-store דרך action קיים אם יש.
+אם אין action מתאים, בצע refresh מה-API.
+אל תיצור state כפול חדש.
+
+UI:
+ב-Preview הוסף טקסט קטן לפני האישור:
+"שים לב: רק אחרי אישור הסידור יישמר במשימות שלך."
+
+כפתורים:
+- אשר סידור ושמור
+- לא עכשיו
+
+אחרי הצלחה:
+אפשר להציג:
+"סינקו סידר ושמר את היום שלך."
+
+בדיקות חובה:
+1. npm run build
+2. GET /api/health
+3. POST /api/planner/schedule
+4. POST /api/planner/apply-schedule עם 2 משימות
+5. בדוק שהמשימות באמת קיבלו startTime/endTime ב-DB
+6. בדוק ש-completed/deleted לא מתעדכנות
+7. בדוק שה-Preview עדיין לא שומר כלום לפני אישור
+8. בדוק שכפתור "לא עכשיו" לא שומר
+9. בדוק שכפתור "אשר סידור ושמור" כן שומר
+10. בדוק ש-DayView מתעדכן אחרי שמירה
+11. בדוק ש-/api/planner/parse עדיין עובד
+12. בדוק שאין שגיאות TypeScript
+13. בדוק שאין שבירה ב-drag & drop
+
+בדיקת מצב חלקי:
+נסה לשלוח item עם taskId לא קיים.
+המערכת צריכה להחזיר warning או skip, אבל לא לשבור.
+אם משתמשים ב-transaction, ודא שאין שמירה חלקית לא רצויה.
+
+פלט סופי:
+החזר דוח בעברית במבנה הבא:
+
+# דוח שלב 2ג - אישור ושמירת סידור
+
+## 1. מה נבדק לפני שינוי
+טבלה:
+קובץ | למה נבדק | מסקנה
+
+## 2. החלטה טכנית
+כתוב האם השתמשת ב:
+- endpoint חדש apply-schedule
+או
+- PUT קיים לכל משימה
+
+אם בחרת endpoint חדש, הסבר למה.
+
+## 3. מה שונה
+טבלה:
+קובץ | שינוי | למה
+
+## 4. מה גובה
+טבלה:
+קובץ מקורי | קובץ גיבוי
+
+## 5. איך הזרימה עובדת עכשיו
+כתוב:
+לחיצה על "סדר לי את היום"
+→ Preview
+→ לחיצה על "אשר סידור ושמור"
+→ POST /api/planner/apply-schedule
+→ DB update
+→ UI refresh
+
+## 6. האם Preview לבד שומר משהו
+התשובה חייבת להיות:
+לא.
+
+## 7. האם אישור משתמש שומר ל-DB
+התשובה צריכה להיות:
+כן, רק אחרי לחיצה מפורשת.
+
+## 8. תוצאות build
+כתוב אם עבר או נכשל.
+
+## 9. תוצאות API
+טבלה:
+בדיקה | תוצאה | הערה
+
+## 10. תוצאות DB
+טבלה:
+משימה | startTime לפני | startTime אחרי | נשמר כן/לא
+
+## 11. תוצאות UI
+טבלה:
+פעולה | תוצאה | הערה
+
+## 12. בדיקות שלא נשברו
+רשום:
+- Drag & Drop
+- /api/planner/parse
+- /api/health
+- Preview
+- localStorage migration
+- DayView loading
+
+## 13. דברים שלא שונו בכוונה
+רשום:
+- לא נוסף Auth
+- לא נוסף Google Calendar
+- לא שונה schedulePlanner
+- לא שונה recurringEngine
+- לא נוסף מנוע תעדוף חדש
+- לא נוסף Qdrant flow חדש
+
+## 14. סיכונים שנשארו
+רשום בכנות:
+- עדיין אין Auth
+- עדיין userId הוא default-user אם זה המצב
+- עדיין אין Google Calendar
+- עדיין אין תעדוף חכם מלא
+- עדיין אין למידת זמן ביצוע
+
+## 15. האם שלב 2ג סגור
+כן / לא
+
+## 16. השלב הבא
+השלב הבא צריך להיות:
+שלב 2ד - הוספת priorityScore בסיסי לפני השיבוץ, כדי שסינקו לא רק ישבץ לפי מקום פנוי אלא גם לפי מה באמת חשוב.
