@@ -34,17 +34,15 @@ function findFreeSlots(
   config: ScheduleConfig
 ): TimeSlot[] {
   const slots: TimeSlot[] = [];
-  // Stage 3ב.1: dayStartMinute allows minute-precision for No Past guard
-  const dayStart = createTimeIso(dateIso, config.dayStartHour, config.dayStartMinute ?? 0);
+  const dayStart = createTimeIso(dateIso, config.dayStartHour);
   const dayEnd = createTimeIso(dateIso, config.dayEndHour);
   
   if (blocks.length === 0) {
-    // Stage 3ב.1: use parseTimeToMinutes for accuracy when dayStartMinute is set
-    const durationMinutes = parseTimeToMinutes(dayEnd) - parseTimeToMinutes(dayStart);
+    const duration = (config.dayEndHour - config.dayStartHour) * 60;
     slots.push({
       startTimeIso: dayStart,
       endTimeIso: dayEnd,
-      durationMinutes: Math.max(0, durationMinutes),
+      durationMinutes: duration
     });
     return slots;
   }

@@ -14,8 +14,6 @@ export interface ScheduledTaskPreview {
   priorityReasons: string[];
   learningBoost: number;
   learningReasons: string[];
-  /** Stage 3ב.1: סיבות שיבוץ ייחודיות לכל משימה */
-  schedulingContextReasons?: string[];
   reason: string;
   confidence: number;
 }
@@ -25,21 +23,6 @@ export interface LearningContextSummary {
   lookbackDays: number;
   topCompletionHours: { hour: number; count: number }[];
   warnings: string[];
-}
-
-/** Stage 3ב.1: סיכום הקשר עוגן */
-export interface AnchorContextSummary {
-  anchorsDetected: number;
-  preparationLinksDetected: number;
-  anchors: { title: string; startTime: string; anchorType: string }[];
-  warnings: string[];
-}
-
-/** Stage 3ב.1: סיכום הקשר "עכשיו" */
-export interface NowContextSummary {
-  isToday: boolean;
-  earliestAllowedTime: string; // "HH:MM"
-  nowIso: string;
 }
 
 export interface UnscheduledTaskPreview {
@@ -64,9 +47,6 @@ export interface SchedulePreviewResponse {
   warnings: string[];
   summary: SchedulePreviewSummary;
   learningContextSummary?: LearningContextSummary | null;
-  /** Stage 3ב.1 */
-  nowContextSummary?: NowContextSummary | null;
-  anchorContextSummary?: AnchorContextSummary | null;
 }
 
 export interface ApplyScheduleResponse {
@@ -104,11 +84,6 @@ export async function scheduleDayPreview(
     t => t.status !== 'completed' && t.status !== 'standby'
   );
 
-  // Stage 3ב.1: send client-side time context for No Past guard
-  const nowIso = new Date().toISOString();
-  const timezoneOffsetMinutes = new Date().getTimezoneOffset();
-  const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jerusalem';
-
   const res = await fetch('/api/planner/schedule', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -118,10 +93,6 @@ export async function scheduleDayPreview(
       dayStart,
       dayEnd,
       tasks: activeTasks.map(taskToPayload),
-      // Stage 3ב.1
-      nowIso,
-      timezoneOffsetMinutes,
-      userTimeZone,
     }),
   });
 

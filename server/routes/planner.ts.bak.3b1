@@ -7,18 +7,6 @@ import type { ScheduleConfig } from '../layers/task/types/scheduleTypes.js';
 import { scoreAndSort } from '../layers/task/priority/priorityScoreEngine.js';
 import { buildPlanningLearningContext } from '../services/planningLearningContextService.js';
 import type { PlanningLearningContext } from '../services/planningLearningContextService.js';
-// Stage 3ב.1: No Past guard
-import {
-  buildNowContext,
-  applyNoPastSchedulingConfig,
-  isPastFixedTask,
-  getEarliestAllowedTimeString,
-} from '../services/planningTimeGuardService.js';
-// Stage 3ב.1: Anchor context
-import {
-  buildAnchorContext,
-  buildSchedulingContextReasons,
-} from '../services/planningAnchorContextService.js';
 
 const router = Router();
 
@@ -88,10 +76,6 @@ router.post('/schedule', async (req: Request, res: Response) => {
       dayStart = '08:00',
       dayEnd = '22:00',
       tasks: bodyTasks,
-      // Stage 3ב.1: No Past context from client
-      nowIso,
-      userTimeZone,
-      timezoneOffsetMinutes,
     } = req.body;
 
     const dateIso: string = date || new Date().toISOString().split('T')[0];
@@ -115,46 +99,18 @@ router.post('/schedule', async (req: Request, res: Response) => {
       });
     }
 
-    // ── Stage 3ב.1: No Past guard ─────────────────────────────────────────────
-    const nowContext = buildNowContext(dateIso, nowIso, userTimeZone, timezoneOffsetMinutes);
-    const noPastWarnings: string[] = [];
-
-    // Separate fixed tasks that are already in the past
-    const pastFixedTasks: any[] = [];
-    const validRawTasks: any[] = [];
-
-    for (const t of rawTasks) {
-      if (isPastFixedTask(t, nowContext)) {
-        pastFixedTasks.push(t);
-        noPastWarnings.push(
-          `"${t.title ?? t.id}" מוגדרת לזמן שכבר עבר היום ולא שובצה מחדש`
-        );
-      } else {
-        validRawTasks.push(t);
-      }
-    }
-
-    if (nowContext.isToday && noPastWarnings.length === 0 && pastFixedTasks.length === 0) {
-      // Add info warning when we enforce no-past scheduling
-      const earliestStr = getEarliestAllowedTimeString(nowContext);
-      noPastWarnings.push(`לא שובצו משימות לפני ${earliestStr} — שיבוץ מהשעה הנוכחית בלבד`);
-    }
-
-    // ── Stage 3ב.1: Anchor context ────────────────────────────────────────────
-    const anchorCtx = buildAnchorContext(validRawTasks, dateIso);
-
     // ── Learning context (שלב 3ב): fire-and-forget on failure ─────────────────
     let learningCtx: PlanningLearningContext | null = null;
     const learningWarnings: string[] = [];
     try {
-      learningCtx = await buildPlanningLearningContext(userId, dateIso, validRawTasks);
+      learningCtx = await buildPlanningLearningContext(userId, dateIso, rawTasks);
     } catch (lcErr: any) {
       console.warn('[planner/schedule] learningContext failed (silent):', lcErr?.message);
       learningWarnings.push('לא הצלחנו לטעון היסטוריית למידה — הסידור חושב ללא הקשר');
     }
 
-    // ── Priority scoring: score + sort validRawTasks before adapter ────────────
-    const scored = scoreAndSort(validRawTasks, { referenceDate: dateIso, learningContext: learningCtx });
+    // ── Priority scoring: score + sort rawTasks before adapter ────────────────
+    const scored = scoreAndSort(rawTasks, { referenceDate: dateIso, learningContext: learningCtx });
 
     // Build a lookup map: taskId → score data (including learning fields)
     const scoreMap = new Map(
@@ -170,63 +126,43 @@ router.post('/schedule', async (req: Request, res: Response) => {
       ])
     );
 
-    // Pass sorted valid tasks to adapter (preserves fixed-first + score order)
+    // Pass sorted raw tasks to adapter (preserves fixed-first + score order)
     const scheduleTasks = adaptUserTasksToScheduleTasks(scored.map(s => s.task));
 
-    // ── Stage 3ב.1: Apply No Past config ─────────────────────────────────────
-    const baseConfig: ScheduleConfig = {
+    const config: ScheduleConfig = {
       dayStartHour: isNaN(startHour) ? 8  : startHour,
       dayEndHour:   isNaN(endHour)   ? 22 : endHour,
       bufferMinutes: 5,
       minTaskMinutes: 10,
     };
-    const config = applyNoPastSchedulingConfig(baseConfig, nowContext);
 
     const result = buildSchedule(dateIso, scheduleTasks, [], config);
 
-    // ── Build scheduledTasks with Stage 3ב.1 schedulingContextReasons ─────────
     const scheduledTasks = result.blocks
       .filter(b => b.type === 'task' && b.refId)
       .map(b => {
         const task = scheduleTasks.find(t => t.id === b.refId);
-        const rawTask = validRawTasks.find((t: any) => t.id === b.refId);
         const ps = scoreMap.get(b.refId!) ?? {
           score: 0, level: 'low', reasons: [],
           learningBoost: 0, learningReasons: [],
         };
-
-        const startTimeStr = b.startTimeIso.substring(11, 16);
-        const endTimeStr   = b.endTimeIso.substring(11, 16);
-
-        // Stage 3ב.1: schedulingContextReasons
-        const schedulingContextReasons = buildSchedulingContextReasons(
-          b.refId!,
-          b.title,
-          startTimeStr,
-          endTimeStr,
-          anchorCtx,
-          nowContext.nowIso,
-        );
-
         return {
           id: b.refId!,
           title: b.title,
-          startTime: startTimeStr,
-          endTime:   endTimeStr,
-          durationMinutes: task?.durationMinutes ?? rawTask?.duration ?? 0,
-          priority: task?.urgency ?? rawTask?.priority ?? 'medium',
+          startTime: b.startTimeIso.substring(11, 16),
+          endTime:   b.endTimeIso.substring(11, 16),
+          durationMinutes: task?.durationMinutes ?? 0,
+          priority: task?.urgency ?? 'medium',
           priorityScore:   ps.score,
           priorityLevel:   ps.level,
           priorityReasons: ps.reasons,
           learningBoost:   ps.learningBoost,
           learningReasons: ps.learningReasons,
-          schedulingContextReasons,
-          reason: schedulingContextReasons[0] ?? 'שובץ בזמן פנוי מתאים',
+          reason: 'שובץ בזמן פנוי מתאים',
           confidence: 0.8,
         };
       });
 
-    // ── Unscheduled tasks (validRawTasks that didn't get scheduled) ────────────
     const unscheduledTasks = result.unscheduledTasks.map(t => {
       const conflict = result.conflicts.find(c => c.entityId === t.id);
       return {
@@ -235,13 +171,6 @@ router.post('/schedule', async (req: Request, res: Response) => {
         reason: conflict?.message ?? 'לא נמצא חלון זמן מתאים',
       };
     });
-
-    // Past fixed tasks are also "unscheduled"
-    const pastFixedUnscheduled = pastFixedTasks.map(t => ({
-      id: t.id ?? '',
-      title: t.title ?? '',
-      reason: 'המשימה מוגדרת לזמן שכבר עבר היום',
-    }));
 
     const dayLoadMinutes = result.blocks
       .filter(b => b.type === 'task')
@@ -254,39 +183,19 @@ router.post('/schedule', async (req: Request, res: Response) => {
       ...result.conflicts.map(c => c.message),
       ...learningWarnings,
       ...(learningCtx?.warnings ?? []),
-      ...noPastWarnings,
-      ...anchorCtx.warnings,
     ];
-
-    // Stage 3ב.1: summaries for client
-    const nowContextSummary = {
-      isToday: nowContext.isToday,
-      earliestAllowedTime: getEarliestAllowedTimeString(nowContext),
-      nowIso: nowContext.nowIso,
-    };
-
-    const anchorContextSummary = {
-      anchorsDetected: anchorCtx.anchors.length,
-      preparationLinksDetected: anchorCtx.preparationLinks.length,
-      anchors: anchorCtx.anchors.map(a => ({
-        title: a.title,
-        startTime: a.startTime.substring(11, 16),
-        anchorType: a.anchorType,
-      })),
-      warnings: anchorCtx.warnings,
-    };
 
     res.json({
       ok: true,
       date: dateIso,
       userId,
       scheduledTasks,
-      unscheduledTasks: [...unscheduledTasks, ...pastFixedUnscheduled],
+      unscheduledTasks,
       warnings: allWarnings,
       summary: {
         totalTasks:       scheduleTasks.length,
         scheduledCount:   scheduledTasks.length,
-        unscheduledCount: unscheduledTasks.length + pastFixedUnscheduled.length,
+        unscheduledCount: unscheduledTasks.length,
         dayLoadMinutes,
       },
       learningContextSummary: learningCtx
@@ -297,9 +206,6 @@ router.post('/schedule', async (req: Request, res: Response) => {
             warnings:          learningCtx.warnings,
           }
         : null,
-      // Stage 3ב.1
-      nowContextSummary,
-      anchorContextSummary,
     });
   } catch (error: any) {
     console.error('POST /api/planner/schedule error:', error);

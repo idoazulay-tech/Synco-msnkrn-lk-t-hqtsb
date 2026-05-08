@@ -1,0 +1,515 @@
+שלב 2.5א בפרויקט Synco: Multi Input Planning Drafts — רשימת משימות מצטברת לפני אישור ותכנון.
+
+חשוב מאוד:
+אל תשנה את schedulePlanner.
+אל תשנה את buildSchedule.
+אל תשנה את priorityScoreEngine.
+אל תשנה את planningLearningContextService.
+אל תשנה את apply-schedule.
+אל תשנה את learning events.
+אל תשנה את daily-summary.
+אל תשנה את recurringEngine.
+אל תשנה את hebrewDateParser.
+אל תוסיף Auth.
+אל תוסיף Google Calendar.
+אל תוסיף Qdrant.
+אל תוסיף AI API חדש.
+אל תבנה dashboard.
+אל תעשה refactor רחב.
+אל תחליף קבצים גדולים אם אפשר שינוי קטן.
+אל תשבור את DayView.
+אל תשבור Drag & Drop.
+אל תשבור Preview.
+אל תשבור "אשר סידור ושמור".
+אל תשבור syncTasksFromServer.
+אל תשבור localStorage migration.
+
+המטרה:
+לתקן את זרימת יצירת המשימות כך שהמשתמש יוכל להכניס כמה קלטים רצופים לפני אישור:
+- הקלטת אודיו נוספת
+- הקלדה נוספת
+- יצירת עוד משימות לאותה רשימת אישור
+- עריכת כל משימה לפני אישור
+- ביטול כל המשימות שנצברו עם אפשרות מחיקה או שמירה לטיוטות
+- כפתור "תכנן משימות"
+- בדיקה האם כל המשימות מיועדות להיום או שיש צורך לבחור תאריך לכל משימה
+
+הבעיה הנוכחית:
+אחרי שהמשתמש מקליט או מקליד ונוצרת משימה שעוד לא אושרה, אין לו דרך להוסיף עוד קלט לאותה רשימת תכנון.
+זה יוצר זרימה לא טבעית, כי משתמש אמיתי מוסיף משימות בשלבים ונזכר בעוד דברים תוך כדי.
+
+ההתנהגות החדשה:
+המשתמש יכול לפתוח Planning Draft Session.
+בתוך הסשן:
+1. הוא מקליט או מקליד.
+2. סינקו מפרק את הקלט למשימה אחת או יותר.
+3. המשימות נכנסות לרשימת "משימות לפני אישור".
+4. המשתמש יכול להוסיף עוד קלט.
+5. המשימות החדשות מתווספות לרשימה הקיימת.
+6. המשתמש יכול לערוך כל משימה וכל הפרמטרים שלה.
+7. המשתמש יכול לבטל הכל.
+8. אם הוא מבטל, הוא מקבל שאלה:
+   "המשימות עדיין לא נשמרו. מה לעשות?"
+   כפתורים:
+   - מחק הכל
+   - שמור לטיוטות
+   - חזור
+9. המשתמש יכול ללחוץ "תכנן משימות".
+10. לפני התכנון, סינקו בודק האם כל המשימות מיועדות להיום.
+11. אם לא ברור, מוצגת שאלה:
+   "האם כל המשימות האלו מיועדות להיום?"
+   כפתורים:
+   - כן, כולן להיום
+   - לא, אבחר תאריך לכל משימה
+   - חלק להיום וחלק לא
+12. רק לאחר מכן המערכת שולחת את המשימות ל-/api/planner/schedule.
+13. לאחר Preview, המשתמש יכול לאשר ולשמור כמו בשלבים הקיימים.
+
+לפני שינוי:
+בדוק את הקבצים הבאים:
+
+Frontend:
+- src/pages/AddTaskPage.tsx
+- src/pages/PriorityPlannerPage.tsx
+- src/components/task/HaMekolel.tsx
+- src/components/voice/VoiceInput.tsx
+- src/components/planner/PlanMyDayButton.tsx
+- src/lib/api/plannerClient.ts
+- src/store/taskStore.ts
+- src/types/task.ts
+- src/pages/DayViewPage.tsx
+- src/pages/TaskDetailPage.tsx
+- src/pages/EditTaskPage.tsx
+
+Backend:
+- server/routes/planner.ts
+- server/routes/user-tasks.ts
+- server/routes/learning.ts
+- prisma/schema.prisma
+
+בדוק במיוחד:
+1. איפה כיום קלט אודיו הופך למשימה.
+2. איפה כיום קלט טקסט הופך למשימה.
+3. האם PriorityPlannerPage כבר מחזיק רשימת משימות לפני אישור.
+4. האם AddTaskPage יוצר משימה מיד או מחזיק preview.
+5. האם יש כבר מושג של draft/standby/template.
+6. האם יש כבר שדה status שמתאים ל-draft.
+7. האם יש endpoint מתאים לטיוטות.
+8. האם planner/schedule יכול לקבל body.tasks בלי שהן קיימות ב-DB.
+9. האם apply-schedule מחייב שהמשימות קיימות ב-DB.
+10. האם צריך קודם ליצור UserTask לפני apply-schedule.
+
+החלטה ארכיטקטונית:
+צור מודול חדש ומבודד ל-Planning Draft Session.
+
+Frontend:
+צור store חדש:
+src/store/planningDraftStore.ts
+
+ה-store יכיל:
+- draftTasks: PlanningDraftTask[]
+- sessionId
+- createdAt
+- updatedAt
+- addDraftTasks(tasks)
+- updateDraftTask(id, patch)
+- removeDraftTask(id)
+- clearDraftTasks()
+- saveDrafts()
+- loadDrafts()
+- markAllForToday(dateIso)
+- hasUnconfirmedDrafts()
+- resetSession()
+
+PlanningDraftTask צריך לכלול:
+- id
+- title
+- description?
+- dateIso?
+- startTime?
+- endTime?
+- durationMinutes?
+- priority: low | medium | high
+- flexibility: fixed | flexible | anytime
+- status: draft
+- source: voice | text | ai_parse | manual
+- rawInput?
+- category?
+- projectId?
+- recurrence?
+- notes?
+- createdAt
+- updatedAt
+
+אל תשנה את Task המקורי אם לא חייבים.
+אם צריך type חדש, צור:
+src/types/planningDraft.ts
+
+UI:
+צור component חדש:
+src/components/planner/PlanningDraftPanel.tsx
+
+הוא יציג:
+1. כותרת:
+   "משימות לפני אישור"
+
+2. אזור הוספה:
+   - כפתור "הקלט עוד"
+   - שדה "הקלד עוד משימה"
+   - כפתור "הוסף"
+
+3. רשימת draftTasks:
+   כל משימה תופיע בכרטיס עם:
+   - title
+   - dateIso אם קיים
+   - startTime/endTime אם קיים
+   - duration
+   - priority
+   - flexibility
+   - source
+   - כפתורים:
+     - ערוך
+     - מחק
+
+4. עריכת משימה:
+   אפשר לערוך את כל הפרמטרים:
+   - title
+   - description
+   - dateIso
+   - startTime
+   - endTime
+   - durationMinutes
+   - priority
+   - flexibility
+   - category
+   - projectId אם קיים
+   - recurrence אם כבר נתמך
+   - notes
+
+אם יש כבר EditTask modal/component, השתמש בו בזהירות.
+אם אין, צור modal פשוט:
+src/components/planner/EditDraftTaskDialog.tsx
+
+5. כפתור:
+   "בטל הכל"
+
+בלחיצה:
+פתח Dialog:
+"המשימות עדיין לא נשמרו. מה לעשות?"
+כפתורים:
+- "מחק הכל"
+- "שמור לטיוטות"
+- "חזור"
+
+אם המשתמש בוחר "מחק הכל":
+clearDraftTasks()
+
+אם המשתמש בוחר "שמור לטיוטות":
+שמור את הרשימה למאגר טיוטות.
+
+מאגר טיוטות:
+בשלב הזה עדיף DB-backed אם אפשר בלי שבירה.
+בדוק אם יש כבר TaskTemplate/StandbyTask/Archive שמתאים.
+אם אין, צור מודל Prisma חדש:
+
+model PlanningDraft {
+  id        String   @id @default(cuid())
+  userId    String
+  sessionId String?
+  title     String
+  description String?
+  payload   Json
+  status    String   @default("draft")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([status])
+}
+
+אם שינוי Prisma כבד מדי לשלב הזה, השתמש ב-localStorage בלבד ודווח שזה זמני.
+אבל ההעדפה היא DB-backed drafts.
+
+צור routes אם צריך:
+POST /api/planning-drafts
+GET /api/planning-drafts?userId=default-user
+DELETE /api/planning-drafts/:id
+
+לא לחבר עדיין dashboard טיוטות רחב.
+רק לשמור ולשלוף בסיסית.
+
+6. כפתור:
+"תכנן משימות"
+
+בלחיצה:
+לפני שליחה ל-planner/schedule, בדוק:
+- האם לכל draftTask יש dateIso?
+- האם כולן לאותו dateIso?
+- האם יש משימות בלי dateIso?
+
+אם כל המשימות בלי dateIso:
+הצג שאלה:
+"האם כל המשימות האלו מיועדות להיום?"
+כפתורים:
+- "כן, כולן להיום"
+- "לא, אבחר תאריך לכל משימה"
+- "חלק להיום וחלק לא"
+
+אם המשתמש בוחר "כן":
+הוסף dateIso של היום לכל המשימות.
+ואז שלח ל-planner/schedule.
+
+אם המשתמש בוחר "לא":
+פתח מצב עריכה שמדגיש dateIso לכל משימה.
+אל תשלח לתכנון עד שלכל משימה יש dateIso.
+
+אם המשתמש בוחר "חלק":
+אפשר למשתמש לערוך dateIso לכל משימה.
+אל תשלח לתכנון עד שאין משימה בלי dateIso.
+
+אם חלק מהמשימות היום וחלק בתאריכים אחרים:
+בשלב הזה תכנן רק את המשימות של היום.
+הצג הודעה:
+"כרגע סינקו יתכנן את המשימות של היום. המשימות לתאריכים אחרים יישמרו כטיוטות או יישארו ברשימה."
+
+חשוב:
+אל תשלח משימות בלי dateIso ל-planner/schedule בלי שהמשתמש אישר שהן להיום.
+
+חיבור ל-planner:
+אם /api/planner/schedule יודע לקבל tasks מה-body:
+שלח את draftTasks בפורמט מתאים.
+אם צריך adapter frontend, צור:
+src/lib/adapters/planningDraftToPlannerTask.ts
+
+אל תשבור plannerClient הקיים.
+הוסף פונקציה:
+scheduleDraftTasksPreview(dateIso, draftTasks)
+
+שמירה סופית:
+חשוב מאוד:
+planner/apply-schedule כנראה מעדכן UserTask קיימות לפי taskId.
+אבל DraftTask עדיין לא קיימת כ-UserTask.
+לכן צריך להחליט:
+
+אפשרות מועדפת:
+לפני apply-schedule, כאשר המשתמש מאשר Preview:
+1. צור UserTasks אמיתיות מה-draftTasks.
+2. קבל IDs אמיתיים מה-DB.
+3. הפעל apply-schedule על ה-IDs האמיתיים.
+4. נקה את draftTasks מהסשן.
+
+אל תנסה לעשות apply-schedule על ids זמניים של drafts.
+
+אם כבר יש route שמקבל tasks ושומר אותן:
+השתמש בו.
+אם אין, צור helper ב-client שעושה:
+createTasksFromDrafts()
+ואז applySchedule()
+
+לא לשנות את apply-schedule כדי שיקבל draft IDs, אלא אם אין ברירה.
+העדפה: draft IDs זמניים נשארים בצד draft; apply-schedule עובד רק על UserTask אמיתי.
+
+Learning Events:
+כאשר draft הופך למשימה אמיתית:
+- task_created צריך להיווצר כמו היום.
+- אין צורך ליצור learning event עבור כל draft שנוצר.
+- אם רוצים, אפשר metadata source: "planning_draft".
+אבל לא חובה.
+
+תיקון איפיון:
+הוסף בקוד comments קצרים שמסבירים:
+PlanningDraftTask = משימה לפני אישור
+UserTask = משימה אמיתית שנשמרה
+ScheduledTaskPreview = הצעת שיבוץ
+
+בדיקות חובה:
+1. npm run build
+2. אם שינית Prisma:
+   npx prisma db push או הפקודה המתאימה בפרויקט
+3. GET /api/health
+4. קלט טקסט ראשון יוצר draft task
+5. קלט טקסט שני מוסיף לאותה רשימה ולא מוחק את הראשון
+6. הקלטה ראשונה יוצרת draft task
+7. הקלטה נוספת מוסיפה לרשימה ולא מאפסת
+8. עריכת draft task עובדת לכל הפרמטרים
+9. מחיקת draft task בודדת עובדת
+10. "בטל הכל" פותח Dialog
+11. "מחק הכל" מנקה את הרשימה
+12. "שמור לטיוטות" שומר למאגר טיוטות
+13. GET drafts מחזיר טיוטות אם נבנה DB route
+14. "תכנן משימות" בלי dateIso שואל האם כולן להיום
+15. בחירה "כן, כולן להיום" מוסיפה dateIso של היום
+16. בחירה "לא" לא מתכננת עד שמשלימים תאריכים
+17. planner/schedule מקבל draft tasks ומחזיר Preview
+18. Preview עדיין לא שומר בלי אישור
+19. אישור Preview יוצר UserTasks אמיתיות ואז שומר שיבוץ
+20. לאחר אישור, DayView מציג את המשימות החדשות בזמן ששובץ
+21. task_created עדיין נוצר עבור המשימות שאושרו
+22. planner/apply-schedule עדיין עובד על UserTasks קיימות
+23. planner/parse עדיין עובד
+24. learning/events עדיין עובד
+25. learning/daily-summary עדיין עובד
+26. learning/planning-context עדיין עובד
+27. Drag & Drop לא נשבר
+28. DayView לא נשבר
+29. localStorage migration לא נשברה
+30. syncTasksFromServer לא נשבר
+
+בדיקות edge cases:
+- קלט יוצר 0 משימות
+- קלט יוצר 5 משימות
+- משתמש מוסיף עוד קלט אחרי שכבר יש 5 משימות
+- שתי משימות עם אותו שם
+- משימה בלי משך
+- משימה בלי priority
+- משימה עם תאריך עתידי
+- חלק מהמשימות היום וחלק עתידיות
+- המשתמש לוחץ בטל ואז חוזר
+- המשתמש שומר לטיוטות ואז חוזר לדף
+- הטיוטות נשארות אחרי refresh אם DB-backed
+- planner/schedule נכשל
+- create UserTasks מצליח חלקית ונכשל באמצע
+
+חשוב לגבי partial save:
+כאשר מאשרים Preview של draftTasks:
+אסור ליצור מצב שחלק מהמשימות הפכו ל-UserTask וחלק לא בלי הודעה ברורה.
+אם אפשר, השתמש endpoint אחד בצד שרת:
+POST /api/planner/commit-draft-schedule
+
+שמקבל:
+{
+  userId,
+  date,
+  draftTasks,
+  scheduledItems
+}
+
+והוא עושה transaction:
+1. create UserTasks
+2. apply startTime/endTime
+3. return createdTasks
+
+אם זה יותר מדי לשלב הזה, דווח ותבצע דרך קיימת בזהירות.
+אבל ההעדפה היא transaction אחד.
+
+פלט סופי:
+החזר דוח בעברית במבנה הבא:
+
+# דוח שלב 2.5א - Multi Input Planning Drafts
+
+## 1. מה נבדק לפני שינוי
+טבלה:
+קובץ | למה נבדק | מסקנה
+
+## 2. החלטה ארכיטקטונית
+כתוב:
+- איפה נשמרות טיוטות
+- האם נוצר PlanningDraftTask type
+- האם נוצר planningDraftStore
+- האם נוצר DB model לטיוטות או localStorage זמני
+- איך DraftTask הופך ל-UserTask
+- איך נמנעה שמירה חלקית
+
+## 3. מה שונה
+טבלה:
+קובץ | שינוי | למה
+
+## 4. מה גובה
+טבלה:
+קובץ מקורי | קובץ גיבוי
+
+## 5. איך הזרימה החדשה עובדת
+כתוב:
+קלט ראשון
+→ draft task
+→ קלט נוסף
+→ append
+→ עריכה
+→ בדיקת האם להיום
+→ תכנן משימות
+→ Preview
+→ אישור
+→ UserTasks אמיתיות
+→ apply schedule
+→ DayView
+
+## 6. איך בודקים האם כל המשימות להיום
+כתוב את הלוגיקה.
+
+## 7. איך עובד ביטול הכל
+כתוב:
+מחק הכל / שמור לטיוטות / חזור
+
+## 8. איך עובד מאגר הטיוטות
+כתוב האם DB או localStorage ואיך שולפים.
+
+## 9. איך נמנעה פגיעה בשלבים קיימים
+רשום:
+- planner/schedule
+- planner/apply-schedule
+- priorityScore
+- learningBoost
+- learning/events
+- daily-summary
+- planning-context
+- Preview
+- אישור ושמירה
+- Drag & Drop
+
+## 10. תוצאות build ו-Prisma
+עבר / נכשל / לא נדרש
+
+## 11. תוצאות API
+טבלה:
+בדיקה | תוצאה | הערה
+
+## 12. תוצאות UI
+טבלה:
+פעולה | תוצאה | הערה
+
+## 13. תוצאות DB
+אם נוצר DB draft:
+הצג דוגמת רשומת draft.
+אם לא:
+כתוב שהטיוטות זמניות ולמה.
+
+## 14. בדיקות שלא נשברו
+רשום:
+- DayView
+- Drag & Drop
+- planner/schedule
+- planner/apply-schedule
+- planner/parse
+- learning/events
+- learning/daily-summary
+- learning/planning-context
+- syncTasksFromServer
+- localStorage migration
+
+## 15. דברים שלא שונו בכוונה
+רשום:
+- לא נוסף Auth
+- לא נוסף Google Calendar
+- לא נוסף Qdrant
+- לא נוסף AI חדש
+- לא שונה schedulePlanner
+- לא שונה priorityScoreEngine
+- לא שונה planningLearningContextService
+- לא שונה recurringEngine
+- לא שונה hebrewDateParser
+
+## 16. סיכונים שנשארו
+רשום:
+- userId עדיין default-user
+- ייתכן שהטיוטות עדיין לא מחוברות למסך טיוטות מלא
+- תאריכים עתידיים עדיין לא מתוכננים ביומן עתידי אם זה לא נבנה
+- אין עדיין חוויית mobile מלאה
+- אין עדיין Auth
+
+## 17. האם שלב 2.5א סגור
+כן / לא
+
+## 18. השלב הבא
+אם שלב 2.5א נסגר:
+חוזרים לשלב 3ג - Execution Time Tracking.

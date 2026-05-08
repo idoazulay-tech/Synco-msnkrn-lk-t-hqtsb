@@ -49,10 +49,14 @@ router.post('/complete', async (req, res) => {
       const patternSummary = Object.entries(behaviorPatterns)
         .map(([key, val]: [string, any]) => `${key}: ${val.triggerType || ''} → ${val.reactionPattern || ''}`)
         .join('; ');
-      await storeUserMessage(userId, `[onboarding] דפוסי פעולה: ${patternSummary}`, {
-        type: 'onboarding_complete',
-        patterns: behaviorPatterns,
-      });
+      try {
+        await storeUserMessage(userId, `[onboarding] דפוסי פעולה: ${patternSummary}`, {
+          type: 'onboarding_complete',
+          patterns: behaviorPatterns,
+        });
+      } catch (memErr: any) {
+        console.warn('[Onboarding] memory store skipped (offline):', memErr.message);
+      }
     }
 
     res.json(state);
@@ -91,10 +95,14 @@ router.post('/skip', async (req, res) => {
       const patternSummary = Object.entries(behaviorPatterns)
         .map(([key, val]: [string, any]) => `${key}: ${val.triggerType || ''} → ${val.reactionPattern || ''}`)
         .join('; ');
-      await storeUserMessage(userId, `[onboarding partial] דפוסי פעולה: ${patternSummary}`, {
-        type: 'onboarding_partial',
-        patterns: behaviorPatterns,
-      });
+      try {
+        await storeUserMessage(userId, `[onboarding partial] דפוסי פעולה: ${patternSummary}`, {
+          type: 'onboarding_partial',
+          patterns: behaviorPatterns,
+        });
+      } catch (memErr: any) {
+        console.warn('[Onboarding] memory store skipped (offline):', memErr.message);
+      }
     }
 
     res.json(state);

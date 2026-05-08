@@ -1,8 +1,7 @@
-// ─── Priority Score Engine — Synco שלב 2ד + 3ב + 3ב.1 ──────────────────────
+// ─── Priority Score Engine — Synco שלב 2ד + 3ב ───────────────────────────────
 // מחשב priorityScore (0-100) לכל משימה גולמית לפני שיבוץ.
 // מבודד לחלוטין: לא נוגע ב-schedulePlanner, buildSchedule, adapter, DB.
 // שלב 3ב: תומך ב-learningContext אופציונלי (backward-compatible).
-// שלב 3ב.1: title-based learning disabled — only taskId match is reliable.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { MovedTaskHint, PlanningLearningContext } from '../.././../../services/planningLearningContextService.js';
@@ -47,9 +46,10 @@ function applyLearningBoost(
 ): { boost: number; reasons: string[] } {
   if (!hints.length) return { boost: 0, reasons: [] };
 
-  const taskId = task.id as string | undefined;
+  const taskId    = task.id    as string | undefined;
+  const taskTitle = task.title as string | undefined;
 
-  // 1. exact taskId match only (reliable)
+  // 1. exact taskId match
   const byId = taskId ? hints.find(h => h.taskId && h.taskId === taskId) : undefined;
   if (byId) {
     return {
@@ -58,9 +58,17 @@ function applyLearningBoost(
     };
   }
 
-  // title-based learning disabled until confidence model exists
-  // Stage 3ב.1: title fallback removed — false positives on new tasks
-  // const byTitle = ...
+  // 2. title match (reduced boost, max 4)
+  const byTitle = taskTitle
+    ? hints.find(h => h.title && h.title === taskTitle)
+    : undefined;
+  if (byTitle) {
+    const reducedBoost = Math.min(byTitle.suggestedBoost, 4);
+    return {
+      boost:   reducedBoost,
+      reasons: [`${byTitle.reason} (${byTitle.rescheduleCount} פעמים)`],
+    };
+  }
 
   return { boost: 0, reasons: [] };
 }
@@ -156,12 +164,11 @@ export function calculatePriorityScore(
   }
 
   // ── 5. Learning boost (שלב 3ב) ───────────────────────────────────────────
-  // Stage 3ב.1: only taskId-based boost (title fallback disabled)
   const hints = ctx.learningContext?.movedTaskHints ?? [];
   const { boost, reasons: lReasons } = applyLearningBoost(task, hints);
 
   if (boost > 0) {
-    reasons.push('המשימה הזו זזה בעבר ולכן מקבלת עדיפות');
+    reasons.push('המשימה הזו זזה בעבר כמה פעמים ולכן כדאי לתת לה מקום ברור');
   }
 
   // ── 6. שדות עתידיים ───────────────────────────────────────────────────────

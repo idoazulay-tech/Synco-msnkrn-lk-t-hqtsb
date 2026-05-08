@@ -7,8 +7,6 @@ export interface ScheduleConfig {
   dayEndHour: number;
   bufferMinutes: number;
   minTaskMinutes: number;
-  /** Stage 3ב.1: דקות תחילת יום (0-59), מאפשר דיוק של דקות ולא רק שעות */
-  dayStartMinute?: number;
 }
 
 export const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {

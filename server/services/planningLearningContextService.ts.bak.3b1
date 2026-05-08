@@ -2,19 +2,10 @@
  * planningLearningContextService.ts
  * שירות מבודד לבניית Learning Context לשימוש בשיבוץ.
  * Read-only — לא כותב שום דבר ל-DB.
- *
- * Stage 3ב.1 changes:
- * - Exclude sources: test, seed, debug, manual_test
- * - title fallback removed (handled in priorityScoreEngine)
- * - Only count rescheduled events that occurred AFTER the task's createdAt
- * - movedTaskHints returned only for taskId with reliable real events
- * - reliableLearningMatchesCount added to context (debug field)
+ * מתעלם מ-source="test" כדי שאירועי בדיקה לא ישפיעו על התעדוף.
  */
 
 import { prisma } from '../lib/prisma.js';
-
-// Sources that should never influence scheduling
-const EXCLUDED_SOURCES = ['test', 'seed', 'debug', 'manual_test'];
 
 export interface MovedTaskHint {
   taskId: string;
@@ -32,8 +23,6 @@ export interface PlanningLearningContext {
   topCompletionHours: { hour: number; count: number }[];
   movedTaskHints: MovedTaskHint[];
   warnings: string[];
-  /** Stage 3ב.1: debug field — count of taskId hints with ≥1 real event after task.createdAt */
-  reliableLearningMatchesCount?: number;
 }
 
 function boostForCount(count: number): number {
@@ -51,16 +40,12 @@ export async function buildPlanningLearningContext(
   const toDate   = new Date(`${dateIso}T23:59:59.999Z`);
   const fromDate = new Date(toDate.getTime() - lookbackDays * 86_400_000);
 
-  // Stage 3ב.1: exclude test/seed/debug/manual_test sources.
-  // Use OR to explicitly include NULL sources (Prisma NOT+in can exclude NULLs in SQL).
+  // Exclude source="test" to prevent test events from affecting real scheduling
   const events = await prisma.learningEvent.findMany({
     where: {
       userId,
       occurredAt: { gte: fromDate, lte: toDate },
-      OR: [
-        { source: null },                            // no source → always include
-        { NOT: { source: { in: EXCLUDED_SOURCES } } }, // non-excluded named source
-      ],
+      NOT: { source: 'test' },
     },
     orderBy: { occurredAt: 'asc' },
   });
@@ -74,7 +59,6 @@ export async function buildPlanningLearningContext(
       topCompletionHours: [],
       movedTaskHints: [],
       warnings: [],
-      reliableLearningMatchesCount: 0,
     };
   }
 
@@ -98,53 +82,47 @@ export async function buildPlanningLearningContext(
     .slice(0, 3)
     .map(([hour, count]) => ({ hour, count }));
 
-  // ── movedTaskHints: taskId-only (Stage 3ב.1: title fallback disabled) ────
-  // Build a map of taskId → createdAt from _tasks (for reliability check)
-  const taskCreatedAtMap = new Map<string, Date>();
-  for (const t of _tasks) {
-    if (t.id && t.createdAt) {
-      const createdAt = t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt);
-      if (!isNaN(createdAt.getTime())) {
-        taskCreatedAtMap.set(t.id, createdAt);
+  // ── movedTaskHints: group task_rescheduled by taskId, fallback to title ──
+  const rescheduleMap = new Map<string, { title: string; count: number; isIdKey: boolean }>();
+
+  for (const e of events) {
+    if (e.eventType !== 'task_rescheduled') continue;
+
+    if (e.taskId) {
+      const existing = rescheduleMap.get(e.taskId);
+      if (existing) {
+        existing.count++;
+      } else {
+        rescheduleMap.set(e.taskId, {
+          title:    e.taskTitleSnapshot ?? e.taskId,
+          count:    1,
+          isIdKey:  true,
+        });
+      }
+    } else if (e.taskTitleSnapshot) {
+      const key = `title:${e.taskTitleSnapshot}`;
+      const existing = rescheduleMap.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        rescheduleMap.set(key, {
+          title:   e.taskTitleSnapshot,
+          count:   1,
+          isIdKey: false,
+        });
       }
     }
   }
 
-  // Group rescheduled events by taskId only
-  // Stage 3ב.1: only count events after task.createdAt (if available)
-  const rescheduleMap = new Map<string, { title: string; count: number }>();
-
-  for (const e of events) {
-    if (e.eventType !== 'task_rescheduled') continue;
-    if (!e.taskId) continue; // title fallback disabled — skip events without taskId
-
-    // Stage 3ב.1: skip events that occurred before the task was created
-    const taskCreatedAt = taskCreatedAtMap.get(e.taskId);
-    if (taskCreatedAt && e.occurredAt < taskCreatedAt) continue;
-
-    const existing = rescheduleMap.get(e.taskId);
-    if (existing) {
-      existing.count++;
-    } else {
-      rescheduleMap.set(e.taskId, {
-        title: e.taskTitleSnapshot ?? e.taskId,
-        count: 1,
-      });
-    }
-  }
-
-  // Stage 3ב.1: only show "moved in past" in reason if count ≥ 2
   const movedTaskHints: MovedTaskHint[] = [...rescheduleMap.entries()]
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 10)
-    .map(([taskId, { title, count }]) => ({
-      taskId,
+    .map(([key, { title, count, isIdKey }]) => ({
+      taskId:          isIdKey ? key : '',
       title,
       rescheduleCount: count,
-      suggestedBoost: boostForCount(count),
-      reason: count >= 2
-        ? 'המשימה הזו זזה כמה פעמים בעבר ולכן כדאי לתת לה מקום ברור'
-        : 'משימה זו שובצה מחדש בעבר',
+      suggestedBoost:  boostForCount(count),
+      reason:          'המשימה הזו זזה כמה פעמים בעבר ולכן כדאי לתת לה מקום ברור',
     }));
 
   // ── warnings ───────────────────────────────────────────────────────────────
@@ -164,6 +142,5 @@ export async function buildPlanningLearningContext(
     topCompletionHours,
     movedTaskHints,
     warnings,
-    reliableLearningMatchesCount: movedTaskHints.length,
   };
 }
