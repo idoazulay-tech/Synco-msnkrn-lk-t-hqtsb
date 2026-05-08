@@ -1,0 +1,330 @@
+שלב 3ג בפרויקט Synco: Execution Time Tracking בסיסי.
+
+חשוב מאוד:
+אל תשנה את schedulePlanner.
+אל תשנה את buildSchedule.
+אל תשנה את priorityScoreEngine.
+אל תשנה את planningLearningContextService.
+אל תשנה את apply-schedule חוץ מהכרחי.
+אל תשנה את Learning Events הקיימים בצורה שוברת.
+אל תוסיף Auth.
+אל תוסיף Google Calendar.
+אל תוסיף Qdrant.
+אל תוסיף AI API.
+אל תבנה dashboard חדש.
+אל תעשה refactor רחב.
+אל תחליף קבצים גדולים אם אפשר שינוי קטן.
+אל תשבור Drag & Drop.
+אל תשבור Preview.
+אל תשבור אישור ושמירה.
+אל תשבור syncTasksFromServer.
+אל תשבור localStorage migration.
+
+המטרה:
+להוסיף מעקב זמן ביצוע בפועל למשימות:
+1. מתי המשתמש התחיל משימה בפועל.
+2. מתי המשתמש סיים משימה בפועל.
+3. כמה זמן המשימה תוכננה לקחת.
+4. כמה זמן היא באמת לקחה.
+5. מה הפער בין הזמן המתוכנן לזמן האמיתי.
+
+השלב הזה לא משנה עדיין את השיבוץ.
+השלב הזה רק שומר דאטה נכון כדי שבעתיד סינקו ידע לשפר הערכות זמן.
+
+לפני שינוי:
+בדוק את הקבצים הבאים:
+
+Backend:
+- prisma/schema.prisma
+- server/routes/user-tasks.ts
+- server/routes/learning.ts
+- server/services/learningSummaryService.ts
+- server/services/planningLearningContextService.ts
+- server/lib/prisma.ts
+
+Frontend:
+- src/store/taskStore.ts
+- src/components/timer/
+- src/components/timer/CircularProgress.tsx אם קיים
+- src/components/timer/CompletionDialog.tsx אם קיים
+- src/pages/HomePage.tsx
+- src/pages/DayViewPage.tsx
+- src/pages/TaskDetailPage.tsx
+- src/types/task.ts
+- src/lib/api/learningClient.ts
+
+בדוק:
+1. האם יש כבר שדות plannedStartTime / actualStartTime / actualEndTime.
+2. האם יש כבר שדה duration או durationMinutes.
+3. האם completeTask מקבל timestamp.
+4. האם יש טיימר פעיל שממנו אפשר להבין התחלה וסיום.
+5. האם LearningEvent metadata יכול לשמור plannedDurationMinutes / actualDurationMinutes.
+6. האם עדיף לשמור execution data בתוך UserTask או רק ב-LearningEvent.
+
+החלטה ארכיטקטונית:
+בשלב הזה אל תשנה את UserTask בצורה כבדה אם לא חייבים.
+
+הדרך המועדפת:
+לשמור Execution Tracking כ-LearningEvent נוסף ומובנה.
+
+הוסף eventTypes חדשים:
+- task_started
+- task_execution_completed
+
+אל תשבור את eventTypes הקיימים:
+- task_created
+- task_completed
+- task_rescheduled
+- task_deleted
+- schedule_applied
+- task_updated
+
+אפשר גם להרחיב validation ב-/api/learning/events כך שיקבל את שני הסוגים החדשים.
+
+מודל הנתונים:
+אם LearningEvent כבר כולל metadata Json, השתמש בו.
+
+דוגמה ל-task_started:
+{
+  "userId": "default-user",
+  "taskId": "task-id",
+  "eventType": "task_started",
+  "source": "timer",
+  "dateIso": "2026-05-08",
+  "taskTitleSnapshot": "עבודה על סינקו",
+  "metadata": {
+    "plannedDurationMinutes": 60,
+    "plannedStartTime": "2026-05-08T08:00:00.000Z",
+    "actualStartTime": "2026-05-08T08:12:00.000Z"
+  }
+}
+
+דוגמה ל-task_execution_completed:
+{
+  "userId": "default-user",
+  "taskId": "task-id",
+  "eventType": "task_execution_completed",
+  "source": "completeTask",
+  "dateIso": "2026-05-08",
+  "taskTitleSnapshot": "עבודה על סינקו",
+  "metadata": {
+    "plannedDurationMinutes": 60,
+    "actualDurationMinutes": 87,
+    "durationDeltaMinutes": 27,
+    "plannedStartTime": "2026-05-08T08:00:00.000Z",
+    "actualStartTime": "2026-05-08T08:12:00.000Z",
+    "actualEndTime": "2026-05-08T09:39:00.000Z"
+  }
+}
+
+Backend:
+1. עדכן את validation של /api/learning/events כך שיקבל:
+   - task_started
+   - task_execution_completed
+
+2. אם יש service מתאים, צור helper:
+   server/services/executionTrackingService.ts
+
+ה-service יכול לכלול:
+- buildExecutionCompletedMetadata(task, actualStartTime, actualEndTime)
+- calculateActualDurationMinutes(actualStartTime, actualEndTime)
+- calculateDurationDeltaMinutes(plannedDurationMinutes, actualDurationMinutes)
+
+3. אל תיצור מנוע תובנות עדיין.
+4. אל תשנה שיבוץ לפי נתוני זמן עדיין.
+
+Frontend:
+מצא איפה מתחילים משימה בפועל.
+
+אפשרויות:
+1. אם יש כפתור Start בטיימר, חבר לשם task_started.
+2. אם אין Start ברור, השתמש ברגע שבו המשתמש מפעיל טיימר למשימה.
+3. אם גם זה לא קיים, צור action קטן ב-taskStore:
+   startTaskExecution(taskId)
+
+חשוב:
+אל תבנה UI חדש גדול.
+אם כבר יש כפתור התחלה או טיימר, התחבר אליו.
+אם אין, הוסף כפתור קטן רק במקום הכי טבעי, למשל TaskDetail או Home current task:
+"התחל משימה"
+
+כאשר המשתמש מתחיל משימה:
+- שמור actualStartTime זמני ב-store או local state.
+- שלח LearningEvent:
+  eventType: task_started
+- אם הלוגינג נכשל, הפעולה לא נשברת.
+
+כאשר המשתמש מסמן משימה כהושלמה:
+- אם יש actualStartTime, חשב actualDurationMinutes.
+- אם אין actualStartTime, אפשר להשתמש ב:
+  actualStartTime = startTime המתוכנן אם קיים
+  או לא לחשב actualDurationMinutes ולשמור metadata חלקי.
+- שלח LearningEvent:
+  eventType: task_execution_completed
+- בנוסף השאר את task_completed הקיים כמו שהוא.
+- לא למחוק task_completed.
+- task_execution_completed הוא שכבת עומק נוספת.
+
+עדכון Daily Summary:
+עדכן את:
+server/services/learningSummaryService.ts
+
+הוסף ל-summary:
+executionStats:
+{
+  "trackedCompletedCount": 2,
+  "averagePlannedDurationMinutes": 45,
+  "averageActualDurationMinutes": 61,
+  "averageDeltaMinutes": 16,
+  "overranCount": 2,
+  "underranCount": 0
+}
+
+כללים:
+- חשב רק מאירועי task_execution_completed שיש להם metadata.actualDurationMinutes.
+- אם אין נתונים, החזר null או ערכים 0 בצורה יציבה.
+- אל תשבור את response הקיים.
+
+Response daily-summary צריך לכלול את executionStats בלי לשבור שדות קיימים.
+
+Planning Context:
+בשלב הזה אל תשתמש עדיין ב-executionStats לשינוי priorityScore.
+רק תשמור ותציג ב-daily-summary.
+
+בדיקות חובה:
+1. npm run build
+2. GET /api/health
+3. POST /api/learning/events עם task_started
+4. POST /api/learning/events עם task_execution_completed
+5. GET /api/learning/events ולוודא שהאירועים נשמרו
+6. GET /api/learning/daily-summary ולוודא שיש executionStats
+7. בדוק שמשימה שהושלמה עדיין יוצרת task_completed כמו קודם
+8. בדוק שמשימה שהושלמה עם זמן התחלה יוצרת גם task_execution_completed
+9. בדוק שאם אין actualStartTime, אין crash
+10. בדוק ש-durationDeltaMinutes מחושב נכון
+11. בדוק ש-planner/schedule עדיין עובד
+12. בדוק ש-planner/apply-schedule עדיין עובד
+13. בדוק ש-planner/parse עדיין עובד
+14. בדוק ש-learning/planning-context עדיין עובד
+15. בדוק ש-Preview לא נשבר
+16. בדוק שאישור ושמירה לא נשבר
+17. בדוק ש-Drag & Drop לא נשבר
+18. בדוק ש-DayView נטען
+19. בדוק ש-localStorage migration לא נשברה
+20. בדוק ש-syncTasksFromServer עדיין עובד
+
+בדיקות edge cases:
+- actualEndTime לפני actualStartTime
+- plannedDurationMinutes חסר
+- actualStartTime חסר
+- taskId חסר
+- משימה completed בלי start event
+- כמה start events לאותה משימה
+- task_execution_completed כפול
+- metadata ריק
+
+התנהגות edge cases:
+- אם actualEndTime לפני actualStartTime, אל תשמור duration שלילי.
+- החזר warning או שמור metadata בלי actualDurationMinutes.
+- אם יש כמה task_started לאותה משימה, השתמש באחרון לפי occurredAt.
+- אם task_execution_completed כפול, לא לעצור כרגע, רק לתעד. נפתור dedup בשלב עתידי.
+
+פלט סופי:
+החזר דוח בעברית במבנה הבא:
+
+# דוח שלב 3ג - Execution Time Tracking
+
+## 1. מה נבדק לפני שינוי
+טבלה:
+קובץ | למה נבדק | מסקנה
+
+## 2. החלטה ארכיטקטונית
+כתוב:
+- האם execution נשמר ב-LearningEvent metadata
+- האם נוצר service חדש
+- למה לא שונה UserTask בצורה כבדה
+- למה לא משתמשים עדיין בזה לשיבוץ
+
+## 3. מה שונה
+טבלה:
+קובץ | שינוי | למה
+
+## 4. מה גובה
+טבלה:
+קובץ מקורי | קובץ גיבוי
+
+## 5. אילו אירועים חדשים קיימים
+טבלה:
+eventType | מתי נוצר | metadata מרכזי | נשמר ב-DB כן/לא
+
+## 6. איך חישוב זמן ביצוע עובד
+הסבר:
+plannedDurationMinutes
+actualStartTime
+actualEndTime
+actualDurationMinutes
+durationDeltaMinutes
+
+## 7. איך Daily Summary התרחב
+הצג את executionStats החדשים.
+
+## 8. דוגמת task_started אמיתית
+הצג JSON מהבדיקה.
+
+## 9. דוגמת task_execution_completed אמיתית
+הצג JSON מהבדיקה.
+
+## 10. תוצאות build
+עבר / נכשל
+
+## 11. תוצאות API
+טבלה:
+בדיקה | תוצאה | הערה
+
+## 12. תוצאות UI
+טבלה:
+פעולה | תוצאה | הערה
+
+## 13. בדיקות שלא נשברו
+רשום:
+- planner/schedule
+- planner/apply-schedule
+- planner/parse
+- learning/events
+- learning/daily-summary
+- learning/planning-context
+- Preview
+- אישור ושמירה
+- Drag & Drop
+- DayView
+- localStorage migration
+- syncTasksFromServer
+
+## 14. דברים שלא שונו בכוונה
+רשום:
+- לא נוסף Auth
+- לא נוסף Google Calendar
+- לא נוסף Qdrant
+- לא נוסף AI
+- לא נוסף dashboard
+- לא שונה schedulePlanner
+- לא שונה priorityScoreEngine לשימוש ב-executionStats
+- לא שונה recurringEngine
+- לא שונה hebrewDateParser
+
+## 15. סיכונים שנשארו
+רשום:
+- עדיין userId הוא default-user
+- עדיין timezone UTC
+- עדיין אין dedup מלא לאירועי execution כפולים
+- עדיין אין שימוש בזמן ביצוע לשיפור משך עתידי
+- עדיין אין זיהוי סוג משימה לפי קטגוריה
+- עדיין אין תובנות אוטומטיות למשתמש
+
+## 16. האם שלב 3ג סגור
+כן / לא
+
+## 17. השלב הבא
+השלב הבא צריך להיות:
+שלב 3ד - Duration Intelligence בסיסי:
+שימוש ב-executionStats כדי להציע duration משופר למשימות דומות, בלי לשנות אוטומטית את המשימות ובלי AI.

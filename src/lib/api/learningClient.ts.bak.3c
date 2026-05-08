@@ -9,9 +9,7 @@ export interface LearningEventPayload {
     | 'task_rescheduled'
     | 'task_deleted'
     | 'schedule_applied'
-    | 'task_updated'
-    | 'task_started'
-    | 'task_execution_completed';
+    | 'task_updated';
   source?: string;
   dateIso?: string;
   taskTitleSnapshot?: string;
@@ -76,15 +74,6 @@ export async function getLearningEvents(
   }
 }
 
-export interface ExecutionStats {
-  trackedCompletedCount: number;
-  averagePlannedDurationMinutes: number | null;
-  averageActualDurationMinutes: number | null;
-  averageDeltaMinutes: number | null;
-  overranCount: number;
-  underranCount: number;
-}
-
 export interface DailySummaryResult {
   ok: boolean;
   userId: string;
@@ -100,7 +89,6 @@ export interface DailySummaryResult {
     mostMovedTasks: { taskId: string; title: string; rescheduleCount: number }[];
     taskIdsTouched: string[];
     notes: string[];
-    executionStats: ExecutionStats | null;
   };
 }
 

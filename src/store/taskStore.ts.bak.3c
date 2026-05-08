@@ -62,15 +62,12 @@ interface TaskState {
   tags: Tag[];
   templates: TaskTemplate[];
   templateCategories: TemplateCategory[];
-  // volatile: not persisted — cleared on page reload
-  executionStartTimes: Record<string, string>;
 
   // Task Actions
   addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'history'>) => Task;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   completeTask: (id: string, completed: boolean) => void;
-  startTaskExecution: (taskId: string) => void;
   moveToStandby: (id: string, notes: string) => void;
   scheduleStandbyTask: (id: string, startTime: Date, endTime: Date) => void;
   editOccurrenceOnly: (occurrenceId: string, updates: Partial<Task>) => string | undefined;
@@ -114,7 +111,6 @@ export const useTaskStore = create<TaskState>()(
       tags: DEFAULT_TAGS,
       templates: [],
       templateCategories: [],
-      executionStartTimes: {},
 
       addTask: (taskData) => {
         const newTask: Task = {
@@ -268,10 +264,6 @@ export const useTaskStore = create<TaskState>()(
 
         // learning event — fire-and-forget
         if (completed) {
-          const now = new Date();
-          const nowIso = now.toISOString();
-          const dateIso = nowIso.split('T')[0];
-
           logLearningEvent({
             userId: USER_ID,
             taskId: resolvedId,
@@ -280,88 +272,13 @@ export const useTaskStore = create<TaskState>()(
             taskTitleSnapshot: task.title,
             fromStatus: task.status,
             toStatus: 'completed',
-            dateIso,
             metadata: {
               duration:    task.duration,
               priority:    task.priority ?? null,
               flexibility: task.flexibility ?? null,
             },
           });
-
-          // task_execution_completed — additional depth layer
-          const actualStartTimeIso: string | null =
-            get().executionStartTimes[resolvedId] ??
-            (task.startTime ? task.startTime.toISOString() : null);
-
-          const plannedDurationMinutes = task.duration ?? null;
-
-          let actualDurationMinutes: number | null = null;
-          let durationDeltaMinutes: number | null = null;
-
-          if (actualStartTimeIso) {
-            const startMs = new Date(actualStartTimeIso).getTime();
-            const endMs   = now.getTime();
-            if (endMs > startMs) {
-              actualDurationMinutes = Math.round((endMs - startMs) / 60000);
-              if (plannedDurationMinutes !== null) {
-                durationDeltaMinutes = actualDurationMinutes - plannedDurationMinutes;
-              }
-            }
-          }
-
-          logLearningEvent({
-            userId: USER_ID,
-            taskId: resolvedId,
-            eventType: 'task_execution_completed',
-            source: 'completeTask',
-            taskTitleSnapshot: task.title,
-            dateIso,
-            metadata: {
-              plannedDurationMinutes,
-              actualDurationMinutes,
-              durationDeltaMinutes,
-              plannedStartTime: task.startTime ? task.startTime.toISOString() : null,
-              actualStartTime: actualStartTimeIso,
-              actualEndTime: nowIso,
-            },
-          });
-
-          // clear execution start time after use
-          set((state) => {
-            const updated = { ...state.executionStartTimes };
-            delete updated[resolvedId];
-            return { executionStartTimes: updated };
-          });
         }
-      },
-
-      startTaskExecution: (taskId) => {
-        const resolvedId = taskId.includes('_occ_') ? getMasterTaskId(taskId) : taskId;
-        const task = get().tasks.find((t) => t.id === resolvedId);
-        if (!task) return;
-
-        const nowIso  = new Date().toISOString();
-        const dateIso = nowIso.split('T')[0];
-
-        // store actualStartTime in volatile map
-        set((state) => ({
-          executionStartTimes: { ...state.executionStartTimes, [resolvedId]: nowIso },
-        }));
-
-        // fire-and-forget — never breaks UI
-        logLearningEvent({
-          userId: USER_ID,
-          taskId: resolvedId,
-          eventType: 'task_started',
-          source: 'timer',
-          taskTitleSnapshot: task.title,
-          dateIso,
-          metadata: {
-            plannedDurationMinutes: task.duration ?? null,
-            plannedStartTime: task.startTime ? task.startTime.toISOString() : null,
-            actualStartTime: nowIso,
-          },
-        });
       },
 
       moveToStandby: (id, notes) => {

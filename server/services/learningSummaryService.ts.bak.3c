@@ -17,15 +17,6 @@ export interface MostMovedTask {
   rescheduleCount: number;
 }
 
-export interface ExecutionStats {
-  trackedCompletedCount: number;
-  averagePlannedDurationMinutes: number | null;
-  averageActualDurationMinutes: number | null;
-  averageDeltaMinutes: number | null;
-  overranCount: number;
-  underranCount: number;
-}
-
 export interface DailyLearningSummary {
   createdCount: number;
   completedCount: number;
@@ -37,7 +28,6 @@ export interface DailyLearningSummary {
   mostMovedTasks: MostMovedTask[];
   taskIdsTouched: string[];
   notes: string[];
-  executionStats: ExecutionStats | null;
 }
 
 export async function buildDailyLearningSummary(
@@ -176,55 +166,6 @@ export async function buildDailyLearningSummary(
     );
   }
 
-  // ── executionStats: from task_execution_completed events with metadata ────
-  const execEvents = events.filter(
-    (e) =>
-      e.eventType === 'task_execution_completed' &&
-      e.metadata !== null &&
-      typeof (e.metadata as Record<string, unknown>)['actualDurationMinutes'] === 'number'
-  );
-
-  let executionStats: ExecutionStats | null = null;
-  if (execEvents.length > 0) {
-    const planned:  number[] = [];
-    const actual:   number[] = [];
-    const deltas:   number[] = [];
-    let overranCount  = 0;
-    let underranCount = 0;
-
-    for (const e of execEvents) {
-      const meta = e.metadata as Record<string, unknown>;
-      const act  = meta['actualDurationMinutes'] as number;
-      actual.push(act);
-
-      const plan = typeof meta['plannedDurationMinutes'] === 'number'
-        ? (meta['plannedDurationMinutes'] as number)
-        : null;
-      if (plan !== null) planned.push(plan);
-
-      const delta = typeof meta['durationDeltaMinutes'] === 'number'
-        ? (meta['durationDeltaMinutes'] as number)
-        : null;
-      if (delta !== null) {
-        deltas.push(delta);
-        if (delta > 0) overranCount++;
-        else if (delta < 0) underranCount++;
-      }
-    }
-
-    const avg = (arr: number[]): number | null =>
-      arr.length === 0 ? null : Math.round(arr.reduce((s, v) => s + v, 0) / arr.length);
-
-    executionStats = {
-      trackedCompletedCount:       execEvents.length,
-      averagePlannedDurationMinutes: avg(planned),
-      averageActualDurationMinutes:  avg(actual),
-      averageDeltaMinutes:           avg(deltas),
-      overranCount,
-      underranCount,
-    };
-  }
-
   return {
     createdCount,
     completedCount,
@@ -236,6 +177,5 @@ export async function buildDailyLearningSummary(
     mostMovedTasks,
     taskIdsTouched,
     notes,
-    executionStats,
   };
 }

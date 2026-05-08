@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRight, MapPin, Clock, Tag, FileText, CalendarDays, Check, Repeat, GitBranch, Play } from 'lucide-react';
+import { ArrowRight, MapPin, Clock, Tag, FileText, CalendarDays, Check, Repeat, GitBranch } from 'lucide-react';
 import { format } from 'date-fns';
 import { he } from 'date-fns/locale';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -17,7 +17,7 @@ const TaskDetailPage = () => {
   const navigate = useNavigate();
   const [showSchedule, setShowSchedule] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const { getTaskById, completeTask, getCurrentTask, startTaskExecution, executionStartTimes } = useTaskStore();
+  const { getTaskById, completeTask, getCurrentTask } = useTaskStore();
   const task = id ? getTaskById(id) : undefined;
   const currentTask = getCurrentTask();
   const isActiveTask = task && currentTask && task.id === currentTask.id;
@@ -35,13 +35,6 @@ const TaskDetailPage = () => {
       </AppLayout>
     );
   }
-
-  const resolvedId = id?.includes('_occ_') ? id.replace(/_occ_.*/, '') : (id ?? '');
-  const hasStarted = !!executionStartTimes[resolvedId];
-
-  const handleStartExecution = () => {
-    startTaskExecution(task.id);
-  };
 
   const handleComplete = () => {
     completeTask(task.id, true);
@@ -285,49 +278,27 @@ const TaskDetailPage = () => {
         </div>
 
         <div className="fixed bottom-20 left-0 right-0 p-4 pr-28 bg-gradient-to-t from-background via-background to-transparent">
-          <div className="flex flex-col gap-2 max-w-lg mr-auto">
-            {task.status === 'pending' && !hasStarted && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleStartExecution}
-                className="w-full gap-2 border-primary/40 text-primary hover:bg-primary/5 text-xs h-8"
-                data-testid="button-start-execution"
-              >
-                <Play className="w-3.5 h-3.5" />
-                התחל משימה — סינקו יתעד את זמן ההתחלה
-              </Button>
-            )}
-            {hasStarted && (
-              <p
-                className="text-xs text-center text-blue-600 dark:text-blue-400"
-                data-testid="text-execution-started"
-              >
-                ⏱ סינקו מודד את זמן הביצוע
-              </p>
-            )}
-            <div className="flex gap-3">
-              <Button 
-                variant="outline" 
-                size="lg" 
-                onClick={handleReschedule}
-                className="flex-1 gap-2"
-                data-testid="button-reschedule"
-              >
-                <CalendarDays className="w-4 h-4" />
-                עריכה
-              </Button>
+          <div className="flex gap-3 max-w-lg mr-auto">
+            <Button 
+              variant="outline" 
+              size="lg" 
+              onClick={handleReschedule}
+              className="flex-1 gap-2"
+              data-testid="button-reschedule"
+            >
+              <CalendarDays className="w-4 h-4" />
+              עריכה
+            </Button>
 
-              <Button 
-                size="lg" 
-                onClick={handleComplete} 
-                className="flex-1 gap-2 bg-success hover:bg-success/90"
-                data-testid="button-complete"
-              >
-                <Check className="w-4 h-4" />
-                סיים משימה
-              </Button>
-            </div>
+            <Button 
+              size="lg" 
+              onClick={handleComplete} 
+              className="flex-1 gap-2 bg-success hover:bg-success/90"
+              data-testid="button-complete"
+            >
+              <Check className="w-4 h-4" />
+              סיים משימה
+            </Button>
           </div>
         </div>
 
