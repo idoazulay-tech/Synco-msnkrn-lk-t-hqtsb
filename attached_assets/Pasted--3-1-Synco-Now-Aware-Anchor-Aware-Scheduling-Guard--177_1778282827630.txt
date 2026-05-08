@@ -1,0 +1,460 @@
+שלב 3ב.1 בפרויקט Synco: Now-Aware + Anchor-Aware Scheduling Guard
+
+המטרה:
+לתקן את ההבנה של סינקו בשיבוץ משימות, כדי שלא ישבץ משימות בזמן עבר, שיזהה קשר בין משימות הכנה לבין אירוע עוגן, ושלא ייחס למשימה חדשה היסטוריה שלא קיימת.
+
+הבעיה שהתגלתה:
+בבדיקה אמיתית המשתמש יצר משימות קצרות של 2-10 דקות שקשורות כולן לאירוע עוגן:
+"יציאה ליהוד ב-18:30"
+
+המשימות היו:
+- לארגן תיק ליציאה
+- להחליט עם שני האם קיטו מגיע איתנו לנסיעה
+- להעיר את שני לפני יציאה
+
+אבל סינקו שיבץ אותן סביב 09:00 בבוקר, למרות שהשעה הנוכחית הייתה בערך 17:20 באותו יום.
+בנוסף, סינקו נתן סיבות כלליות מדי שנראות כאילו הוחלו על כל המשימות באותה צורה.
+בנוסף, סינקו טען שמשימה זזה בעבר כמה פעמים, למרות שזו הייתה הפעם הראשונה שהמשתמש יצר אותה.
+
+חשוב מאוד:
+אל תשנה את schedulePlanner בצורה עמוקה אם אפשר להוסיף שכבה לפניו.
+אל תשנה את buildSchedule אם לא חייבים.
+אל תשבור את priorityScoreEngine.
+אל תשבור את planningLearningContextService.
+אל תשבור planner/schedule.
+אל תשבור planner/apply-schedule.
+אל תשבור Preview.
+אל תשבור אישור ושמירה.
+אל תשבור learning/events.
+אל תשבור daily-summary.
+אל תשבור planning-context.
+אל תשבור Drag & Drop.
+אל תשבור DayView.
+אל תוסיף Auth.
+אל תוסיף Google Calendar.
+אל תוסיף Qdrant.
+אל תוסיף AI API.
+אל תבנה dashboard.
+אל תעשה refactor רחב.
+אל תחליף קבצים גדולים אם אפשר להוסיף קבצים קטנים ומבודדים.
+
+לפני שינוי:
+בדוק את הקבצים:
+- server/routes/planner.ts
+- server/layers/task/planners/schedulePlanner.ts
+- server/layers/task/priority/priorityScoreEngine.ts
+- server/services/planningLearningContextService.ts
+- server/services/learningSummaryService.ts
+- server/layers/task/adapters/userTaskToScheduleAdapter.ts
+- src/lib/api/plannerClient.ts
+- src/components/planner/PlanMyDayButton.tsx
+- src/types/task.ts
+- prisma/schema.prisma
+
+גבה כל קובץ שאתה משנה.
+
+חלק 1: חוק No Past Scheduling
+
+הוסף מנגנון שמונע שיבוץ בזמן עבר.
+
+דרישות:
+1. ב-POST /api/planner/schedule קבל מה-client:
+   - nowIso
+   - userTimeZone
+   - timezoneOffsetMinutes
+   אם לא התקבל nowIso, השתמש ב-new Date().toISOString()
+
+2. ב-client, בתוך plannerClient.scheduleDayPreview, שלח:
+   nowIso: new Date().toISOString()
+   timezoneOffsetMinutes: new Date().getTimezoneOffset()
+   userTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Jerusalem"
+
+3. אם dateIso הוא היום הנוכחי לפי המשתמש:
+   - אסור לשבץ משימות לפני עכשיו.
+   - השעה המוקדמת ביותר לשיבוץ תהיה now + 5 דקות.
+   - אם קיימת config.dayStart מוקדמת יותר, יש להתעלם ממנה עבור היום הנוכחי בלבד.
+
+4. אם buildSchedule מקבל config.dayStart:
+   עדכן את config.dayStart עבור היום הנוכחי ל-now + 5 דקות בפורמט HH:MM.
+
+5. אם task כבר fixed/mustLock ויש לו שעה שעברה:
+   אל תשבץ אותה מחדש בעבר.
+   החזר אותה ב-unscheduledTasks או warnings עם סיבה:
+   "המשימה מוגדרת לזמן שכבר עבר היום"
+
+6. הוסף warning ל-response:
+   "לא שובצו משימות בשעות שכבר עברו היום"
+
+רצוי ליצור helper מבודד:
+server/services/planningTimeGuardService.ts
+
+עם פונקציות:
+- buildNowContext(dateIso, nowIso, userTimeZone, timezoneOffsetMinutes)
+- isTodayForUser(dateIso, nowContext)
+- getEarliestAllowedTime(dateIso, nowContext)
+- applyNoPastSchedulingConfig(config, nowContext)
+
+חלק 2: זיהוי אירוע עוגן ומשימות הכנה
+
+צור שירות חדש:
+server/services/planningAnchorContextService.ts
+
+השירות יזהה:
+1. Anchor Tasks:
+   משימות שיש להן startTime או scheduled time וכוללות מילים כמו:
+   - יציאה
+   - נסיעה
+   - פגישה
+   - תור
+   - אימון
+   - אירוע
+   - להגיע
+   - לצאת
+   - טיסה
+   - רכבת
+
+2. Preparation Tasks:
+   משימות שכוללות מילים כמו:
+   - לפני
+   - לקראת
+   - להכין
+   - לארגן
+   - תיק
+   - להעיר
+   - להחליט
+   - לבדוק
+   - לקחת
+   - לזכור
+   - להביא
+   - קיטו
+   - שני
+   - נסיעה
+   - יציאה
+
+3. Shared context:
+   אם כמה משימות ברשימה חולקות מילים או ישויות כמו:
+   - יהוד
+   - שני
+   - קיטו
+   - יציאה
+   - נסיעה
+   אז הן כנראה קשורות לאותו anchor.
+
+הפונקציה:
+buildAnchorContext(tasks, dateIso)
+
+תחזיר:
+{
+  anchors: [
+    {
+      taskId,
+      title,
+      startTime,
+      anchorType,
+      keywords
+    }
+  ],
+  preparationLinks: [
+    {
+      taskId,
+      anchorTaskId,
+      relationType,
+      suggestedWindow,
+      reason
+    }
+  ],
+  warnings: []
+}
+
+relationType אפשרי:
+- before_departure
+- prepare_for_event
+- decision_before_event
+- reminder_before_event
+- related_context
+
+חוקי שיבוץ:
+1. אם משימה היא preparation task ויש anchor באותו יום:
+   היא צריכה להשתבץ לפני anchor startTime.
+
+2. אם המשימה קצרה עד 10 דקות:
+   העדף לשבץ אותה בחלון של 15-90 דקות לפני anchor, ולא בתחילת היום.
+
+3. אם המשימה היא "להעיר את שני לפני יציאה":
+   העדף לשבץ אותה קרוב יותר ל-anchor, למשל 10-30 דקות לפני.
+
+4. אם המשימה היא "להחליט האם קיטו מגיע":
+   העדף לשבץ אותה לפני "לארגן תיק", כי ההחלטה משפיעה על ההכנות.
+
+5. אם המשימה היא "לארגן תיק":
+   העדף לשבץ אותה לפני היציאה, עם מספיק מרווח.
+
+6. אל תיצור dependency קשיח מדי אם אין ודאות.
+   בשלב הזה אפשר להשתמש ב-preferredWindow וב-priority boost, לא בשינוי עמוק של planner.
+
+שילוב בלי לשבור:
+אם schedulePlanner לא תומך ב-preferredWindow, אל תשבור אותו.
+במקום זה:
+- מיין preparation tasks לפני buildSchedule לפי anchor proximity.
+- אם יש אפשרות לקבוע earliest/latest פנימיים, השתמש בזה.
+- אחרת, צור config או warnings והוסף priorityReasons ייחודיות.
+- אם אי אפשר להבטיח שיבוץ לפני anchor, החזר warning.
+
+חשוב:
+המטרה המינימלית לשלב הזה:
+משימות שקשורות ליציאה ב-18:30 לא ישובצו ב-09:00, אלא בחלון אחרי עכשיו ולפני 18:30.
+
+חלק 3: סיבות שיבוץ ייחודיות
+
+עדכן את response של scheduledTasks כך שכל משימה תקבל schedulingContextReasons.
+
+דוגמה:
+{
+  "id": "...",
+  "title": "לארגן תיק ליציאה",
+  "startTime": "17:35",
+  "endTime": "17:45",
+  "schedulingContextReasons": [
+    "המשימה זוהתה כהכנה ליציאה ליהוד",
+    "היא שובצה לפני אירוע העוגן ב-18:30",
+    "היא קצרה ולכן שובצה בחלון הקרוב לפני היציאה"
+  ]
+}
+
+דוגמאות רצויות:
+- לארגן תיק:
+  "זוהתה כמשימת הכנה ליציאה"
+  "שובצה לפני יציאה ליהוד ב-18:30"
+
+- להחליט אם קיטו מגיע:
+  "זוהתה כהחלטה שצריך לבצע לפני ההכנות לנסיעה"
+  "שובצה לפני ארגון התיק"
+
+- להעיר את שני:
+  "זוהתה כתזכורת שקשורה לזמן היציאה"
+  "שובצה סמוך ליציאה ולא בתחילת היום"
+
+ב-client:
+עדכן plannerClient types:
+- schedulingContextReasons?: string[]
+- anchorContextSummary?: object
+- nowContextSummary?: object
+
+ב-PlanMyDayButton Preview:
+מתחת ל"למה כאן?" הצג גם:
+"הקשר השיבוץ:"
+ואז schedulingContextReasons אם קיימים.
+
+חלק 4: תיקון False Learning Memory
+
+בעיה:
+המערכת טענה שמשימה חדשה זזה בעבר, למרות שזו הייתה הפעם הראשונה שהיא נוצרה.
+
+דרישות:
+עדכן planningLearningContextService / priorityScoreEngine כך ש-learningBoost יינתן רק אם יש התאמה אמינה.
+
+חוקים חדשים:
+1. learningBoost לפי taskId מותר רק אם:
+   - taskId הוא ID אמיתי של UserTask מה-DB
+   - ויש LearningEvents אמיתיים לאותו taskId
+   - וה-events אינם source=test / seed / debug / manual_test
+
+2. אם task הוא draft / temp / new / unsaved:
+   learningBoost חייב להיות 0.
+
+3. אם task.createdAt קיים:
+   אל תשתמש באירועי rescheduled שקרו לפני createdAt של המשימה.
+   כלומר, אין היסטוריה לפני שהמשימה נוצרה.
+
+4. title fallback:
+   בשלב הזה בטל title fallback כברירת מחדל.
+   כלומר, לא נותנים learningBoost רק בגלל כותרת דומה.
+   אפשר להשאיר בקוד comment:
+   "title-based learning disabled until confidence model exists"
+
+5. אם אין התאמה אמינה:
+   learningBoost = 0
+   learningReasons = []
+
+6. אל תציג למשתמש משפט כמו:
+   "המשימה הזו זזה בעבר"
+   אלא אם יש לפחות 2 או 3 אירועי task_rescheduled אמיתיים לאותו taskId.
+
+7. הוסף ל-planningContext debug field רק ב-response הפנימי אם צריך:
+   reliableLearningMatchesCount
+
+8. ודא source=test לא משפיע.
+   בנוסף התעלם גם מ:
+   - seed
+   - debug
+   - manual_test
+
+חלק 5: בדיקות חובה
+
+בדיקות build:
+1. npm run build
+
+בדיקות API:
+2. GET /api/health
+
+בדיקת No Past:
+3. שלח POST /api/planner/schedule עם:
+   dateIso = היום
+   nowIso = היום בשעה 17:20
+   dayStart = 08:00
+   dayEnd = 22:00
+   tasks קצרות ללא startTime
+   ודא שאף scheduledTask לא מתחילה לפני 17:25.
+
+בדיקת Anchor:
+4. שלח tasks:
+   - יציאה ליהוד ב-18:30, fixed, duration 10
+   - לארגן תיק ליציאה, duration 10
+   - להחליט עם שני האם קיטו מגיע, duration 5
+   - להעיר את שני לפני יציאה, duration 2
+
+ציפייה:
+- משימות ההכנה לא משובצות בבוקר.
+- כולן משובצות אחרי now ולפני 18:30 אם יש מקום.
+- response כולל schedulingContextReasons.
+- response כולל anchorContextSummary.
+
+בדיקת עבר:
+5. שלח fixed task עם startTime שכבר עבר היום.
+   ודא שהיא לא שובצה מחדש בעבר.
+   ודא שיש warning.
+
+בדיקת False Learning:
+6. צור משימה חדשה ללא history.
+   ודא learningBoost=0.
+   ודא שאין learningReasons שטוענות שהיא זזה בעבר.
+
+7. צור events עם source=test עבור taskId.
+   ודא שהם לא משפיעים.
+
+8. צור events אמיתיים task_rescheduled x3 לאותו taskId קיים.
+   ודא learningBoost מתקבל רק לאותה משימה אמיתית.
+
+9. צור task עם אותו title אבל taskId אחר.
+   ודא שאין title fallback ואין boost שקרי.
+
+בדיקות שלא נשברו:
+10. POST /api/planner/schedule עדיין עובד רגיל.
+11. POST /api/planner/apply-schedule עדיין עובד.
+12. POST /api/planner/parse עדיין עובד.
+13. GET /api/learning/daily-summary עדיין עובד.
+14. GET /api/learning/planning-context עדיין עובד.
+15. Preview עדיין לא שומר בלי אישור.
+16. "אשר סידור ושמור" עדיין שומר.
+17. Drag & Drop לא נשבר.
+18. DayView לא נשבר.
+19. syncTasksFromServer לא נשבר.
+20. localStorage migration לא נשברה.
+
+פלט סופי:
+החזר דוח בעברית במבנה הבא:
+
+# דוח שלב 3ב.1 - Now-Aware + Anchor-Aware Scheduling Guard
+
+## 1. מה נבדק לפני שינוי
+טבלה:
+קובץ | למה נבדק | מסקנה
+
+## 2. הבעיה שאותרה
+כתוב:
+- שיבוץ בזמן עבר
+- חוסר הבנת אירוע עוגן
+- סיבות שיבוץ כלליות מדי
+- learningBoost שקרי למשימה חדשה
+
+## 3. החלטה ארכיטקטונית
+כתוב:
+- איפה נבנה planningTimeGuardService
+- איפה נבנה planningAnchorContextService
+- איך נמנענו משינוי עמוק ב-schedulePlanner
+- איך חיזקנו את planningLearningContextService
+
+## 4. מה שונה
+טבלה:
+קובץ | שינוי | למה
+
+## 5. מה גובה
+טבלה:
+קובץ מקורי | קובץ גיבוי
+
+## 6. חוק No Past Scheduling
+הסבר:
+אם מתכננים את היום הנוכחי, earliestAllowedTime = now + buffer.
+
+## 7. חוק Anchor Context
+הסבר:
+איך מזהים אירוע עוגן.
+איך מזהים משימות הכנה.
+איך משבצים אותן ביחס לאירוע.
+
+## 8. חוק False Learning Prevention
+הסבר:
+מתי מותר learningBoost.
+מתי אסור.
+איך בוטל title fallback.
+
+## 9. דוגמת response אמיתי
+הצג scheduledTask אחד של:
+"לארגן תיק ליציאה"
+עם:
+startTime
+endTime
+schedulingContextReasons
+learningBoost
+
+## 10. תוצאות build
+עבר / נכשל
+
+## 11. תוצאות API
+טבלה:
+בדיקה | תוצאה | הערה
+
+## 12. תוצאות UI
+טבלה:
+פעולה | תוצאה | הערה
+
+## 13. בדיקות שלא נשברו
+רשום:
+- planner/schedule
+- planner/apply-schedule
+- planner/parse
+- learning/daily-summary
+- learning/planning-context
+- Preview
+- אישור ושמירה
+- Drag & Drop
+- DayView
+- syncTasksFromServer
+- localStorage migration
+
+## 14. דברים שלא שונו בכוונה
+רשום:
+- לא נוסף Auth
+- לא נוסף Google Calendar
+- לא נוסף Qdrant
+- לא נוסף AI
+- לא שונה schedulePlanner עמוק
+- לא שונה recurringEngine
+- לא שונה hebrewDateParser
+- לא נוסף dashboard
+
+## 15. סיכונים שנשארו
+רשום:
+- timezone עדיין בסיסי אם אין user profile timezone
+- anchor detection עדיין rule-based ולא AI
+- אין עדיין dependencies מלאות בין משימות
+- אין עדיין הבנת מיקום אמיתית
+- אין עדיין Google Calendar אמיתי
+
+## 16. האם שלב 3ב.1 סגור
+כן / לא
+
+## 17. השלב הבא
+אם השלב נסגר:
+חוזרים לשלב 2.5א - Multi Input Planning Drafts
+ואחר כך לשלב 3ג - Execution Time Tracking.
