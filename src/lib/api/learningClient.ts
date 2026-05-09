@@ -9,9 +9,7 @@ export interface LearningEventPayload {
     | 'task_rescheduled'
     | 'task_deleted'
     | 'schedule_applied'
-    | 'task_updated'
-    | 'task_started'
-    | 'task_execution_completed';
+    | 'task_updated';
   source?: string;
   dateIso?: string;
   taskTitleSnapshot?: string;
