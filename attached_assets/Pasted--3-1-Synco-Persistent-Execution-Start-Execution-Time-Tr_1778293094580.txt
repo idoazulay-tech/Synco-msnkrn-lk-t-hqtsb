@@ -1,0 +1,229 @@
+שלב 3ג.1 בפרויקט Synco: Persistent Execution Start
+
+המטרה:
+לתקן את Execution Time Tracking כך שזמן התחלת משימה בפועל לא ייעלם אחרי refresh.
+כרגע actualStartTime נשמר ב-Zustand volatile, ולכן אם המשתמש מתחיל משימה, מרענן את הדף ואז מסיים אותה, זמן ההתחלה נאבד והמערכת משתמשת ב-startTime המתוכנן כ-fallback. זה יוצר דאטה פחות אמין.
+
+חשוב מאוד:
+אל תשנה את schedulePlanner.
+אל תשנה את buildSchedule.
+אל תשנה את priorityScoreEngine.
+אל תשנה את planningTimeGuardService.
+אל תשנה את planningAnchorContextService.
+אל תשנה את planningLearningContextService.
+אל תשנה את planner/schedule.
+אל תשנה את planner/apply-schedule.
+אל תשנה את planner/commit-draft-schedule.
+אל תשנה את PlanningDraftPanel.
+אל תשנה את daily-summary חוץ מבדיקת תאימות אם צריך.
+אל תוסיף Auth.
+אל תוסיף Google Calendar.
+אל תוסיף Qdrant.
+אל תוסיף AI.
+אל תבנה dashboard.
+אל תעשה refactor רחב.
+
+המטרה הטכנית:
+להפוך את executionStartTimes ל-persisted state, כך שהוא נשמר גם אחרי refresh.
+
+לפני שינוי:
+בדוק את הקבצים:
+- src/store/taskStore.ts
+- src/lib/api/learningClient.ts
+- src/pages/TaskDetailPage.tsx
+- src/components/timer/
+- src/types/task.ts
+- server/routes/learning.ts
+- server/services/learningSummaryService.ts
+
+בדוק:
+1. איפה מוגדר executionStartTimes.
+2. האם taskStore כבר משתמש ב-Zustand persist.
+3. האם taskStore כבר שומר משימות ל-localStorage.
+4. האם אפשר להוסיף persistence רק ל-executionStartTimes בלי לשנות את כל ה-store.
+5. האם completeTask מנקה את executionStartTimes אחרי task_execution_completed.
+6. האם startTaskExecution לא יוצר task_started כפול אם כבר יש התחלה קיימת.
+
+גבה כל קובץ שאתה משנה.
+
+דרישות:
+
+1. executionStartTimes צריך להישמר בצורה persisted.
+אפשרויות מועדפות:
+- אם taskStore כבר משתמש ב-persist, הוסף executionStartTimes ל-persist.
+- אם לא, השתמש ב-localStorage helper קטן ומבודד.
+
+2. כאשר startTaskExecution(taskId) נקרא:
+אם כבר קיים executionStartTimes[taskId]:
+- אל תדרוס אוטומטית בלי צורך.
+- אל תשלח task_started כפול.
+- החזר מצב:
+  alreadyStarted: true
+או פשוט הצג ב-console שהמשימה כבר התחילה.
+
+3. אם המשתמש רוצה להתחיל מחדש:
+לא צריך UI חדש כרגע.
+אפשר להשאיר לשלב עתידי.
+
+4. כאשר completeTask(taskId) מצליח:
+- שלח task_execution_completed לפי actualStartTime השמור.
+- מחק את executionStartTimes[taskId].
+- ודא שהמחיקה גם מתעדכנת ב-persistence.
+
+5. אם המשתמש מוחק משימה:
+- נקה גם executionStartTimes[taskId].
+
+6. אם המשימה לא קיימת:
+- startTaskExecution לא צריך ליצור event.
+- לא לקרוס.
+
+7. אם actualStartTime חסר:
+- ההתנהגות הקיימת עם fallback נשארת.
+- אבל הוסף metadata:
+  "actualStartSource": "planned_fallback"
+כאשר השתמשת ב-startTime מתוכנן.
+
+8. אם actualStartTime הגיע מה־persist:
+הוסף metadata:
+  "actualStartSource": "persisted_execution_start"
+
+9. אם actualStartTime הגיע מאותו session:
+הוסף metadata:
+  "actualStartSource": "session_execution_start"
+
+אם אין דרך קלה להבדיל בין persisted לבין session, אפשר להשתמש:
+"actualStartSource": "execution_start"
+
+בדיקות חובה:
+
+Build:
+1. npm run build
+
+API:
+2. GET /api/health
+3. POST /api/learning/events task_started עדיין עובד
+4. POST /api/learning/events task_execution_completed עדיין עובד
+5. GET /api/learning/daily-summary עדיין מחזיר executionStats
+
+UI / Store:
+6. לחץ "התחל משימה"
+7. ודא שנוצר task_started
+8. ודא ש-executionStartTimes נשמר ב-localStorage או persist
+9. עשה refresh
+10. ודא שעדיין יש actualStartTime למשימה
+11. סמן משימה כהושלמה
+12. ודא שנוצר task_execution_completed עם actualDurationMinutes
+13. ודא ש-executionStartTimes[taskId] נמחק אחרי השלמה
+14. לחץ "התחל משימה" פעמיים לאותה משימה
+15. ודא שלא נוצרים שני task_started מיותרים
+16. מחק משימה שהתחילה
+17. ודא ש-executionStartTimes שלה נמחק
+18. PlanningDraftTask לא מקבל start execution
+19. planner/schedule לא נשבר
+20. planner/commit-draft-schedule לא נשבר
+21. DayView לא נשבר
+22. Drag & Drop לא נשבר
+23. syncTasksFromServer לא נשבר
+24. localStorage migration לא נשברה
+
+פלט סופי:
+החזר דוח בעברית במבנה הבא:
+
+# דוח שלב 3ג.1 - Persistent Execution Start
+
+## 1. מה נבדק לפני שינוי
+טבלה:
+קובץ | למה נבדק | מסקנה
+
+## 2. הבעיה שאותרה
+כתוב:
+actualStartTime נשמר volatile ולכן נאבד ב-refresh.
+
+## 3. החלטה ארכיטקטונית
+כתוב:
+- איפה נשמר executionStartTimes עכשיו
+- האם נעשה Zustand persist או localStorage helper
+- למה לא שומרים את זה עדיין ב-DB
+- איך נמנע task_started כפול
+
+## 4. מה שונה
+טבלה:
+קובץ | שינוי | למה
+
+## 5. מה גובה
+טבלה:
+קובץ מקורי | קובץ גיבוי
+
+## 6. איך הזרימה עובדת עכשיו
+כתוב:
+התחל משימה
+→ שמירת actualStartTime persisted
+→ refresh
+→ actualStartTime נשאר
+→ השלמה
+→ task_execution_completed
+→ ניקוי persisted start
+
+## 7. דוגמת metadata חדשה
+הצג task_execution_completed עם:
+actualStartSource
+actualStartTime
+actualEndTime
+actualDurationMinutes
+durationDeltaMinutes
+
+## 8. תוצאות build
+עבר / נכשל
+
+## 9. תוצאות API
+טבלה:
+בדיקה | תוצאה | הערה
+
+## 10. תוצאות UI / Store
+טבלה:
+פעולה | תוצאה | הערה
+
+## 11. בדיקות שלא נשברו
+רשום:
+- planner/schedule
+- planner/apply-schedule
+- planner/commit-draft-schedule
+- planner/parse
+- learning/events
+- learning/daily-summary
+- PlanningDraftPanel
+- Preview
+- אישור ושמירה
+- Drag & Drop
+- DayView
+- syncTasksFromServer
+- localStorage migration
+
+## 12. דברים שלא שונו בכוונה
+רשום:
+- לא נוסף Auth
+- לא נוסף Google Calendar
+- לא נוסף Qdrant
+- לא נוסף AI
+- לא נוסף dashboard
+- לא שונה schedulePlanner
+- לא שונה priorityScoreEngine
+- לא שונה planningLearningContextService
+- לא שונה planningTimeGuardService
+- לא שונה planningAnchorContextService
+
+## 13. סיכונים שנשארו
+רשום:
+- עדיין userId הוא default-user
+- עדיין אין שמירת executionStart ב-DB
+- אם משתמש פותח ממכשיר אחר, start לא יעבור
+- עדיין אין dedup מלא לאירועים כפולים
+- עדיין אין שימוש בזמן ביצוע לשיפור duration
+
+## 14. האם שלב 3ג.1 סגור
+כן / לא
+
+## 15. השלב הבא
+אם נסגר:
+שלב 3ד - Duration Intelligence בסיסי:
+שימוש בזמני ביצוע אמיתיים כדי להציע duration משופר למשימות דומות, בלי לשנות אוטומטית ובלי AI.

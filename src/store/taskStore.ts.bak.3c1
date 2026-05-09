@@ -62,7 +62,7 @@ interface TaskState {
   tags: Tag[];
   templates: TaskTemplate[];
   templateCategories: TemplateCategory[];
-  // persisted: survives page reload — cleared when task completes or is deleted
+  // volatile: not persisted — cleared on page reload
   executionStartTimes: Record<string, string>;
 
   // Task Actions
@@ -214,14 +214,9 @@ export const useTaskStore = create<TaskState>()(
         const resolvedId = id.includes('_occ_') ? getMasterTaskId(id) : id;
         const task = get().tasks.find((t) => t.id === resolvedId);
 
-        set((state) => {
-          const updatedExecTimes = { ...state.executionStartTimes };
-          delete updatedExecTimes[resolvedId];
-          return {
-            tasks: state.tasks.filter((task) => task.id !== resolvedId),
-            executionStartTimes: updatedExecTimes,
-          };
-        });
+        set((state) => ({
+          tasks: state.tasks.filter((task) => task.id !== resolvedId),
+        }));
         apiDelete(resolvedId);
 
         // learning event — fire-and-forget
@@ -294,12 +289,9 @@ export const useTaskStore = create<TaskState>()(
           });
 
           // task_execution_completed — additional depth layer
-          const persistedStartTime = get().executionStartTimes[resolvedId] ?? null;
           const actualStartTimeIso: string | null =
-            persistedStartTime ?? (task.startTime ? task.startTime.toISOString() : null);
-          const actualStartSource = persistedStartTime
-            ? 'execution_start'
-            : 'planned_fallback';
+            get().executionStartTimes[resolvedId] ??
+            (task.startTime ? task.startTime.toISOString() : null);
 
           const plannedDurationMinutes = task.duration ?? null;
 
@@ -331,11 +323,10 @@ export const useTaskStore = create<TaskState>()(
               plannedStartTime: task.startTime ? task.startTime.toISOString() : null,
               actualStartTime: actualStartTimeIso,
               actualEndTime: nowIso,
-              actualStartSource,
             },
           });
 
-          // clear execution start time — also removes from localStorage via persist
+          // clear execution start time after use
           set((state) => {
             const updated = { ...state.executionStartTimes };
             delete updated[resolvedId];
@@ -349,17 +340,10 @@ export const useTaskStore = create<TaskState>()(
         const task = get().tasks.find((t) => t.id === resolvedId);
         if (!task) return;
 
-        // guard: if already started this task, skip duplicate task_started event
-        const existing = get().executionStartTimes[resolvedId];
-        if (existing) {
-          console.info(`[taskStore] startTaskExecution: already started at ${existing}, skipping duplicate`);
-          return;
-        }
-
         const nowIso  = new Date().toISOString();
         const dateIso = nowIso.split('T')[0];
 
-        // store actualStartTime — persisted via Zustand persist
+        // store actualStartTime in volatile map
         set((state) => ({
           executionStartTimes: { ...state.executionStartTimes, [resolvedId]: nowIso },
         }));
@@ -797,7 +781,6 @@ export const useTaskStore = create<TaskState>()(
         tags: state.tags,
         templates: state.templates,
         templateCategories: state.templateCategories,
-        executionStartTimes: state.executionStartTimes,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
