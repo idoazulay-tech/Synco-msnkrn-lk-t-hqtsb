@@ -1,0 +1,490 @@
+Sprint Pack 3ה בפרויקט Synco:
+Trust + Usability QA Pack
+
+מטרה:
+לבצע בדיקות אמון מלאות על הליבה של סינקו, ובמקביל לתקן בעיית שימוש קטנה אך חשובה בדף היום:
+משימות קצרות של 1-30 דקות מוצגות בקובייה צרה מדי, ולכן הטקסט לא קריא.
+
+ה-Sprint הזה כולל:
+1. Trust QA אוטומטי.
+2. Trust QA ידני.
+3. Adaptive Task Block Layout למשימות קצרות בדף היום.
+4. בדיקה שהמערכת לא שומרת DB בלי אישור.
+5. בדיקה שאין learningBoost שקרי ואין durationSuggestion שקרי.
+6. בדיקה שהשעות מוצגות בצורה מקומית וברורה.
+
+חשוב מאוד:
+אל תשנה את schedulePlanner עמוק.
+אל תשנה את buildSchedule.
+אל תשנה את priorityScoreEngine אלא אם מתגלה bug אמון ברור.
+אל תשנה את durationIntelligenceService אלא אם מתגלה suggestion שקרי.
+אל תשנה את planningLearningContextService אלא אם מתגלה learningBoost שקרי.
+אל תשנה את planningTimeGuardService אלא אם No Past נכשל.
+אל תשנה את planningAnchorContextService אלא אם Anchor Context נכשל.
+אל תשנה planner/apply-schedule.
+אל תשנה planner/commit-draft-schedule.
+אל תשבור planner/schedule.
+אל תשבור PlanningDraftPanel.
+אל תשבור PlanMyDayButton.
+אל תשבור Preview.
+אל תשבור אישור ושמירה.
+אל תשבור DayView.
+אל תשבור Drag & Drop.
+אל תשבור Resize.
+אל תשבור syncTasksFromServer.
+אל תשבור localStorage migration.
+אל תוסיף Auth.
+אל תוסיף Google Calendar.
+אל תוסיף Qdrant.
+אל תוסיף AI.
+אל תבנה dashboard.
+אל תשנה DB.
+אל תשנה זמני משימות.
+אל תשנה שיבוץ.
+התיקון הוויזואלי הוא UI בלבד.
+
+לפני שינוי:
+בדוק את הקבצים:
+- server/routes/planner.ts
+- server/routes/learning.ts
+- server/routes/planning-drafts.ts
+- server/routes/user-tasks.ts
+- server/services/planningTimeGuardService.ts
+- server/services/planningAnchorContextService.ts
+- server/services/planningLearningContextService.ts
+- server/services/durationIntelligenceService.ts
+- server/services/learningSummaryService.ts
+- src/lib/api/plannerClient.ts
+- src/components/planner/PlanMyDayButton.tsx
+- src/components/planner/PlanningDraftPanel.tsx
+- src/components/planner/DurationSuggestionPanel.tsx
+- src/store/taskStore.ts
+- src/store/planningDraftStore.ts
+- src/pages/DayViewPage.tsx
+- src/components/task/TaskCard.tsx אם קיים
+- src/components/task/
+- כל CSS/Tailwind שקשור ל-DayView task blocks
+
+גבה כל קובץ שאתה משנה.
+
+חלק 1: Trust QA script
+
+צור או עדכן קובץ:
+
+scripts/synco-trust-qa.sh
+
+הסקריפט צריך לבדוק:
+
+1. GET /api/health
+
+2. No Past Scheduling:
+שלח POST /api/planner/schedule עם:
+- dateIso = היום
+- nowIso = היום בשעה 17:20
+- dayStart = 08:00
+- dayEnd = 22:00
+- 3 משימות קצרות ללא שעה
+
+ציפייה:
+- אף משימה לא מתחילה לפני now + 5 דקות
+- response כולל nowContextSummary או warning מתאים
+- אין שיבוץ בעבר
+
+3. Anchor Context:
+שלח tasks:
+- יציאה ליהוד ב-18:30, fixed
+- לארגן תיק ליציאה
+- להחליט עם שני האם קיטו מגיע
+- להעיר את שני לפני יציאה
+
+ציפייה:
+- משימות הכנה לפני anchor
+- לא משובצות בבוקר אם now אחר הצהריים
+- schedulingContextReasons קיימים
+- anchorContextSummary קיים
+
+4. False Learning Prevention:
+משימה חדשה ללא events:
+- learningBoost = 0
+- learningReasons = []
+- אין טקסט שאומר שהמשימה זזה בעבר
+
+5. Source Filtering:
+אירועים עם source:
+- test
+- seed
+- debug
+- manual_test
+
+ציפייה:
+- לא משפיעים על learningBoost
+- לא משפיעים על durationSuggestion
+
+6. Real Learning Boost:
+צור או מצא taskId אמיתי עם 3 task_rescheduled אמיתיים.
+ציפייה:
+- learningBoost מתקבל רק לאותו taskId
+- task עם title דומה אבל id אחר לא מקבל boost
+
+7. Duration Suggestion Safety:
+צור 3 אירועי task_execution_completed אמיתיים עם actualDurationMinutes.
+שלח task דומה.
+ציפייה:
+- durationSuggestion מופיע
+- durationMinutes המקורי לא משתנה
+- schedule times לא משתנים אוטומטית בגלל ההצעה
+
+8. Weak Title No Suggestion:
+task עם דמיון חלש לא מקבל durationSuggestion.
+
+9. Draft No DB Before Commit:
+Draft Preview דרך planner/schedule.
+ציפייה:
+- לא נוצרת UserTask ב-DB
+- לא נשמר שום דבר לפני commit
+
+10. Commit Draft Schedule:
+commit-draft-schedule עם draftTasks תקינים ו-scheduledItems תקינים.
+ציפייה:
+- נוצרות UserTasks אמיתיות
+- duration מעודכן נשמר
+- task_created events נוצרים
+- schedule_applied נוצר
+
+11. Commit Rollback:
+commit-draft-schedule עם draftId חסר או scheduledItem לא תואם.
+ציפייה:
+- rollback מלא
+- לא נוצרת חצי משימה
+- response ברור
+
+12. Apply Schedule Safety:
+planner/apply-schedule למשימות קיימות.
+ציפייה:
+- שמירה רק אחרי אישור
+- completed/deleted לא מתעדכנות
+
+13. Execution Start Persistence:
+בדיקת store ככל שאפשר:
+- startTaskExecution
+- executionStartTimes נשמר
+- completeTask מוחק אותו
+- duplicate start לא יוצר שני events
+
+14. Execution Expiry:
+executionStartTime ישן מעל 24 שעות.
+ציפייה:
+- לא מחושב duration ענק
+- metadata actualStartSource = expired_execution_start_fallback
+- entry נמחק
+
+15. Local Time Contract:
+בדוק שה-client שולח:
+- nowIso
+- timezoneOffsetMinutes
+- userTimeZone
+
+וב-response יש מספיק מידע כדי להציג שעות מקומיות.
+אם יש פער UTC מול Local, דווח.
+
+חלק 2: Adaptive Task Block Layout ב-DayView
+
+הבעיה:
+משימות קצרות של 1 עד 30 דקות מקבלות גובה נמוך ולכן הטקסט נחתך או לא קריא.
+
+החלטת מוצר:
+לא לשנות את גובה המשימה לפי הטקסט.
+לא לתת לטקסט לגלוש מחוץ לגבולות הקובייה.
+כן ליצור תוכן אדפטיבי בתוך הקובייה.
+
+דרישות:
+
+1. צור display modes:
+- full: מעל 45 דקות
+- compact: 16 עד 45 דקות
+- tiny: 6 עד 15 דקות
+- micro: 1 עד 5 דקות
+
+אם קל יותר לפי blockHeight בפועל, אפשר לחשב לפי height.
+אם לא, לפי durationMinutes.
+
+2. full:
+מציג:
+- title
+- start/end time
+- duration
+- מידע קטן אם כבר קיים
+
+3. compact:
+מציג שורה אחת:
+- title + time
+בלי description, בלי badges גדולים, בלי טקסטים ארוכים.
+
+4. tiny:
+מציג:
+- שעה קצרה + title מקוצר
+font קטן יותר, line-height קטן.
+
+5. micro:
+מציג מינימום:
+- title קצר או שעה + ellipsis
+פירוט מלא נשאר בלחיצה.
+
+6. חובה:
+- overflow: hidden
+- text-overflow: ellipsis
+- white-space: nowrap
+- min-width: 0
+- direction: rtl
+- text-align: right
+- unicode-bidi: plaintext אם צריך
+
+7. אסור:
+- overflow visible
+- שינוי גובה הבלוק לפי תוכן
+- שינוי מיקום הבלוקים
+- שינוי זמני משימות
+- שינוי Drag & Drop
+- שינוי Resize
+
+8. אם שם המשימה ארוך:
+להציג ellipsis.
+
+9. בלחיצה:
+כל ההתנהגות הקיימת נשארת:
+- פירוט
+- עריכה
+- השלמה
+- drag
+- resize
+
+10. אם מתאים, צור רכיב קטן:
+src/components/task/AdaptiveTaskBlockContent.tsx
+
+Props:
+- task
+- startTime
+- endTime
+- durationMinutes
+- mode
+
+אם זה יוצר refactor רחב מדי, השאר helper פנימי בתוך DayViewPage.
+
+חלק 3: Trust QA checklist
+
+צור או עדכן:
+
+docs/TRUST_QA_CHECKLIST.md
+
+כלול בדיקות ידניות בעברית:
+
+1. לפתוח /day
+2. לבדוק משימות קצרות של 1, 5, 10, 20, 30 דקות
+3. לוודא שהטקסט לא גולש מחוץ לקובייה
+4. לוודא ellipsis בשם ארוך
+5. לוודא RTL תקין
+6. ללחוץ על משימה קצרה ולבדוק שפירוט נפתח
+7. Drag & Drop עובד
+8. Resize עובד
+9. לפתוח PlanningDraftPanel
+10. להזין קלט ראשון
+11. להזין קלט נוסף
+12. לערוך draft
+13. להשתמש בהצעת duration
+14. לוודא Preview מחושב מחדש
+15. ללחוץ לא עכשיו ולוודא שלא נשמר DB
+16. ללחוץ אשר ושמור ולוודא שהמשימות מופיעות ביום
+17. לפתוח TaskDetail
+18. להתחיל משימה
+19. לרענן
+20. לסיים משימה
+21. לוודא שנוצר execution event
+22. לוודא שאין שיבוץ בעבר
+23. לוודא שאין learningBoost שקרי
+24. לוודא שאין durationSuggestion שקרי
+
+חלק 4: תיקונים מותרים
+
+מותר לתקן רק אם בדיקה נכשלת באחד מהדברים:
+- שיבוץ בעבר
+- learningBoost שקרי
+- durationSuggestion שקרי
+- DB משתנה לפני אישור
+- commit חלקי בלי rollback
+- DraftTask מקבל learningBoost
+- UserTask משתנה בלחיצה על הצעת duration
+- nowIso/timezone לא נשלחים מה-client
+- משימות קצרות לא קריאות ב-DayView
+- שגיאת TypeScript
+- שגיאת build
+
+אסור לתקן דברים שאינם קשורים לאמון או usability בלי לדווח.
+
+חלק 5: בדיקות חובה
+
+Build:
+1. npm run build
+
+API:
+2. GET /api/health
+3. POST /api/planner/schedule
+4. POST /api/planner/apply-schedule
+5. POST /api/planner/commit-draft-schedule
+6. POST /api/planner/parse
+7. GET /api/learning/daily-summary
+8. GET /api/learning/planning-context
+9. POST /api/learning/duration-suggestions
+10. POST /api/learning/events
+
+UI:
+11. /day נטען
+12. משימה של 1 דקה מוצגת במצב micro
+13. משימה של 5 דקות מוצגת במצב micro
+14. משימה של 10 דקות מוצגת במצב tiny
+15. משימה של 20 דקות מוצגת במצב compact
+16. משימה של 30 דקות מוצגת במצב compact
+17. משימה של 60 דקות מוצגת full
+18. שם ארוך מקבל ellipsis
+19. עברית מוצגת RTL
+20. טקסט לא גולש מחוץ לקובייה
+21. טקסט לא עולה על משימות אחרות
+22. לחיצה על משימה קצרה פותחת פירוט
+23. Drag & Drop עובד
+24. Resize עובד
+25. PlanningDraftPanel עובד
+26. PlanMyDayButton עובד
+27. Preview עובד
+28. אישור ושמירה עובד
+29. syncTasksFromServer עובד
+30. localStorage migration לא נשברה
+
+פלט סופי:
+החזר דוח בעברית במבנה הבא:
+
+# דוח Sprint Pack 3ה - Trust + Usability QA
+
+## 1. מה נבדק לפני שינוי
+טבלה:
+קובץ | למה נבדק | מסקנה
+
+## 2. החלטה ארכיטקטונית
+כתוב:
+- האם נוצר script בדיקות
+- האם נוצר checklist ידני
+- למה זה Sprint בדיקות + usability ולא פיצ׳ר כבד
+- איך תוקנה תצוגת משימות קצרות
+- אילו תיקונים קטנים בוצעו אם היו
+
+## 3. מה שונה
+טבלה:
+קובץ | שינוי | למה
+
+## 4. מה גובה
+טבלה:
+קובץ מקורי | קובץ גיבוי
+
+## 5. תוצאות Trust QA
+טבלה:
+בדיקה | תוצאה | הערה
+
+חובה לכלול:
+- No Past Scheduling
+- Anchor Context
+- False Learning Prevention
+- source filtering
+- real learning boost
+- duration suggestion safety
+- weak title no suggestion
+- draft no DB before commit
+- commit rollback
+- apply schedule safety
+- execution persistence
+- execution expiry
+- local time contract
+
+## 6. תוצאות Adaptive Task Block UI
+טבלה:
+משך משימה | מצב תצוגה | תוצאה | הערה
+
+חובה לכלול:
+- 1 דקה
+- 5 דקות
+- 10 דקות
+- 20 דקות
+- 30 דקות
+- 60 דקות
+- שם ארוך
+- עברית RTL
+- click
+- drag
+- resize
+
+## 7. תוצאות build
+עבר / נכשל
+
+## 8. תוצאות API
+טבלה:
+endpoint | תוצאה | הערה
+
+## 9. תוצאות UI ידניות
+טבלה:
+פעולה | תוצאה | הערה
+
+## 10. בעיות שהתגלו
+רשום כל bug שנמצא.
+אם לא נמצא, כתוב שלא נמצאו בעיות אמון קריטיות.
+
+## 11. תיקונים שבוצעו
+רשום רק תיקונים שבאמת בוצעו.
+
+## 12. בדיקות שלא נשברו
+רשום:
+- planner/schedule
+- planner/apply-schedule
+- planner/commit-draft-schedule
+- planner/parse
+- learning/events
+- learning/daily-summary
+- learning/planning-context
+- learning/duration-suggestions
+- PlanningDraftPanel
+- PlanMyDayButton
+- Preview
+- אישור ושמירה
+- Drag & Drop
+- Resize
+- DayView
+- syncTasksFromServer
+- localStorage migration
+
+## 13. דברים שלא שונו בכוונה
+רשום:
+- לא נוסף Auth
+- לא נוסף Google Calendar
+- לא נוסף Qdrant
+- לא נוסף AI
+- לא נוסף dashboard
+- לא שונה DB
+- לא שונו זמני משימות
+- לא שונה schedulePlanner עמוק
+- לא שונה durationIntelligenceService אלא אם היה bug
+- לא שונה priorityScoreEngine אלא אם היה bug
+
+## 14. סיכונים שנשארו
+רשום:
+- userId עדיין default-user
+- אין Auth
+- אין Google Calendar
+- timezone עדיין תלוי client contract
+- title matching שמרני
+- אין קטגוריות חכמות
+- אין mobile מלא
+- compact UI עדיין דורש בדיקה על מסכים קטנים
+
+## 15. האם Sprint Pack 3ה סגור
+כן / לא
+
+## 16. השלב הבא
+אם נסגר:
+Sprint Pack 4א - Personal Settings בסיסי:
+timezone, dayStart, dayEnd, planning buffer, transition buffer, planning style.
