@@ -25,14 +25,24 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const HOUR_HEIGHT = 80;
 const MIN_TASK_HEIGHT = 20;
 
-type TaskDisplayMode = 'full' | 'compact' | 'tiny' | 'micro';
+type TaskDisplayMode = 'short' | 'long';
 
 function getDisplayMode(rawHeightPx: number): TaskDisplayMode {
   const durationMin = Math.round(rawHeightPx / HOUR_HEIGHT * 60);
-  if (durationMin <= 5)  return 'micro';
-  if (durationMin <= 15) return 'tiny';
-  if (durationMin <= 45) return 'compact';
-  return 'full';
+  return durationMin < 38 ? 'short' : 'long';
+}
+
+function getBlockFontSize(actualHeightPx: number): string {
+  if (actualHeightPx <= 20) return 'text-[8px]';
+  if (actualHeightPx <= 26) return 'text-[9px]';
+  if (actualHeightPx <= 34) return 'text-[10px]';
+  return 'text-xs';
+}
+
+function getBlockPadding(actualHeightPx: number): string {
+  if (actualHeightPx <= 20) return 'px-1 py-0';
+  if (actualHeightPx <= 30) return 'px-1.5 py-0.5';
+  return 'px-2 py-1';
 }
 
 interface DragState {
@@ -84,6 +94,8 @@ const TaskItem = ({
   const leftPercent = position.column * columnWidth;
   const actualHeight = Math.max(position.height, MIN_TASK_HEIGHT);
   const displayMode = getDisplayMode(position.height);
+  const fontSize    = getBlockFontSize(actualHeight);
+  const padding     = getBlockPadding(actualHeight);
 
   const startStr = format(task.startTime, 'HH:mm');
   const endStr   = format(task.endTime,   'HH:mm');
@@ -130,13 +142,11 @@ const TaskItem = ({
         </div>
       )}
 
-      {/* ── Adaptive content ── */}
+      {/* ── Content ── */}
       <div
         className={cn(
-          'absolute inset-0 flex flex-col justify-center overflow-hidden',
-          displayMode === 'full'    ? 'px-2 py-1.5' :
-          displayMode === 'compact' ? 'px-1.5 py-0.5' :
-                                      'px-1 py-0',
+          'absolute inset-0 flex flex-col justify-center overflow-hidden leading-none',
+          padding,
           isOccurrence ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
         )}
         onClick={onClick}
@@ -144,66 +154,42 @@ const TaskItem = ({
         onTouchStart={(e) => !isOccurrence && onDragStart(e, task.id)}
         dir="rtl"
       >
-        {/* full: title on one line, time below */}
-        {displayMode === 'full' && (
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex-1 min-w-0">
-              <p className={cn('text-xs md:text-sm font-semibold truncate', titleColor)}>
-                {isOccurrence && <Repeat className="w-3 h-3 inline-block ml-1" />}
-                {task.title}
-              </p>
-              <p className={cn('text-[10px] mt-0.5 tabular-nums', timeColor)}>
-                {startStr} – {endStr}
-              </p>
-            </div>
-            {isActive && actualHeight > 60 && (
-              <div className="flex-shrink-0">
-                <p className={cn('text-lg font-bold tabular-nums', isUrgent ? 'text-destructive' : 'text-primary-foreground')}>
-                  {Math.round(percentage)}%
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* compact: title + start time on one line */}
-        {displayMode === 'compact' && (
+        {/* short (1–37 min): everything on one line */}
+        {displayMode === 'short' && (
           <div className="flex items-center gap-1 min-w-0 w-full overflow-hidden">
-            <span className={cn('text-xs font-semibold truncate flex-1 min-w-0 leading-tight', titleColor)}>
-              {isOccurrence && <Repeat className="w-2.5 h-2.5 inline-block ml-0.5" />}
-              {task.title}
-            </span>
-            <span className={cn('text-[10px] flex-shrink-0 whitespace-nowrap tabular-nums leading-tight', timeColor)}>
-              {startStr}
-            </span>
-          </div>
-        )}
-
-        {/* tiny: small time + short title on one compressed line */}
-        {displayMode === 'tiny' && (
-          <div className="flex items-center gap-0.5 min-w-0 w-full overflow-hidden">
-            <span className={cn('text-[9px] leading-none font-bold flex-shrink-0 whitespace-nowrap tabular-nums', timeColor)}>
-              {startStr}
-            </span>
-            <span className={cn('text-[9px] leading-none font-medium truncate flex-1 min-w-0', titleColor)}>
+            <span className={cn(fontSize, 'font-semibold truncate flex-1 min-w-0 leading-none', titleColor)}>
               {isOccurrence && <Repeat className="w-2 h-2 inline-block ml-0.5" />}
               {task.title}
             </span>
-          </div>
-        )}
-
-        {/* micro: just title, smallest possible */}
-        {displayMode === 'micro' && (
-          <div className="flex items-center min-w-0 w-full overflow-hidden">
-            <span className={cn('text-[9px] leading-none font-semibold truncate w-full', titleColor)}>
-              {task.title}
+            <span dir="ltr" className={cn(fontSize, 'flex-shrink-0 whitespace-nowrap tabular-nums leading-none font-medium', timeColor)}>
+              {startStr}–{endStr}
             </span>
           </div>
         )}
+
+        {/* long (38+ min): title line, then time below */}
+        {displayMode === 'long' && (
+          <>
+            <div className="flex items-start justify-between gap-1 min-w-0">
+              <p className={cn(fontSize, 'font-semibold truncate flex-1 min-w-0', titleColor)}>
+                {isOccurrence && <Repeat className="w-3 h-3 inline-block ml-1" />}
+                {task.title}
+              </p>
+              {isActive && actualHeight > 60 && (
+                <p className={cn('text-base font-bold tabular-nums flex-shrink-0', isUrgent ? 'text-destructive' : 'text-primary-foreground')}>
+                  {Math.round(percentage)}%
+                </p>
+              )}
+            </div>
+            <p dir="ltr" className={cn('text-[10px] mt-0.5 tabular-nums', timeColor)}>
+              {startStr} – {endStr}
+            </p>
+          </>
+        )}
       </div>
 
-      {/* ── Progress bar (full/compact only, when active) ── */}
-      {isActive && (displayMode === 'full' || displayMode === 'compact') && actualHeight > 30 && (
+      {/* ── Progress bar (long mode, active) ── */}
+      {isActive && displayMode === 'long' && actualHeight > 30 && (
         <div className="absolute bottom-0 left-0 right-0 h-1 bg-primary-foreground/20">
           <motion.div
             className={cn('h-full', getProgressColor())}
@@ -645,27 +631,30 @@ const DayViewPage = () => {
                       const freeSlots: { startMin: number; endMin: number }[] = [];
                       for (let i = 0; i < sortedTasks.length - 1; i++) {
                         const gapStart = differenceInMinutes(sortedTasks[i].endTime, dayStart);
-                        const gapEnd = differenceInMinutes(sortedTasks[i + 1].startTime, dayStart);
-                        if (gapEnd - gapStart >= 30) {
+                        const gapEnd   = differenceInMinutes(sortedTasks[i + 1].startTime, dayStart);
+                        if (gapEnd - gapStart >= 10) {
                           freeSlots.push({ startMin: gapStart, endMin: gapEnd });
                         }
                       }
                       return freeSlots.map((slot, idx) => {
-                        const top = (slot.startMin / 60) * HOUR_HEIGHT;
-                        const height = ((slot.endMin - slot.startMin) / 60) * HOUR_HEIGHT;
+                        const top        = (slot.startMin / 60) * HOUR_HEIGHT;
+                        const height     = ((slot.endMin - slot.startMin) / 60) * HOUR_HEIGHT;
+                        const renderedH  = Math.max(height, 16);
                         const gapMinutes = slot.endMin - slot.startMin;
-                        const hours = Math.floor(gapMinutes / 60);
-                        const mins = gapMinutes % 60;
-                        const label = hours > 0
-                          ? (mins > 0 ? `${hours}:${mins.toString().padStart(2, '0')}` : `${hours} שע'`)
+                        const hours      = Math.floor(gapMinutes / 60);
+                        const mins       = gapMinutes % 60;
+                        const durLabel   = hours > 0
+                          ? (mins > 0 ? `${hours}:${mins.toString().padStart(2, '0')} שע'` : `${hours} שע'`)
                           : `${mins} דק'`;
+                        const showLabel  = renderedH >= 14;
+                        const bigLabel   = renderedH >= 28;
                         return (
                           <div
                             key={`free-${idx}`}
-                            className="absolute left-1 right-1 flex items-center justify-center pointer-events-auto cursor-pointer rounded-lg border border-dashed border-green-400/50 bg-green-50/30 dark:bg-green-900/10 hover:bg-green-100/50 dark:hover:bg-green-900/20 transition-colors"
-                            style={{ top: `${top}px`, height: `${Math.max(height, 20)}px` }}
+                            className="absolute left-1 right-1 flex items-center justify-center gap-1 pointer-events-auto cursor-pointer rounded-lg border border-dashed border-emerald-400/60 bg-emerald-50/40 dark:bg-emerald-900/10 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/25 transition-colors"
+                            style={{ top: `${top}px`, height: `${renderedH}px` }}
                             onClick={() => {
-                              const slotHour = Math.floor(slot.startMin / 60);
+                              const slotHour   = Math.floor(slot.startMin / 60);
                               const slotMinute = Math.floor((slot.startMin % 60) / 15) * 15;
                               setCreateTime({ date, hour: slotHour, minute: slotMinute });
                               setNewTaskTitle('');
@@ -674,9 +663,14 @@ const DayViewPage = () => {
                             }}
                             data-testid={`free-slot-${idx}`}
                           >
-                            <span className="text-[10px] font-medium text-green-600 dark:text-green-400">
-                              {label} פנוי
-                            </span>
+                            {showLabel && (
+                              <span
+                                className="text-emerald-700 dark:text-emerald-400 font-medium leading-none tabular-nums select-none"
+                                style={{ fontSize: bigLabel ? '10px' : '8px' }}
+                              >
+                                {bigLabel ? `זמן פנוי · ${durLabel}` : 'פנוי'}
+                              </span>
+                            )}
                           </div>
                         );
                       });

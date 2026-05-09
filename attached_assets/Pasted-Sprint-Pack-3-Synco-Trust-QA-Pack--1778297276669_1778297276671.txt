@@ -1,0 +1,373 @@
+Sprint Pack 3ה בפרויקט Synco:
+Trust + QA Pack מלא לתרחישי אמון קריטיים.
+
+מטרה:
+לבנות ולהריץ בדיקות אמון מקיפות על כל ליבת סינקו שנבנתה עד עכשיו, בלי להוסיף פיצ׳רים גדולים.
+המטרה היא לוודא שסינקו מתנהג בצורה אמינה, לא ממציא זיכרון, לא משבץ בעבר, לא משנה DB בלי אישור, ומציג למשתמש את הזמנים בצורה ברורה.
+
+חשוב מאוד:
+זה בעיקר Sprint של בדיקות, תיקוני אמון קטנים, ותיעוד.
+אל תוסיף פיצ׳רים חדשים.
+אל תשנה את schedulePlanner עמוק.
+אל תשנה את buildSchedule.
+אל תשנה את priorityScoreEngine אלא אם מתגלה bug אמון ברור.
+אל תשנה את durationIntelligenceService אלא אם מתגלה suggestion שקרי.
+אל תשנה את planningLearningContextService אלא אם מתגלה learningBoost שקרי.
+אל תשנה את planningTimeGuardService אלא אם No Past נכשל.
+אל תשנה את planningAnchorContextService אלא אם Anchor Context נכשל.
+אל תשבור planner/schedule.
+אל תשבור planner/apply-schedule.
+אל תשבור planner/commit-draft-schedule.
+אל תשבור PlanningDraftPanel.
+אל תשבור PlanMyDayButton.
+אל תשבור Preview.
+אל תשבור אישור ושמירה.
+אל תשבור DayView.
+אל תשבור Drag & Drop.
+אל תשבור syncTasksFromServer.
+אל תשבור localStorage migration.
+אל תוסיף Auth.
+אל תוסיף Google Calendar.
+אל תוסיף Qdrant.
+אל תוסיף AI.
+אל תבנה dashboard.
+
+לפני שינוי:
+בדוק את הקבצים:
+- server/routes/planner.ts
+- server/routes/learning.ts
+- server/routes/planning-drafts.ts
+- server/routes/user-tasks.ts
+- server/services/planningTimeGuardService.ts
+- server/services/planningAnchorContextService.ts
+- server/services/planningLearningContextService.ts
+- server/services/durationIntelligenceService.ts
+- server/services/learningSummaryService.ts
+- src/lib/api/plannerClient.ts
+- src/components/planner/PlanMyDayButton.tsx
+- src/components/planner/PlanningDraftPanel.tsx
+- src/components/planner/DurationSuggestionPanel.tsx
+- src/store/taskStore.ts
+- src/store/planningDraftStore.ts
+- src/pages/DayViewPage.tsx
+
+גבה כל קובץ שאתה משנה.
+
+חלק 1: יצירת Trust QA script
+
+צור קובץ בדיקות חדש:
+
+scripts/synco-trust-qa.sh
+
+או אם הפרויקט משתמש ב-node scripts:
+
+scripts/synco-trust-qa.ts
+
+הסקריפט צריך להריץ סדרת בדיקות HTTP מול השרת המקומי.
+
+הוא צריך לבדוק:
+
+1. Health
+GET /api/health
+
+2. No Past Scheduling
+שלח POST /api/planner/schedule עם:
+- date = היום
+- nowIso = היום בשעה 17:20
+- dayStart = 08:00
+- dayEnd = 22:00
+- 3 משימות קצרות ללא שעה
+
+ציפייה:
+- אף scheduledTask לא מתחילה לפני now + 5 דקות
+- response כולל nowContextSummary או warning מתאים
+- אין שיבוץ בעבר
+
+3. Anchor Context
+שלח tasks:
+- יציאה ליהוד ב-18:30, fixed
+- לארגן תיק ליציאה
+- להחליט עם שני האם קיטו מגיע
+- להעיר את שני לפני יציאה
+
+ציפייה:
+- prep tasks לפני anchor
+- prep tasks לא בבוקר אם now אחר הצהריים
+- schedulingContextReasons קיימים
+- anchorContextSummary קיים
+
+4. False Learning Prevention
+צור משימה חדשה ללא events.
+שלח ל-planner/schedule.
+
+ציפייה:
+- learningBoost = 0
+- learningReasons = []
+- אין טקסט שאומר שהמשימה זזה בעבר
+
+5. Learning source filtering
+צור LearningEvents עם source:
+- test
+- seed
+- debug
+- manual_test
+
+ציפייה:
+- לא משפיעים על learningBoost
+- לא משפיעים על durationSuggestion
+
+6. Real Learning Boost
+צור 3 אירועי task_rescheduled אמיתיים לאותו taskId.
+שלח את אותה משימה ל-planner/schedule.
+
+ציפייה:
+- learningBoost מתקבל רק לאותו taskId
+- task עם title דומה אבל id אחר לא מקבל boost
+
+7. Duration Suggestion safety
+צור 3 אירועי task_execution_completed אמיתיים עם actualDurationMinutes.
+שלח task דומה.
+
+ציפייה:
+- durationSuggestion מופיע
+- durationMinutes המקורי לא משתנה
+- schedule times לא משתנים אוטומטית בגלל ההצעה
+
+8. Weak title no suggestion
+שלח task עם title דומה חלש.
+
+ציפייה:
+- אין durationSuggestion
+
+9. Draft no DB before commit
+שלח Draft Preview דרך planner/schedule.
+
+ציפייה:
+- לא נוצרת UserTask ב-DB
+- לא נוצרת שמירה לפני commit
+
+10. Commit draft schedule
+שלח commit-draft-schedule עם draftTasks תקינים ו-scheduledItems תקינים.
+
+ציפייה:
+- נוצרות UserTasks אמיתיות
+- duration המעודכן נשמר
+- task_created events נוצרים
+- schedule_applied נוצר
+
+11. Commit rollback
+שלח commit-draft-schedule עם draftId חסר או scheduledItem לא תואם.
+
+ציפייה:
+- rollback מלא
+- לא נוצרת חצי משימה
+- response ברור
+
+12. Apply schedule existing tasks
+בדוק planner/apply-schedule למשימות קיימות.
+
+ציפייה:
+- שמירה רק אחרי אישור
+- completed/deleted לא מתעדכנות
+
+13. Execution start persistence
+בדיקה ככל שניתן ברמת unit או store:
+- startTaskExecution
+- executionStartTimes נשמר
+- completeTask מוחק אותו
+- duplicate start לא יוצר שני events
+
+14. Execution expiry
+הכנס executionStartTime ישן מעל 24 שעות.
+
+ציפייה:
+- לא מחושב duration ענק
+- metadata actualStartSource = expired_execution_start_fallback
+- entry נמחק
+
+15. Local time display contract
+בדוק שה-client שולח:
+- nowIso
+- timezoneOffsetMinutes
+- userTimeZone
+
+וב-response יש מספיק מידע כדי להציג שעות מקומיות.
+אם יש פער UTC מול Local, דווח.
+
+חלק 2: בדיקת UI ידנית מונחית
+
+הוסף לקובץ:
+
+docs/TRUST_QA_CHECKLIST.md
+
+רשימת בדיקות ידנית בעברית:
+
+1. לפתוח /day
+2. ליצור משימות קצרות
+3. לוודא שהן לא משובצות בזמן עבר
+4. לפתוח PlanningDraftPanel
+5. להזין קלט ראשון
+6. להזין קלט נוסף
+7. לערוך draft
+8. להשתמש בהצעת duration
+9. לוודא ש-preview מחושב מחדש
+10. ללחוץ לא עכשיו ולוודא שלא נשמר DB
+11. ללחוץ אשר ושמור ולוודא שהמשימות מופיעות ביום
+12. לפתוח TaskDetail
+13. להתחיל משימה
+14. לרענן
+15. לסיים משימה
+16. לוודא שנוצר execution event
+17. לבדוק משימה קצרה בדף היום
+18. לבדוק שהטקסט קריא ולא נחתך בצורה קשה
+19. לבדוק Drag & Drop
+20. לבדוק Resize
+
+חלק 3: תיקונים מותרים בתוך ה-Sprint
+
+מותר לתקן רק אם בדיקה נכשלת באחד מהדברים הבאים:
+- שיבוץ בעבר
+- learningBoost שקרי
+- durationSuggestion שקרי
+- DB משתנה לפני אישור
+- commit חלקי בלי rollback
+- DraftTask מקבל learningBoost
+- UserTask משתנה בלחיצה על הצעת duration
+- nowIso/timezone לא נשלחים מה-client
+- שגיאת TypeScript
+- שגיאת build
+
+אסור לתקן דברים שאינם קשורים לאמון בלי לדווח.
+
+חלק 4: בדיקות build ו-regression
+
+הרץ:
+1. npm run build
+2. GET /api/health
+3. POST /api/planner/schedule
+4. POST /api/planner/apply-schedule
+5. POST /api/planner/commit-draft-schedule
+6. POST /api/planner/parse
+7. GET /api/learning/daily-summary
+8. GET /api/learning/planning-context
+9. POST /api/learning/duration-suggestions
+10. POST /api/learning/events
+
+ודא:
+- DayView נטען
+- PlanningDraftPanel עובד
+- PlanMyDayButton עובד
+- Preview עובד
+- אישור ושמירה עובד
+- Drag & Drop עובד
+- syncTasksFromServer עובד
+- localStorage migration לא נשברה
+
+פלט סופי:
+החזר דוח בעברית במבנה הבא:
+
+# דוח Sprint Pack 3ה - Trust + QA Pack
+
+## 1. מה נבדק לפני שינוי
+טבלה:
+קובץ | למה נבדק | מסקנה
+
+## 2. החלטה ארכיטקטונית
+כתוב:
+- האם נוצר script בדיקות
+- האם נוצר checklist ידני
+- למה זה Sprint בדיקות ולא פיצ׳ר
+- אילו תיקונים קטנים בוצעו אם היו
+
+## 3. מה שונה
+טבלה:
+קובץ | שינוי | למה
+
+## 4. מה גובה
+טבלה:
+קובץ מקורי | קובץ גיבוי
+
+## 5. תוצאות Trust QA
+טבלה:
+בדיקה | תוצאה | הערה
+
+חובה לכלול:
+- No Past Scheduling
+- Anchor Context
+- False Learning Prevention
+- source filtering
+- real learning boost
+- duration suggestion safety
+- weak title no suggestion
+- draft no DB before commit
+- commit rollback
+- apply schedule safety
+- execution persistence
+- execution expiry
+- local time contract
+
+## 6. תוצאות build
+עבר / נכשל
+
+## 7. תוצאות API
+טבלה:
+endpoint | תוצאה | הערה
+
+## 8. תוצאות UI ידניות
+טבלה:
+פעולה | תוצאה | הערה
+
+## 9. בעיות שהתגלו
+רשום כל bug שנמצא.
+אם לא נמצא, כתוב שלא נמצאו בעיות אמון קריטיות.
+
+## 10. תיקונים שבוצעו
+רשום רק תיקונים שבאמת בוצעו.
+
+## 11. בדיקות שלא נשברו
+רשום:
+- planner/schedule
+- planner/apply-schedule
+- planner/commit-draft-schedule
+- planner/parse
+- learning/events
+- learning/daily-summary
+- learning/planning-context
+- learning/duration-suggestions
+- PlanningDraftPanel
+- PlanMyDayButton
+- Preview
+- אישור ושמירה
+- Drag & Drop
+- DayView
+- syncTasksFromServer
+- localStorage migration
+
+## 12. דברים שלא שונו בכוונה
+רשום:
+- לא נוסף Auth
+- לא נוסף Google Calendar
+- לא נוסף Qdrant
+- לא נוסף AI
+- לא נוסף dashboard
+- לא שונה schedulePlanner עמוק
+- לא שונה durationIntelligenceService אלא אם היה bug
+- לא שונה priorityScoreEngine אלא אם היה bug
+
+## 13. סיכונים שנשארו
+רשום:
+- userId עדיין default-user
+- אין Auth
+- אין Google Calendar
+- timezone עדיין תלוי client contract
+- title matching שמרני
+- אין קטגוריות חכמות
+- אין mobile מלא
+
+## 14. האם Sprint Pack 3ה סגור
+כן / לא
+
+## 15. השלב הבא
+אם נסגר:
+Sprint Pack 4א - Personal Settings בסיסי:
+timezone, dayStart, dayEnd, planning buffer, transition buffer, planning style.
