@@ -51,3 +51,13 @@ externalPort = 3002
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+SYNCO_AI_ENABLED = "true"
+SYNCO_AI_PROVIDER = "openai"
+SYNCO_AI_PARSE_ENABLED = "true"
+SYNCO_AI_TASK_REPORT_ENABLED = "true"
+SYNCO_AI_BREAKDOWN_ENABLED = "true"
+SYNCO_AI_DAY_COMMAND_ENABLED = "true"

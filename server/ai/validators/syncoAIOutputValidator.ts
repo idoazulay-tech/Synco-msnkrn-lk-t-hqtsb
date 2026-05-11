@@ -29,7 +29,23 @@ export function validateDayCommandIntent(
   const existingIds = new Set(existingTasks.map((t) => t.id));
   const now = nowIso ? new Date(nowIso) : new Date();
 
+  // AI may return ok:false when it wants to ask a clarifying question or signal uncertainty.
+  // Treat ok:false + ask_clarification (or questions present) as a valid clarification response.
   if (!intent.ok) {
+    if (intent.commandType === 'ask_clarification' || intent.questions.length > 0) {
+      return {
+        ok: true,
+        warnings,
+        sanitized: {
+          ...intent,
+          ok: true,
+          commandType: 'ask_clarification',
+          requiresConfirmation: true,
+          operations: [],
+        },
+      };
+    }
+    // True error: AI says ok:false without any clarification questions
     return { ok: false, reason: 'ai_returned_not_ok', warnings };
   }
 

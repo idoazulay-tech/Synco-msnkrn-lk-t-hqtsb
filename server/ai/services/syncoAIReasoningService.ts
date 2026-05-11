@@ -145,18 +145,36 @@ ${tasksJson}
 
   const parsed = DayCommandIntentSchema.safeParse(response.data);
   if (!parsed.success) {
-    console.warn('[interpretDayCommandWithAI] schema validation failed:', parsed.error.issues);
-    return { ok: false, reason: 'ai_validation_failed', warnings: [parsed.error.message] };
+    const issues = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`);
+    console.warn('[interpretDayCommandWithAI] schema validation failed:', issues);
+    return {
+      ok: false,
+      reason: 'ai_validation_failed',
+      warnings: issues,
+      questions: ['לא הצלחתי לנתח את הפקודה בצורה מדויקת. אנא נסה לנסח מחדש.'],
+    };
   }
 
-  const validation = validateDayCommandIntent(parsed.data, params.existingTasks, params.nowIso);
+  // Ensure all operations have unique operationIds (AI may return duplicates or 'op_unknown')
+  const fixedData = {
+    ...parsed.data,
+    operations: parsed.data.operations.map((op, idx) => ({
+      ...op,
+      operationId: op.operationId === 'op_unknown' || !op.operationId
+        ? `op_${idx + 1}`
+        : op.operationId,
+    })),
+  };
+
+  const validation = validateDayCommandIntent(fixedData, params.existingTasks, params.nowIso);
   if (!validation.ok) {
     return { ok: false, reason: 'ai_validation_failed', warnings: validation.warnings };
   }
 
   const sanitized = validation.sanitized!;
 
-  if (sanitized.commandType === 'ask_clarification' || sanitized.questions?.length > 0) {
+  // Treat ambiguous/low-confidence as clarification needed
+  if (sanitized.commandType === 'ask_clarification' || sanitized.questions.length > 0) {
     return {
       ...sanitized,
       ok: true,
