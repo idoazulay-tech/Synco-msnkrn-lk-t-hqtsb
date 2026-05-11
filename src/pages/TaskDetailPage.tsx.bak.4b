@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, MapPin, Clock, Tag, FileText, CalendarDays, Check, Repeat, GitBranch, Play, Flag } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ArrowRight, MapPin, Clock, Tag, FileText, CalendarDays, Check, Repeat, GitBranch, Play } from 'lucide-react';
 import { format } from 'date-fns';
 import { he } from 'date-fns/locale';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -11,17 +11,12 @@ import { useTaskTimer } from '@/hooks/useTaskTimer';
 import { cn } from '@/lib/utils';
 import { CompactSchedule, ScheduleToggle } from '@/components/layout/CompactSchedule';
 import { isRecurringOccurrence, formatRecurringSummary, getMasterTaskId } from '@/lib/recurringEngine';
-import { TaskReportDialog } from '@/components/task/TaskReportDialog';
-import { TaskReportIntroDialog, isTaskReportIntroDismissed } from '@/components/task/TaskReportIntroDialog';
 
 const TaskDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [showSchedule, setShowSchedule] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showReportDialog, setShowReportDialog] = useState(false);
-  const [showIntroDialog, setShowIntroDialog] = useState(false);
-  const [reportPendingAfterIntro, setReportPendingAfterIntro] = useState(false);
   const { getTaskById, completeTask, getCurrentTask, startTaskExecution, executionStartTimes } = useTaskStore();
   const task = id ? getTaskById(id) : undefined;
   const currentTask = getCurrentTask();
@@ -70,23 +65,6 @@ const TaskDetailPage = () => {
     setShowEditDialog(false);
     const masterId = getMasterTaskId(id!);
     navigate(`/task/${masterId}/edit`);
-  };
-
-  const openReport = () => {
-    if (isTaskReportIntroDismissed()) {
-      setShowReportDialog(true);
-    } else {
-      setReportPendingAfterIntro(true);
-      setShowIntroDialog(true);
-    }
-  };
-
-  const handleIntroClose = () => {
-    setShowIntroDialog(false);
-    if (reportPendingAfterIntro) {
-      setReportPendingAfterIntro(false);
-      setShowReportDialog(true);
-    }
   };
 
   return (
@@ -328,37 +306,26 @@ const TaskDetailPage = () => {
                 ⏱ סינקו מודד את זמן הביצוע
               </p>
             )}
-            <div className="flex gap-2">
+            <div className="flex gap-3">
               <Button 
                 variant="outline" 
                 size="lg" 
                 onClick={handleReschedule}
-                className="flex-1 gap-1.5 text-sm"
+                className="flex-1 gap-2"
                 data-testid="button-reschedule"
               >
                 <CalendarDays className="w-4 h-4" />
                 עריכה
               </Button>
 
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={openReport}
-                className="flex-1 gap-1.5 text-sm"
-                data-testid="button-report-from-detail"
-              >
-                <Flag className="w-4 h-4" />
-                דיווח
-              </Button>
-
               <Button 
                 size="lg" 
                 onClick={handleComplete} 
-                className="flex-1 gap-1.5 text-sm bg-success hover:bg-success/90"
+                className="flex-1 gap-2 bg-success hover:bg-success/90"
                 data-testid="button-complete"
               >
                 <Check className="w-4 h-4" />
-                סיים
+                סיים משימה
               </Button>
             </div>
           </div>
@@ -410,21 +377,6 @@ const TaskDetailPage = () => {
           onClose={() => setShowSchedule(false)}
           currentTaskId={task.id}
         />
-
-        <AnimatePresence>
-          {showIntroDialog && (
-            <TaskReportIntroDialog onClose={handleIntroClose} />
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {showReportDialog && (
-            <TaskReportDialog
-              task={task}
-              onClose={() => setShowReportDialog(false)}
-            />
-          )}
-        </AnimatePresence>
       </div>
     </AppLayout>
   );

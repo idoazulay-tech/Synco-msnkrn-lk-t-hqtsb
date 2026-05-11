@@ -1,0 +1,1131 @@
+Sprint Pack 4ב בפרויקט Synco:
+Task Reality Report + Home Guidance Layer + Task Operational Blueprints
+
+מטרה:
+לבנות את שכבת הבית והדיווח של Synco כך שהמשתמש יוכל להבין מה לעשות עכשיו, לדווח מה באמת קורה עם משימה בזמן אמת, וסינקו יוכל לנתח את הדיווח בהקשר של המשימה בלבד, להציע פעולה פרקטית, וללמוד בהדרגה איך לעזור למשתמש לנהל זמן, אנרגיה, מטרות ומציאות בצורה טובה יותר.
+
+הדגש המרכזי:
+סינקו לא אמור לנחש את המשתמש.
+סינקו כן אמור:
+1. להציג מה המשימה הנוכחית.
+2. להסביר למה היא עכשיו לפי מידע אמיתי בלבד.
+3. לאפשר כפתור "דיווח" מתוך משימה.
+4. להבין מה באמת קורה עם המשימה.
+5. לשמור כל דיווח בהקשר של המשימה בלבד.
+6. להציע פעולה פרקטית עכשיו.
+7. לפרק משימות לצעדים כשלא ברור איך להתחיל.
+8. להשתמש בתבניות פעולה פנימיות למשימות נפוצות.
+9. לא להשתמש ב-AI, web, Qdrant או חיפוש חיצוני בשלב הזה.
+10. לא לומר למשתמש דברים שסינקו לא יודע בוודאות.
+
+חשוב מאוד:
+כל דיווח הוא task-scoped.
+כלומר, כל מה שהמשתמש מדווח מתוך משימה מסוימת מתייחס קודם כל למשימה הזאת בלבד.
+אסור להפוך דיווח אחד לדפוס כללי על המשתמש.
+אסור לומר למשתמש דברים שסינקו לא יודע בוודאות.
+אסור להשתמש בשפה מאשימה כמו:
+"אתה מתרץ"
+"אתה מתחמק"
+"אתה מפחד"
+"אתה תמיד דוחה"
+
+כן להשתמש בשפה:
+"דיווחת ש..."
+"ביחס למשימה הזאת..."
+"יכול להיות..."
+"מה הכי קרוב למה שקורה?"
+"ככל שתדווח מדויק יותר, סינקו יוכל לעזור לך טוב יותר."
+
+אל תוסיף Auth.
+אל תוסיף Google Calendar.
+אל תוסיף Qdrant.
+אל תוסיף AI.
+אל תבצע web search.
+אל תבנה dashboard.
+אל תשנה DB בצורה כבדה.
+אל תשנה schedulePlanner.
+אל תשנה buildSchedule.
+אל תשנה priorityScoreEngine.
+אל תשבור planner/schedule.
+אל תשבור planner/apply-schedule.
+אל תשבור planner/commit-draft-schedule.
+אל תשבור PlanningDraftPanel.
+אל תשבור DayView.
+אל תשבור Drag & Drop.
+אל תשבור Resize.
+אל תשבור syncTasksFromServer.
+אל תשבור localStorage migration.
+אל תשבור Trust QA script.
+
+רקע קיים:
+כבר קיימים:
+- LearningEvents
+- task_started
+- task_execution_completed
+- settingsStore
+- dayStart/dayEnd/timezone/planningStyle
+- PlanningDraftPanel
+- DayView
+- Trust QA
+- AdaptiveTaskBlockContent
+- Personal Settings בסיסי
+- Duration Suggestions
+- No Past Scheduling
+- Anchor Context
+- False Learning Prevention
+
+Sprint Pack 4א כבר הוסיף settings בסיסיים והשיבוץ משתמש בהגדרות המשתמש דרך planningConfig, כאשר No Past עדיין מנצח את dayStart. זה חשוב לשמור ולא לשבור. :contentReference[oaicite:0]{index=0}
+
+לפני שינוי:
+בדוק את הקבצים:
+- src/pages/HomePage.tsx
+- src/pages/TaskDetailPage.tsx
+- src/pages/DayViewPage.tsx
+- src/store/taskStore.ts
+- src/store/settingsStore.ts
+- src/lib/api/learningClient.ts
+- src/types/task.ts
+- server/routes/learning.ts
+- src/components/voice/VoiceInput.tsx
+- src/components/task/
+- src/components/planner/
+- scripts/synco-trust-qa.sh
+
+גבה כל קובץ שאתה משנה.
+
+==================================================
+חלק 1: Home Guidance Engine
+==================================================
+
+צור קובץ:
+
+src/lib/home/homeGuidanceEngine.ts
+
+הוא ייצא פונקציה:
+
+buildHomeGuidanceContext({
+  tasks,
+  now,
+  settings,
+  learningSummary,
+  planningContext
+})
+
+הפלט:
+
+{
+  state: "active_now" | "upcoming" | "no_task" | "day_done",
+  currentTask,
+  nextTask,
+  minutesRemaining,
+  startsInMinutes,
+  whyNow: {
+    text: string,
+    confidence: "high" | "medium" | "low",
+    source: "scheduled_time" | "priority" | "anchor" | "learning" | "fallback"
+  },
+  settingsNotice?: string
+}
+
+לוגיקה:
+1. קח את משימות היום בלבד.
+2. סנן completed/deleted/standby.
+3. אם now נמצא בין startTime ל-endTime, זו currentTask.
+4. אם אין currentTask, קח את המשימה הבאה שה-startTime שלה אחרי now.
+5. אם אין משימה הבאה, state = no_task או day_done.
+
+חוקי "למה עכשיו":
+אם confidence high:
+"זו המשימה שנמצאת בחלון הזמן הנוכחי."
+
+אם confidence medium:
+"נראה שזו המשימה הנכונה עכשיו לפי השיבוץ והעדיפות שלה."
+
+אם confidence low:
+"זו המשימה הקרובה ביותר בלוח שלך."
+
+אסור להמציא סיבה רגשית.
+אסור לומר שהמשתמש דוחה או נמנע בלי evidence אמיתי.
+
+==================================================
+חלק 2: HomePage UI
+==================================================
+
+עדכן את HomePage כך שיציג כרטיס מרכזי:
+
+כותרת:
+"מה עכשיו"
+
+אם active_now:
+- שם המשימה
+- startTime-endTime
+- נותרו X דקות
+- למה עכשיו
+- confidence קטן:
+  - בטוח
+  - משוער
+  - צריך אימות
+
+אם upcoming:
+- "המשימה הבאה"
+- שם המשימה
+- מתחילה בעוד X דקות
+- למה היא הבאה
+
+אם no_task:
+- "אין משימה מתוכננת כרגע"
+- כפתורים:
+  - הוסף משימה
+  - תכנן משימות
+  - סדר לי את היום
+
+כפתורים בכרטיס:
+- התחל משימה
+- סיימתי
+- דיווח
+- קשה לי להתחיל
+
+"התחל משימה":
+קורא startTaskExecution(task.id).
+אם כבר התחילה, לא יוצר task_started כפול.
+
+"סיימתי":
+קורא completeTask(task.id).
+צריך להמשיך ליצור task_completed וגם task_execution_completed.
+
+"דיווח":
+פותח TaskReportDialog לאותה משימה.
+
+"קשה לי להתחיל":
+פותח TaskReportDialog במיקוד לאפשרויות:
+- low_energy
+- unclear_first_step
+- too_big
+- resistance
+- dependency_missing
+
+השתמש ב-settingsStore:
+- dayStart
+- dayEnd
+- timezone
+- planningStyle
+
+אם עכשיו מחוץ ל-dayStart/dayEnd:
+הצג הודעה עדינה:
+"אתה מחוץ לשעות היום שהגדרת."
+
+אם planningStyle = gentle:
+"נשמור על קצב רגוע."
+
+אם planningStyle = aggressive:
+"ננסה להתקדם בצורה חדה יותר, בלי לשבץ בעבר."
+
+==================================================
+חלק 3: First Time Report Explanation
+==================================================
+
+צור רכיב:
+
+src/components/task/TaskReportIntroDialog.tsx
+
+הוא יופיע בפעם הראשונה שהמשתמש לוחץ על כפתור "דיווח".
+
+טקסט:
+
+"למה לדווח?
+
+הדיווח עוזר לסינקו להבין מה באמת קורה עם המשימה הזאת:
+האם חסר זמן, אנרגיה, בהירות, משאב, אדם אחר, או החלטה.
+
+ככל שתדווח בצורה יותר אמיתית ומדויקת, סינקו ילמד לעזור לך לתכנן טוב יותר, לפרק משימות טוב יותר, לזהות דפוסים, ולסנכרן אותך עם המציאות בצורה שמתאימה לך.
+
+אין כאן שיפוט. יש כאן מידע שעוזר לסדר את המציאות."
+
+כפתורים:
+1. "הבנתי, תראה לי בפעם הבאה"
+2. "הבנתי, אל תראה לי יותר"
+3. "תרחיב לי ואבין יותר"
+
+התנהגות:
+- "הבנתי, תראה לי בפעם הבאה":
+  סוגר את ההסבר בלבד.
+  לא שומר dismissed.
+
+- "הבנתי, אל תראה לי יותר":
+  שומר ב-localStorage:
+  synco_task_report_intro_dismissed = true
+
+- "תרחיב לי ואבין יותר":
+  פותח הסבר מורחב.
+
+==================================================
+חלק 4: Expanded Report Explanation
+==================================================
+
+צור רכיב:
+
+src/components/task/TaskReportLearnMore.tsx
+
+או modal מורחב בתוך TaskReportIntroDialog אם זה פשוט יותר.
+
+תוכן:
+
+"סינקו לא משתמש בדיווח כדי לשפוט אותך.
+הוא משתמש בו כדי להבין מה באמת קורה.
+
+אם כתבת 'אין לי זמן', אבל בפועל לא ברור הצעד הראשון, סינקו יתכנן פתרון לא נכון.
+
+אם כתבת 'אין לי כוח', אבל בפועל אתה מחכה למישהו אחר, סינקו צריך לדעת שזו תלות חיצונית ולא בעיית אנרגיה.
+
+הדיווח הכי טוב הוא דיווח פשוט ואמיתי:
+מה קרה?
+מה חסר?
+מה עוצר?
+מה המחיר אם לא עושים?
+מה הצעד הבא?
+
+ככל שהמידע אמיתי יותר, גם אם הוא לא נעים, סינקו יכול לעזור לך לסנכרן את עצמך טוב יותר עם המציאות."
+
+==================================================
+חלק 5: Task Report Model
+==================================================
+
+צור קובץ:
+
+src/types/taskReport.ts
+
+הגדר:
+
+TaskReportOption:
+{
+  id: string,
+  label: string,
+  category: string
+}
+
+TaskReportAnalysis:
+{
+  scope: "task_only",
+  normalizedCategory: string,
+  userIntention: string,
+  confidence: "low" | "medium" | "high",
+  immediateSuggestion: string,
+  suggestedActions: string[],
+  followUpQuestions?: string[],
+  taskMeaning?: string,
+  consequenceIfNotDone?: string,
+  suggestedBreakdown?: object,
+  operationalBlueprint?: object,
+  learningMetadata?: object
+}
+
+אפשרויות דיווח התחלתיות:
+
+1. low_energy:
+"אין לי אנרגיה"
+
+2. unclear_first_step:
+"לא ברור לי הצעד הראשון"
+
+3. too_big:
+"המשימה גדולה מדי"
+
+4. dependency_missing:
+"אני צריך משהו לפני"
+
+5. wrong_timing:
+"השעה לא מתאימה"
+
+6. waiting_on_someone:
+"אני מחכה למישהו"
+
+7. not_sure_priority:
+"אני לא בטוח שזה חשוב עכשיו"
+
+8. resistance:
+"יש לי התנגדות להתחיל"
+
+9. want_to_avoid:
+"אני רוצה להתחמק מזה עכשיו"
+
+10. want_to_finish:
+"אני כן רוצה לסיים, רק צריך עזרה"
+
+11. ready:
+"אני מוכן להתחיל"
+
+12. other:
+"אחר"
+
+==================================================
+חלק 6: Task Report Dialog
+==================================================
+
+צור רכיב:
+
+src/components/task/TaskReportDialog.tsx
+
+הדיאלוג נפתח מתוך משימה ספציפית בלבד.
+
+כותרת:
+"מה קורה עם המשימה הזאת?"
+
+הצג:
+- שם המשימה
+- בחירה מרשימה
+- כתיבה חופשית
+- הקלטה אם VoiceInput קיים ובטוח לחיבור
+
+אחרי בחירה מרשימה:
+הצג:
+"רוצה להוסיף עוד פרטים כדי שסינקו יבין טוב יותר?"
+
+כפתורים:
+- דלג
+- הקלד
+- הקלט
+
+אם המשתמש בוחר "אחר":
+חובה לפתוח הקלדה או הקלטה.
+
+אם VoiceInput קיים וקל לשלב:
+חבר אותו ל-freeText.
+
+אם לא:
+השאר כפתור disabled עם טקסט:
+"הקלטה תתווסף בקרוב"
+ודווח.
+
+==================================================
+חלק 7: Task Report Analyzer
+==================================================
+
+צור קובץ:
+
+src/lib/taskReport/taskReportAnalyzer.ts
+
+פונקציה:
+
+analyzeTaskReport({
+  task,
+  selectedOption,
+  freeText,
+  now,
+  settings,
+  dayContext
+})
+
+Output:
+
+{
+  scope: "task_only",
+  normalizedCategory,
+  userIntention,
+  confidence,
+  immediateSuggestion,
+  suggestedActions,
+  followUpQuestions,
+  taskMeaning,
+  consequenceIfNotDone,
+  suggestedBreakdown,
+  operationalBlueprint,
+  learningMetadata
+}
+
+userIntention:
+- wants_to_do
+- wants_help
+- wants_to_delay
+- wants_to_cancel
+- unsure_priority
+- avoiding_now
+
+normalizedCategory:
+- energy
+- clarity
+- size
+- dependency
+- timing
+- waiting
+- priority
+- resistance
+- avoidance
+- ready
+- other
+
+מיפוי בסיסי:
+
+low_energy:
+userIntention: wants_help
+normalizedCategory: energy
+immediateSuggestion: "נעשה התחלה קטנה בלבד: 2 דקות."
+suggestedActions: ["start_2_minutes", "delay_30", "switch_to_lighter"]
+
+unclear_first_step:
+userIntention: wants_help
+normalizedCategory: clarity
+immediateSuggestion: "נפרק את המשימה לצעד ראשון ברור."
+suggestedActions: ["break_down_task", "ask_task_questions", "start_task"]
+
+too_big:
+userIntention: wants_help
+normalizedCategory: size
+immediateSuggestion: "נקטין את המשימה לחלק ראשון קטן."
+suggestedActions: ["split_task", "start_2_minutes"]
+
+dependency_missing:
+userIntention: wants_help
+normalizedCategory: dependency
+immediateSuggestion: "נזהה קודם מה חסר כדי להתחיל."
+suggestedActions: ["create_prerequisite", "add_note"]
+
+wrong_timing:
+userIntention: wants_to_delay
+normalizedCategory: timing
+immediateSuggestion: "אפשר לדחות לזמן מתאים יותר ולשמור את הסיבה."
+suggestedActions: ["delay_15", "delay_30", "delay_60"]
+
+waiting_on_someone:
+userIntention: wants_help
+normalizedCategory: waiting
+immediateSuggestion: "נסמן שיש כאן תלות במישהו אחר."
+suggestedActions: ["mark_waiting", "create_followup"]
+
+not_sure_priority:
+userIntention: unsure_priority
+normalizedCategory: priority
+immediateSuggestion: "נבדוק מה המשימה מקדמת ומה המחיר אם לא עושים אותה."
+suggestedActions: ["ask_goal", "compare_day_plan"]
+
+resistance:
+userIntention: wants_help
+normalizedCategory: resistance
+immediateSuggestion: "אפשר להתחיל בלי להתחייב לסיים, רק 2 דקות."
+suggestedActions: ["start_2_minutes", "break_down_task"]
+
+want_to_avoid:
+userIntention: avoiding_now
+normalizedCategory: avoidance
+immediateSuggestion: "קיבלתי. נבדוק אם נכון לדחות, לפרק, או לבטל."
+suggestedActions: ["ask_consequence", "delay_30", "break_down_task"]
+
+want_to_finish:
+userIntention: wants_to_do
+normalizedCategory: ready
+immediateSuggestion: "מעולה. נמצא את הדרך הכי פשוטה להתחיל."
+suggestedActions: ["ask_first_step", "start_task"]
+
+ready:
+userIntention: wants_to_do
+normalizedCategory: ready
+immediateSuggestion: "מעולה. אפשר להתחיל עכשיו."
+suggestedActions: ["start_task"]
+
+other:
+userIntention: wants_help
+normalizedCategory: other
+immediateSuggestion: "קיבלתי. אשמור את זה בהקשר של המשימה הזאת."
+suggestedActions: ["save_note"]
+
+חוק אמון:
+אם freeText מכיל שם של אדם, למשל "שני", "הבוס", "לקוח":
+לא להסיק על האדם.
+רק לשמור:
+"במשימה הזאת יש הקשר לאדם אחר."
+
+==================================================
+חלק 8: Meaning + Consequence Layer
+==================================================
+
+בתוך analyzer הוסף שכבה עדינה:
+
+taskMeaning:
+אם יש category/project:
+"המשימה קשורה ל..."
+אם אין:
+"עדיין לא ידוע לאיזו מטרה המשימה קשורה."
+
+consequenceIfNotDone:
+לא להפחיד.
+לא להמציא.
+להשתמש רק בהקשר משימה.
+
+אם יש due/startTime:
+"אם היא לא תתבצע בזמן, ייתכן שהיא תידחק לזמן פחות מתאים."
+
+אם יש anchor:
+"היא קשורה לאירוע אחר, ולכן עיכוב עלול ליצור לחץ לפניו."
+
+אם יש waiting_on_someone:
+"נראה שיש כאן תלות באדם אחר, ולכן כדאי להגדיר מה הצעד הבא שלך."
+
+אם אין מידע:
+"עדיין לא ידועה השלכה ברורה. אפשר להוסיף מטרה או סיבה למשימה."
+
+עיקרון:
+כל משימה היא צעד מול המציאות.
+אבל לא לומר את זה בצורה מלחיצה.
+להציג את זה כעזרה:
+"נבדוק מה המשימה מקדמת ומה המחיר אם היא תידחה."
+
+==================================================
+חלק 9: Task Operational Blueprints
+==================================================
+
+מטרה:
+סינקו לא אמור לחכות שהמשתמש ילמד אותו כל פעולה קטנה.
+כאשר המשתמש מדווח "לא ברור לי הצעד הראשון" או "המשימה גדולה מדי", סינקו צריך להשתמש בהבנה תפעולית בסיסית כדי להסיק סדר פעולות הגיוני למשימה.
+
+צור קובץ:
+
+src/lib/taskOperational/taskOperationalBlueprintEngine.ts
+
+פונקציה:
+
+buildTaskOperationalBlueprint({
+  task,
+  selectedOption,
+  freeText,
+  settings,
+  dayContext
+})
+
+Output:
+
+{
+  taskType,
+  goal,
+  expectedOutcome,
+  resourcesNeeded,
+  prerequisites,
+  steps,
+  estimatedStepDurations,
+  possibleBlockers,
+  clarifyingQuestions,
+  assumptions,
+  confidence,
+  source
+}
+
+source:
+- common_task_knowledge
+- user_task_context
+- user_report
+- learned_pattern_future
+- external_knowledge_future
+
+בשלב הזה:
+source יהיה common_task_knowledge או generic_task בלבד.
+אין AI.
+אין web call.
+אין Qdrant.
+
+תמוך בתבניות הבאות:
+1. laundry_hanging
+2. laundry_washing
+3. dishes
+4. house_tidying
+5. trash
+6. preparing_bag
+7. leaving_home
+8. dog_walk
+9. phone_call
+10. send_report
+11. pay_bill
+12. shopping
+13. cooking_simple
+14. study_session
+15. work_on_project
+16. meeting_preparation
+17. email_reply
+18. document_fill
+19. errand
+20. generic_task
+
+דוגמה לתבנית laundry_hanging:
+
+taskType: laundry_hanging
+goal: "לתלות כביסה כדי שתתייבש בזמן"
+expectedOutcome: "הכביסה תלויה ומסודרת"
+resourcesNeeded:
+- "סל כביסה"
+- "כביסה נקייה"
+- "חבל או מתקן תלייה"
+- "אטבים אם צריך"
+
+prerequisites:
+- "המכונה סיימה"
+- "יש מקום לתלות"
+
+steps:
+- "להכין סל כביסה"
+- "לפתוח את המכונה"
+- "להעביר את הכביסה לסל"
+- "לקחת את הסל לאזור התלייה"
+- "לבדוק שיש מקום לתלות"
+- "לתלות את הכביסה"
+
+assumptions:
+- "הכביסה כבר סיימה במכונה"
+- "יש מקום פנוי לתלות"
+
+confidence: medium
+source: common_task_knowledge
+
+זיהוי לפי keywords בעברית:
+
+laundry_hanging:
+- לתלות כביסה
+- כביסה
+- חבל
+- אטבים
+- מייבש
+- לתלות
+
+preparing_bag:
+- תיק
+- לארגן תיק
+- להכין תיק
+- יציאה
+- להביא
+- לקחת
+
+send_report:
+- דוח
+- לשלוח דוח
+- לקוח
+- מייל
+
+phone_call:
+- להתקשר
+- שיחה
+- לדבר עם
+
+dog_walk:
+- קיטו
+- כלב
+- טיול
+- להוציא
+
+אם task לא מזוהה:
+taskType = generic_task
+confidence = low
+clarifyingQuestions:
+- "מה התוצאה שאתה רוצה שתהיה בסוף המשימה?"
+
+==================================================
+חלק 10: חיבור Blueprint ל-Report Analyzer
+==================================================
+
+אם selectedOption הוא:
+- unclear_first_step
+- too_big
+- dependency_missing
+
+אז analyzeTaskReport צריך לקרוא ל-buildTaskOperationalBlueprint.
+
+ואז immediateSuggestion יתבסס על blueprint.
+
+דוגמה:
+אם task.title = "לתלות כביסה"
+והמשתמש בחר "לא ברור לי הצעד הראשון":
+
+immediateSuggestion:
+"נראה שהצעד הראשון הוא להכין סל כביסה ולפתוח את המכונה."
+
+suggestedBreakdown:
+{
+  firstStep: "להכין סל כביסה",
+  steps: [
+    "להכין סל כביסה",
+    "לפתוח את המכונה",
+    "להעביר את הכביסה לסל",
+    "לקחת את הסל לאזור התלייה",
+    "לבדוק שיש מקום לתלות",
+    "לתלות את הכביסה"
+  ],
+  resourcesNeeded: ["סל כביסה", "מקום תלייה", "אטבים אם צריך"],
+  assumptions: ["הכביסה כבר סיימה במכונה"]
+}
+
+אם confidence נמוך:
+שאלת הבהרה אחת בלבד:
+"מה התוצאה שאתה רוצה שתהיה בסוף המשימה?"
+
+==================================================
+חלק 11: הצגת Blueprint ב-TaskReportDialog
+==================================================
+
+כאשר יש operationalBlueprint:
+הצג אזור:
+
+"סינקו פירק את המשימה לצעד ראשון"
+
+הצג:
+- מטרה
+- צעד ראשון
+- משאבים שצריך
+- צעדים מוצעים
+- הנחות
+
+כפתורים:
+- "התחל מהצעד הראשון"
+- "הוסף לתיאור המשימה"
+- "זה לא מתאים, אשנה ידנית"
+- "שאל אותי שאלה אחת"
+
+חשוב:
+אל תשנה את המשימה אוטומטית.
+
+אם המשתמש לוחץ "הוסף לתיאור המשימה":
+מותר לעדכן description/notes רק אם updateTask בטוח.
+אם לא בטוח, שמור רק ב-LearningEvent ודווח.
+
+אם אין מערכת תתי משימות:
+אל תבנה מערכת תתי משימות עכשיו.
+רק הצג פירוק ושמור בדיווח.
+
+==================================================
+חלק 12: External Knowledge Provider Future Stub
+==================================================
+
+צור קובץ:
+
+src/lib/taskOperational/externalTaskKnowledgeProvider.ts
+
+הגדר:
+
+export type ExternalTaskKnowledgeProvider = {
+  lookupTaskKnowledge(query: string): Promise<unknown | null>
+}
+
+export const nullExternalTaskKnowledgeProvider: ExternalTaskKnowledgeProvider = {
+  async lookupTaskKnowledge(query: string) {
+    return null
+  }
+}
+
+בשלב הזה:
+אין חיפוש ברשת.
+אין API call.
+אין AI.
+ה-provider נועד לעתיד בלבד.
+
+==================================================
+חלק 13: Learning Events חדשים
+==================================================
+
+עדכן server/routes/learning.ts כך שיקבל eventTypes חדשים:
+
+- task_report_submitted
+- task_start_blocker_logged
+- task_postponed
+- task_energy_check
+- task_breakdown_requested
+
+כאשר המשתמש שולח דיווח:
+שמור LearningEvent:
+
+eventType: "task_report_submitted"
+source: "task_report_dialog"
+taskId
+taskTitleSnapshot
+
+metadata:
+{
+  scope: "task_only",
+  selectedOption,
+  selectedLabel,
+  freeText,
+  inputMode: "list" | "text" | "voice",
+  normalizedCategory,
+  userIntention,
+  confidence,
+  immediateSuggestion,
+  suggestedActions,
+  taskMeaning,
+  consequenceIfNotDone,
+  suggestedBreakdown,
+  operationalBlueprint,
+  currentTaskState,
+  nowIso
+}
+
+אם המשתמש ביקש פירוק:
+שמור גם:
+eventType: "task_breakdown_requested"
+
+==================================================
+חלק 14: Custom Report Options
+==================================================
+
+אם המשתמש בוחר "אחר" וכותב משהו:
+אל תוסיף אוטומטית לרשימה.
+
+הצג:
+"רוצה לשמור את זה כאפשרות קבועה לדיווח?"
+
+אם כן:
+שמור רק כותרת קצרה ב-localStorage.
+לא לשמור את כל הטקסט האישי כאופציה.
+
+צור:
+src/store/taskReportOptionsStore.ts
+
+שמור:
+- id
+- label
+- createdAt
+- usageCount
+
+אם קשה לחלץ כותרת:
+שמור עד 40 תווים ראשונים אחרי אישור המשתמש בלבד.
+
+==================================================
+חלק 15: חיבור ל-TaskDetail
+==================================================
+
+ב-TaskDetailPage הוסף כפתור:
+"דיווח"
+
+פותח TaskReportDialog לאותה משימה.
+
+==================================================
+חלק 16: חיבור ל-DayView
+==================================================
+
+אל תעמיס על הבלוקים הקטנים.
+אם יש מקום בטוח:
+אפשר להוסיף בתפריט או בלחיצה על פרטי משימה כפתור "דיווח".
+
+אם זה מסכן את AdaptiveTaskBlockContent:
+אל תחבר ל-DayView עכשיו.
+דווח שזה נשאר דרך TaskDetail/Home.
+
+==================================================
+חלק 17: פעולות מיידיות
+==================================================
+
+אחרי שליחת דיווח:
+הצג immediateSuggestion.
+
+כפתורים אפשריים:
+- התחל משימה
+- דחה 15 דק'
+- דחה 30 דק'
+- דחה שעה
+- סגור
+
+מותר לחבר:
+- startTaskExecution
+- completeTask אם כבר קיים
+
+דחייה מלאה:
+אם updateTask בטוח, אפשר delay פשוט.
+אם לא, הצג:
+"דחייה מלאה תתווסף בשלב הבא."
+
+לא לבנות Delay Flow מלא עכשיו.
+זה Sprint 4ג.
+
+==================================================
+חלק 18: בדיקות חובה
+==================================================
+
+Build:
+1. npm run build
+
+UI:
+2. HomePage נטען
+3. currentTask מוצג אם יש משימה פעילה
+4. nextTask מוצג אם אין משימה פעילה ויש עתידית
+5. כפתור דיווח מופיע ב-Home
+6. כפתור דיווח מופיע ב-TaskDetail
+7. לחיצה ראשונה על דיווח מציגה TaskReportIntroDialog
+8. "הבנתי, תראה לי בפעם הבאה" סוגר ולא שומר dismissed
+9. "הבנתי, אל תראה לי יותר" שומר dismissed
+10. "תרחיב לי" פותח הסבר מורחב
+11. TaskReportDialog נפתח מתוך Home
+12. TaskReportDialog נפתח מתוך TaskDetail
+13. בחירה מרשימה עובדת
+14. free text עובד
+15. other דורש הרחבה
+16. "לא ברור לי הצעד הראשון" מפעיל blueprint
+17. "לתלות כביסה" מחזיר blueprint עם סל כביסה, מכונה, תלייה
+18. "לארגן תיק ליציאה" מחזיר preparing_bag
+19. "לשלוח דוח ללקוח" מחזיר send_report
+20. "להתקשר ללקוח" מחזיר phone_call
+21. "טיול עם קיטו" מחזיר dog_walk
+22. משימה לא מזוהה מחזירה generic_task
+23. immediateSuggestion מבוסס blueprint
+24. operationalBlueprint מוצג ב-dialog
+25. דיווח שומר LearningEvent עם scope task_only
+26. אין ניסוחים מאשימים
+27. custom option נשמר רק אחרי אישור
+28. HomePage לא נשבר
+29. DayView לא נשבר
+30. PlanningDraftPanel לא נשבר
+31. AdaptiveTaskBlockContent לא נשבר
+
+API:
+32. POST /api/learning/events task_report_submitted
+33. POST /api/learning/events task_breakdown_requested
+34. POST /api/learning/events task_postponed
+35. planner/schedule עדיין עובד
+36. planner/apply-schedule עדיין עובד
+37. planner/commit-draft-schedule עדיין עובד
+38. planner/parse עדיין עובד
+39. settings API עדיין עובד
+40. Trust QA script עדיין עובר
+
+אסור:
+41. אין AI call
+42. אין web call
+43. אין DB schema migration כבדה
+44. אין עדכון משימה אוטומטי בלי לחיצה מפורשת
+
+פלט סופי:
+# דוח Sprint Pack 4ב - Task Reality Report + Home Guidance Layer
+
+## 1. מה נבדק לפני שינוי
+קובץ | למה נבדק | מסקנה
+
+## 2. החלטה ארכיטקטונית
+כתוב:
+- איך נבנה Home Guidance
+- איך נבנה TaskReportIntro
+- איך נבנה TaskReportDialog
+- איך כל דיווח נשאר task-scoped
+- איך נבנה Report Analyzer
+- איך נבנה Task Operational Blueprint Engine
+- איך נמנעה פרסונליזציה שקרית
+- איך הדיווח הופך להמלצה פעולה
+- איך עובד פירוק משימה
+- האם נבנו custom report options
+- האם הוכן external knowledge provider לעתיד
+
+## 3. מה שונה
+קובץ | שינוי | למה
+
+## 4. מה גובה
+קובץ מקורי | קובץ גיבוי
+
+## 5. איך עובד כפתור דיווח
+משימה
+→ intro בפעם הראשונה
+→ רשימה/טקסט/קול
+→ ניתוח עדין
+→ Blueprint אם צריך
+→ LearningEvent
+→ הצעה פרקטית
+
+## 6. אילו אפשרויות דיווח קיימות
+טבלה:
+id | label | userIntention | suggestion | possible actions
+
+## 7. איך סינקו מנתח את הדיווח
+כתוב:
+selectedOption
++ freeText
++ task context
++ day context
++ meaning/consequence
++ operational blueprint
+→ normalizedCategory
+→ userIntention
+→ confidence
+→ action suggestion
+
+## 8. שכבת מטרה והשלכה
+כתוב איך סינקו מסביר:
+משימה
+→ מטרה
+→ השלכה
+בלי להפחיד ובלי להמציא.
+
+## 9. איך עובד Task Operational Blueprint
+כתוב:
+keywords
+→ taskType
+→ resources
+→ steps
+→ assumptions
+→ first step
+
+תן דוגמה של לתלות כביסה.
+
+## 10. איך עובד פירוק משימה
+כתוב:
+לא ברור צעד ראשון
+→ blueprint
+→ suggestedBreakdown
+→ הצגה למשתמש
+→ אין עדכון אוטומטי בלי אישור
+
+## 11. איך נשמר האמון
+כתוב:
+מה אסור לומר
+מה מותר לומר
+מתי דפוס הופך לדפוס
+
+## 12. איך Home עונה עכשיו
+שאלה | מקור נתונים | רמת ביטחון | דוגמה
+
+## 13. תוצאות build
+עבר / נכשל
+
+## 14. תוצאות UI
+פעולה | תוצאה | הערה
+
+## 15. תוצאות API
+endpoint | תוצאה | הערה
+
+## 16. Trust QA
+האם scripts/synco-trust-qa.sh עבר
+
+## 17. בדיקות שלא נשברו
+- DayView
+- AdaptiveTaskBlockContent
+- PlanningDraftPanel
+- PlanMyDayButton
+- Preview
+- אישור ושמירה
+- Drag & Drop
+- Resize
+- planner/schedule
+- planner/apply-schedule
+- planner/commit-draft-schedule
+- planner/parse
+- learning/events
+- settings API
+- syncTasksFromServer
+- localStorage migration
+
+## 18. דברים שלא שונו בכוונה
+לא נוסף Auth
+לא נוסף Google Calendar
+לא נוסף Qdrant
+לא נוסף AI
+לא נוסף dashboard
+לא שונה schedulePlanner
+לא שונה DB כבד
+לא שונה priorityScoreEngine
+לא נבנתה מערכת תתי משימות מלאה
+לא בוצע חיפוש ברשת
+
+## 19. סיכונים שנשארו
+- ניתוח חופשי עדיין rule-based
+- Voice report אם לא חובר מלא
+- custom options בסיסי
+- אין עדיין AI שמנסח צעד ראשון אישי
+- אין עדיין דפוסים עמוקים לפי מטרות
+- אין עדיין מערכת תתי משימות מלאה
+- אין עדיין external knowledge אמיתי
+
+## 20. האם Sprint Pack 4ב סגור
+כן / לא
+
+## 21. השלב הבא
+אם נסגר:
+Sprint Pack 4ג - Delay / Reschedule Flow מלא:
+דחייה חכמה של משימה עם סיבה, זמן חדש, שמירה בטוחה, ולמידה מסודרת.

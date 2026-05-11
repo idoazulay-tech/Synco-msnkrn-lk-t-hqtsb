@@ -11,12 +11,7 @@ export interface LearningEventPayload {
     | 'schedule_applied'
     | 'task_updated'
     | 'task_started'
-    | 'task_execution_completed'
-    | 'task_report_submitted'
-    | 'task_start_blocker_logged'
-    | 'task_postponed'
-    | 'task_energy_check'
-    | 'task_breakdown_requested';
+    | 'task_execution_completed';
   source?: string;
   dateIso?: string;
   taskTitleSnapshot?: string;
