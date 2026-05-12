@@ -1,0 +1,252 @@
+תוספת חשובה ל-Sprint Pack 4ה:
+להרחיב את בדיקות ה-AI מתרחישים ספציפיים בלבד לתבניות כלליות של ניהול זמן.
+
+הבעיה:
+בדיקות כמו "רצף בוקר" או "אוטובוס ב-7:45" הן דוגמאות טובות, אבל הן לא מספיקות.
+סינקו צריך להבין תבניות כלליות, ולא רק דוגמאות ספציפיות.
+
+המטרה:
+לבנות ולבדוק את מוח סינקו לפי משפחות תבניות כלליות של ניהול זמן, כך שכל דוגמה תהיה מקרה פרטי של תבנית רחבה.
+
+אל תבנה פיצ׳רים חדשים.
+זה Sprint בדיקות, prompts, schemas, validators, mapping ו-documentation בלבד.
+לא לשנות DB.
+לא לשבור Trust QA.
+לא לאפשר ל-AI לשמור בלי אישור.
+
+צור מסמך חדש:
+
+docs/SYNCO_TIME_MANAGEMENT_PATTERNS.md
+
+המסמך צריך להגדיר את משפחות התבניות שסינקו צריך להבין:
+
+1. Time Structures
+כולל:
+- time window
+- hard anchor
+- soft anchor
+- deadline
+- no past scheduling
+- transition time
+- buffer
+- before/after
+- end of day
+- vague time
+
+2. Operational Sequences
+כולל:
+- morning routine
+- evening routine
+- leaving home
+- preparing for event
+- preparing for meeting
+- house workflow
+- deep work session
+- after-event followup
+- deadline backplanning
+- care routine
+
+3. Day Modification Commands
+כולל:
+- create task
+- update task
+- delete task
+- duplicate task
+- reschedule task
+- swap tasks
+- move range
+- replan day
+- cancel low priority tasks
+- insert urgent task
+- make recurring
+- partial repeat
+
+4. Task Types
+כולל:
+- quick task
+- deep work
+- home chore
+- errand
+- communication task
+- admin task
+- money task
+- health task
+- family task
+- pet care task
+- learning task
+- project task
+- form/document task
+- waiting task
+
+5. Dependencies
+כולל:
+- resource missing
+- person dependency
+- location dependency
+- file/document dependency
+- energy dependency
+- decision dependency
+- prerequisite task
+- external deadline
+
+6. User State Reports
+כולל:
+- low energy
+- unclear first step
+- task too big
+- resistance
+- avoidance
+- waiting on someone
+- wrong timing
+- unsure priority
+- ready to start
+- overwhelmed
+- interrupted by urgent task
+
+7. Goal and Consequence Patterns
+כולל:
+- task advances goal
+- task prevents mess later
+- task affects another person
+- task affects money
+- task affects work
+- task affects household
+- task affects health
+- task affects trust/responsibility
+- no clear consequence yet
+
+8. Recurrence Patterns
+כולל:
+- daily
+- weekdays
+- weekly
+- monthly
+- only morning tasks
+- only selected tasks
+- repeat same day
+- repeat time range
+- repeat until date
+- pause recurrence
+
+9. Ambiguity Patterns
+כולל:
+- "זה"
+- "אחר כך"
+- "בערב"
+- "כל הדברים"
+- "מה שלא חשוב"
+- "תסדר לי"
+- unclear target
+- multiple matching tasks
+- missing time
+- missing date
+
+10. Trust and Safety Patterns
+כולל:
+- preview before DB
+- no hard delete
+- no past scheduling
+- no invented memory
+- no emotional assumptions
+- no learningBoost from AI
+- no durationSuggestion from AI
+- assumptions displayed as assumptions
+- clarification when confidence is low
+
+עדכן את scripts/synco-ai-hebrew-tests כך שלא יבדוק רק 50 משפטים ספציפיים, אלא יבנה matrix:
+
+patternFamily
+patternName
+inputExample
+expectedIntent
+expectedSafetyRule
+expectedOutputShape
+
+לכל משפחת תבניות צריך לפחות 5 בדיקות.
+כלומר לפחות 50 בדיקות, אבל המחולקות לפי תבניות ולא רק לפי דוגמאות.
+
+דוגמאות:
+Operational Sequences:
+- רצף בוקר
+- רצף יציאה מהבית
+- רצף הכנה לפגישה
+- רצף סידור בית
+- רצף לפני דדליין
+
+Day Modification Commands:
+- הוספת משימה דחופה
+- הזזת טווח
+- מחיקה מסוכנת
+- שכפול למחר
+- חזרתיות חלקית
+
+Ambiguity:
+- "תזיז את זה"
+- "תעשה את הדברים החשובים קודם"
+- "תבטל את מה שלא חשוב"
+- "תעשה את זה כל יום"
+- "סדר לי את הערב"
+
+בכל בדיקה, מעבר ל-PASS/FAIL, הסקריפט צריך לציין:
+- איזו תבנית זוהתה
+- האם צריך clarification
+- האם יש preview בלבד
+- האם הייתה הנחה
+- האם הוצגה אזהרה
+- האם נמנע DB write
+- האם הפעולה דורשת אישור
+
+עדכן prompts כך שה-AI יחשוב במונחי תבניות:
+"סווג קודם את הקלט לפי patternFamily ו-patternName.
+אחר כך החזר intent/operations.
+אם יש עמימות, שאל שאלה.
+אל תנחש target לא ברור."
+
+הוסף ל-schema אם אפשר בלי לשבור:
+patternFamily?: string
+patternName?: string
+
+ל-DayCommandIntent:
+patternFamily יכול להיות:
+- time_structure
+- operational_sequence
+- day_modification
+- recurrence
+- ambiguity
+- safety_sensitive
+
+ל-ParsedPlanningIntent:
+patternFamily יכול להיות:
+- operational_sequence
+- task_list
+- deadline_backplanning
+- time_window
+- generic_planning
+
+ל-TaskReportAIAnalysis:
+patternFamily יכול להיות:
+- user_state_report
+- dependency
+- goal_consequence
+- ambiguity
+- task_execution_blocker
+
+חשוב:
+אם הוספת patternFamily/patternName מסכנת schema compatibility, הפוך אותם ל-optional עם default/catch.
+לא לשבור API קיים.
+
+פלט סופי בדוח 4ה חייב לכלול פרק חדש:
+
+## Pattern Coverage
+
+טבלה:
+patternFamily | numberOfTests | pass | fail | weakAreas
+
+וגם:
+
+## Synco Time Management Pattern Map
+סיכום קצר של משפחות התבניות שנוספו למסמך.
+
+מטרת 4ה:
+לא להוכיח שסינקו מבין רק "בוקר".
+להוכיח שסינקו מתחיל להבין מבנים כלליים של ניהול זמן.

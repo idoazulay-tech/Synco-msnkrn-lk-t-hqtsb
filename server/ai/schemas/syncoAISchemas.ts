@@ -1,5 +1,34 @@
 import { z } from 'zod';
 
+// ─── Pattern Family enums ──────────────────────────────────────────────────────
+// Optional, non-breaking additions for Sprint 4ה.
+// These fields are always optional with .catch() so partial AI output never crashes.
+
+const DayCommandPatternFamily = z.enum([
+  'time_structure',
+  'operational_sequence',
+  'day_modification',
+  'recurrence',
+  'ambiguity',
+  'safety_sensitive',
+]).catch('day_modification');
+
+const PlanningPatternFamily = z.enum([
+  'operational_sequence',
+  'task_list',
+  'deadline_backplanning',
+  'time_window',
+  'generic_planning',
+]).catch('generic_planning');
+
+const TaskReportPatternFamily = z.enum([
+  'user_state_report',
+  'dependency',
+  'goal_consequence',
+  'ambiguity',
+  'task_execution_blocker',
+]).catch('user_state_report');
+
 // ─── Parsed Planning Intent ───────────────────────────────────────────────────
 
 export const ParsedTaskSchema = z.object({
@@ -15,14 +44,17 @@ export const ParsedTaskSchema = z.object({
 });
 
 export const ParsedPlanningIntentSchema = z.object({
-  ok:           z.boolean().optional().default(true),
-  tasks:        z.array(ParsedTaskSchema),
-  scenarioType: z.string().optional(),
-  anchors:      z.array(z.string()).optional().default([]),
-  questions:    z.array(z.string()).optional().default([]),
-  assumptions:  z.array(z.string()).optional().default([]),
-  warnings:     z.array(z.string()).optional().default([]),
-  confidence:   z.enum(['low', 'medium', 'high']).optional().default('medium'),
+  ok:            z.boolean().optional().default(true),
+  tasks:         z.array(ParsedTaskSchema),
+  scenarioType:  z.string().optional(),
+  anchors:       z.array(z.string()).optional().default([]),
+  questions:     z.array(z.string()).optional().default([]),
+  assumptions:   z.array(z.string()).optional().default([]),
+  warnings:      z.array(z.string()).optional().default([]),
+  confidence:    z.enum(['low', 'medium', 'high']).optional().default('medium'),
+  // Sprint 4ה: pattern classification (optional, non-breaking)
+  patternFamily: PlanningPatternFamily.optional(),
+  patternName:   z.string().optional(),
 });
 
 // ─── Task Report AI Analysis ──────────────────────────────────────────────────
@@ -38,6 +70,9 @@ export const TaskReportAIAnalysisSchema = z.object({
   taskMeaning:          z.string().optional(),
   consequenceIfNotDone: z.string().optional(),
   assumptions:          z.array(z.string()).optional().default([]),
+  // Sprint 4ה: pattern classification (optional, non-breaking)
+  patternFamily:        TaskReportPatternFamily.optional(),
+  patternName:          z.string().optional(),
 });
 
 // ─── Task Breakdown ───────────────────────────────────────────────────────────
@@ -128,6 +163,9 @@ export const DayCommandIntentSchema = z.object({
   warnings:             z.array(z.string()).optional().default([]),
   confidence:           z.enum(['low', 'medium', 'high']).optional().default('medium'),
   requiresConfirmation: z.boolean().optional().default(true),
+  // Sprint 4ה: pattern classification (optional, non-breaking)
+  patternFamily:        DayCommandPatternFamily.optional(),
+  patternName:          z.string().optional(),
 });
 
 export type ParsedPlanningIntent  = z.infer<typeof ParsedPlanningIntentSchema>;
