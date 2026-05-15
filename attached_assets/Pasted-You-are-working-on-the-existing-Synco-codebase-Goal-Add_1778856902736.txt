@@ -1,0 +1,95 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Add the first isolated foundation file for Synco Brain Infrastructure.
+
+Important safety rules:
+- Do not modify any existing files.
+- Do not refactor.
+- Do not delete files.
+- Do not change database schema.
+- Do not change API behavior.
+- Do not connect this to the existing AI service yet.
+- Do not add routes yet.
+- Do not call this function from anywhere yet.
+- Only create one new file.
+
+Create this new file:
+
+server/ai/memory/syncoMemoryContext.ts
+
+Purpose:
+This file will later enrich AI prompts with relevant user memory, but for now it must be safe, isolated, and non-breaking.
+
+Requirements:
+
+1. Export a type named SyncoMemoryContextInput with:
+   - userId: string
+   - text: string
+   - patternFamily?: string
+   - patternName?: string
+   - maxMemories?: number
+
+2. Export a type named SyncoRetrievedMemory with:
+   - id: string
+   - source: string
+   - content: string
+   - score?: number
+   - createdAt?: string
+   - metadata?: Record<string, unknown>
+
+3. Export a type named SyncoMemoryContextResult with:
+   - ok: boolean
+   - originalText: string
+   - enrichedText: string
+   - memories: SyncoRetrievedMemory[]
+   - warnings: string[]
+   - source: 'memory_enriched' | 'memory_empty' | 'memory_disabled' | 'memory_error'
+
+4. Export an async function named enrichUserPromptWithMemory(input: SyncoMemoryContextInput): Promise<SyncoMemoryContextResult>
+
+5. For this first version:
+   - Do not connect to Qdrant yet.
+   - Do not import qdrant yet.
+   - Do not import external services yet.
+   - Implement a safe placeholder memory retrieval flow.
+   - Always return the original text unchanged when no memories are available.
+   - Include clear TODO comments for future Qdrant integration.
+   - Never throw from this function.
+   - Catch all errors and return source: 'memory_error' with original text unchanged.
+
+6. Add a helper function inside the same file:
+   buildMemoryContextBlock(memories: SyncoRetrievedMemory[]): string
+
+It should create a Hebrew context block like:
+
+[הקשר זיכרון רלוונטי של סינקו]
+1. ...
+2. ...
+[סוף הקשר זיכרון]
+
+If there are no memories, return an empty string.
+
+7. enrichUserPromptWithMemory should:
+   - Trim the input text safely
+   - If userId or text is missing, return ok:false with source:'memory_error'
+   - Use maxMemories default 5
+   - For now, use an empty memories array
+   - If memories are empty, return:
+     ok:true
+     originalText: text
+     enrichedText: text
+     memories: []
+     warnings: []
+     source: 'memory_empty'
+
+8. Add no tests yet.
+9. After creating the file, run:
+   npx tsc --noEmit
+
+Return:
+A. The new file path
+B. The full code created
+C. TypeScript check result
+D. Confirmation that no existing files were modified
+E. Next recommended step, but do not implement it
