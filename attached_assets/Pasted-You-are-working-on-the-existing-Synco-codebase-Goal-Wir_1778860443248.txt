@@ -1,0 +1,114 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Wire the isolated Synco Memory Context foundation to the existing Brain memory/Qdrant infrastructure, but do NOT connect it to the active AI reasoning pipeline yet.
+
+Important safety rules:
+- Do not modify prompts.
+- Do not modify schemas.
+- Do not modify validators.
+- Do not modify routes.
+- Do not modify DB schema.
+- Do not modify syncoAIReasoningService.ts yet.
+- Do not connect memory enrichment to parsePlanningInputWithAI or interpretDayCommandWithAI yet.
+- Do not create new endpoints.
+- Only modify the minimum required files:
+  1. server/ai/aiFeatureFlags.ts
+  2. server/ai/memory/syncoMemoryContext.ts
+  3. scripts/test-synco-memory-context.ts
+
+Context from inspection:
+- Qdrant infrastructure already exists.
+- Brain memory service already exists at server/brain/services/memory.ts.
+- Use searchMemory from server/brain/services/memory.ts.
+- Existing Qdrant collections include:
+  user_events
+  user_insights
+  user_profile
+  synco_knowledge
+- externalKnowledgeEnabled is currently hardcoded false and must become env-driven.
+
+Step 1:
+Modify server/ai/aiFeatureFlags.ts.
+
+Change externalKnowledgeEnabled from hardcoded false to:
+
+externalKnowledgeEnabled: process.env.SYNCO_EXTERNAL_KNOWLEDGE_ENABLED === 'true'
+
+Make sure TypeScript treats it as a boolean, not as literal false.
+Do not break the existing AI_FEATURES object.
+Do not change the behavior of any other flags.
+
+Step 2:
+Modify server/ai/memory/syncoMemoryContext.ts.
+
+Add imports:
+- searchMemory from ../../brain/services/memory.js
+- AI_FEATURES from ../aiFeatureFlags.js
+
+Inside enrichUserPromptWithMemory():
+
+1. Safely trim userId and text.
+2. If userId or text is missing, keep the existing error behavior.
+3. If AI_FEATURES.externalKnowledgeEnabled is false:
+   return:
+   ok: true
+   originalText: text
+   enrichedText: text
+   memories: []
+   warnings: []
+   source: 'memory_disabled'
+
+4. If externalKnowledgeEnabled is true:
+   call searchMemory in parallel:
+
+   searchMemory(text, userId, 'events', maxMemories, 0.72)
+   searchMemory(text, userId, 'insights', 3, 0.72)
+
+5. Map returned memory results into SyncoRetrievedMemory[]:
+   - id: result.id
+   - source: collection/source name
+   - content: best available text/content field from payload
+   - score: result.score
+   - createdAt: timestamp/createdAt if available
+   - metadata: original payload or useful safe object
+
+6. Deduplicate memories by id and content.
+7. If no memories are found:
+   return source: 'memory_empty' and keep enrichedText === originalText.
+8. If memories are found:
+   build the Hebrew memory context block using buildMemoryContextBlock(memories)
+   prepend it to the original text
+   return source: 'memory_enriched'
+
+9. Never throw from enrichUserPromptWithMemory.
+10. On any error, return source:'memory_error' and keep enrichedText === originalText.
+
+Step 3:
+Update scripts/test-synco-memory-context.ts.
+
+Keep the existing tests, but update the valid placeholder test:
+
+Because externalKnowledgeEnabled is now expected to be off by default unless env is set, valid input should expect:
+
+source === "memory_disabled"
+ok === true
+enrichedText === originalText
+memories.length === 0
+
+Add a note/comment in the test that real Qdrant enrichment is not tested here because it depends on env vars and stored memories.
+
+Step 4:
+Run:
+
+npx tsx scripts/test-synco-memory-context.ts
+npx tsc --noEmit
+
+Return:
+A. Files modified
+B. Exact changes made
+C. Test result
+D. TypeScript result
+E. Confirmation that syncoAIReasoningService.ts was not modified
+F. Confirmation that memory enrichment is still not connected to the active AI pipeline
+G. Next recommended step, but do not implement it

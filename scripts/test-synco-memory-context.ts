@@ -2,13 +2,19 @@
 /**
  * Synco Brain — Memory Context Foundation Tests
  * ──────────────────────────────────────────────
- * Tests the isolated placeholder implementation in:
+ * Tests the wired implementation in:
  *   server/ai/memory/syncoMemoryContext.ts
  *
  * No test framework. No Vitest. No Jest.
  * Run with: npx tsx scripts/test-synco-memory-context.ts
  *
- * Safety: reads only from the memory context file — no DB, no AI, no Qdrant.
+ * NOTE: Real Qdrant enrichment (source='memory_enriched') is NOT tested here.
+ * That path requires:
+ *   - SYNCO_EXTERNAL_KNOWLEDGE_ENABLED=true
+ *   - QDRANT_URL + QDRANT_API_KEY env secrets
+ *   - Data already stored for the test userId
+ * All tests here run without env vars set, so externalKnowledgeEnabled === false,
+ * and the expected source for valid input is 'memory_disabled'.
  */
 
 import {
@@ -102,9 +108,14 @@ assert(
   `got: ${JSON.stringify(block)}`,
 );
 
-// ─── Test 3: Valid input, no real memories yet ─────────────────────────────────
+// ─── Test 3: Valid input — feature flag is OFF (default) ──────────────────────
+//
+// IMPORTANT: Because SYNCO_EXTERNAL_KNOWLEDGE_ENABLED is not set in this test
+// environment, externalKnowledgeEnabled === false.
+// The expected source is 'memory_disabled', NOT 'memory_empty'.
+// Real Qdrant enrichment is not exercised in this test suite.
 
-section('Test 3: enrichUserPromptWithMemory — valid input, placeholder (no Qdrant)');
+section('Test 3: enrichUserPromptWithMemory — valid input, flag OFF (memory_disabled)');
 
 const INPUT_TEXT = 'מחר אני צריך לסדר את היום שלי';
 
@@ -115,12 +126,12 @@ const result3 = await enrichUserPromptWithMemory({
   maxMemories:   5,
 });
 
-assert('ok === true',              result3.ok === true,                          `got: ${result3.ok}`);
-assert('source === memory_empty',  result3.source === 'memory_empty',            `got: ${result3.source}`);
-assert('originalText is input',    result3.originalText === INPUT_TEXT,          `got: ${result3.originalText}`);
-assert('enrichedText === original',result3.enrichedText === INPUT_TEXT,          `got: ${result3.enrichedText}`);
-assert('memories is empty array',  result3.memories.length === 0,               `got length: ${result3.memories.length}`);
-assert('warnings is empty array',  result3.warnings.length === 0,               `got: ${JSON.stringify(result3.warnings)}`);
+assert('ok === true',                 result3.ok === true,                `got: ${result3.ok}`);
+assert('source === memory_disabled',  result3.source === 'memory_disabled', `got: ${result3.source}`);
+assert('originalText is input',       result3.originalText === INPUT_TEXT,  `got: ${result3.originalText}`);
+assert('enrichedText === original',   result3.enrichedText === INPUT_TEXT,  `got: ${result3.enrichedText}`);
+assert('memories is empty array',     result3.memories.length === 0,        `got length: ${result3.memories.length}`);
+assert('warnings is empty array',     result3.warnings.length === 0,        `got: ${JSON.stringify(result3.warnings)}`);
 
 // ─── Test 4: Missing userId ────────────────────────────────────────────────────
 
@@ -148,10 +159,10 @@ const result5 = await enrichUserPromptWithMemory({
   text:   '',
 });
 
-assert('ok === false',              result5.ok === false,              `got: ${result5.ok}`);
-assert('source === memory_error',   result5.source === 'memory_error', `got: ${result5.source}`);
-assert('enrichedText is empty string', result5.enrichedText === '',    `got: ${JSON.stringify(result5.enrichedText)}`);
-assert('warnings is non-empty',        result5.warnings.length > 0,   `got: ${JSON.stringify(result5.warnings)}`);
+assert('ok === false',                 result5.ok === false,              `got: ${result5.ok}`);
+assert('source === memory_error',      result5.source === 'memory_error', `got: ${result5.source}`);
+assert('enrichedText is empty string', result5.enrichedText === '',        `got: ${JSON.stringify(result5.enrichedText)}`);
+assert('warnings is non-empty',        result5.warnings.length > 0,       `got: ${JSON.stringify(result5.warnings)}`);
 
 // ─── Summary ───────────────────────────────────────────────────────────────────
 
@@ -164,4 +175,6 @@ if (failed > 0) {
   throw new Error(`${failed} test(s) failed.`);
 }
 
-console.log('All tests passed. Memory context foundation is safe and isolated.\n');
+console.log('All tests passed.\n');
+console.log('Note: source=memory_disabled is expected — SYNCO_EXTERNAL_KNOWLEDGE_ENABLED is not set.');
+console.log('To test real Qdrant enrichment, set the env var and ensure data is stored for the test userId.\n');
