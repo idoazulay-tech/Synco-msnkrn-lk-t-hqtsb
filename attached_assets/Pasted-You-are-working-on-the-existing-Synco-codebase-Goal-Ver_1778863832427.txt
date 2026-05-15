@@ -1,0 +1,62 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Verify whether Synco Brain Memory has real stored data for default-user before we expand integration further.
+
+Important safety rules:
+- Do not modify any files.
+- Do not create files.
+- Do not refactor.
+- Do not change DB schema.
+- Do not change routes.
+- Do not connect memory to any additional AI functions.
+- Do not modify prompts, schemas, validators, or frontend files.
+- Only inspect and run safe read-only checks.
+
+Current state:
+- enrichUserPromptWithMemory is connected only to parsePlanningInputWithAI.
+- SYNCO_EXTERNAL_KNOWLEDGE_ENABLED controls whether memory enrichment runs.
+- Qdrant client initializes successfully.
+- userId currently used by parsePlanningInputWithAI is temporarily 'default-user'.
+
+Tasks:
+
+1. Check whether SYNCO_EXTERNAL_KNOWLEDGE_ENABLED is currently set in the Replit environment.
+   - Do not print secret values.
+   - Only report whether it is present and whether it equals "true".
+
+2. Check whether QDRANT_URL and QDRANT_API_KEY are present.
+   - Do not print secret values.
+   - Only report present/missing.
+
+3. Inspect the existing memory debug route:
+   server/routes/memory-debug.ts
+
+4. Inspect the existing brain memory service:
+   server/brain/services/memory.ts
+
+5. Determine the safest way to check if Qdrant contains memories for:
+   userId: "default-user"
+
+Collections to check:
+- user_events
+- user_insights
+
+6. If there is already a safe debug endpoint for read-only memory search, explain exactly how to call it with curl.
+
+7. If there is no safe endpoint for checking memory count/search, recommend the smallest safe next step, but do not implement it.
+
+8. Do not seed memory yet.
+9. Do not write data yet.
+10. Do not call storeUserMessage yet.
+
+Return:
+
+A. Environment flag status, without revealing secret values
+B. Qdrant secret status, without revealing secret values
+C. Existing memory debug route summary
+D. Existing memory service summary
+E. Whether user_events/user_insights likely contain data for default-user
+F. Exact safe curl commands for read-only checking, if available
+G. If no safe read-only check exists, recommended next step
+H. Confirmation that no files were modified
