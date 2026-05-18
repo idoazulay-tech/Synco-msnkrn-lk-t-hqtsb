@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 
+// ─── Chat client (uses AI Integrations proxy) ─────────────────────────────────
+
 let _client: OpenAI | null = null;
-let _usingFallbackEmbeddings = false;
 
 export function getOpenAIClient(): OpenAI {
   if (!_client) {
@@ -17,9 +18,42 @@ export function getOpenAIClient(): OpenAI {
   return _client;
 }
 
+// ─── Embedding client (prefers direct OPENAI_API_KEY, no proxy) ───────────────
+// Replit AI Integrations proxy does not support /v1/embeddings.
+// When OPENAI_API_KEY is present, use it directly with no baseURL.
+// Falls back to AI_INTEGRATIONS_OPENAI_API_KEY if OPENAI_API_KEY is absent.
+
+let _embeddingClient: OpenAI | null = null;
+
+function getEmbeddingClient(): OpenAI {
+  if (!_embeddingClient) {
+    const directKey  = process.env.OPENAI_API_KEY;
+    const proxyKey   = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+    const apiKey     = directKey || proxyKey;
+
+    if (!apiKey) {
+      throw new Error("No OpenAI API key available for embeddings (OPENAI_API_KEY or AI_INTEGRATIONS_OPENAI_API_KEY required)");
+    }
+
+    // Use direct key without any base URL override so the request goes to
+    // api.openai.com/v1/embeddings — not through the Replit proxy.
+    _embeddingClient = new OpenAI({ apiKey });
+
+    const source = directKey ? "OPENAI_API_KEY (direct)" : "AI_INTEGRATIONS_OPENAI_API_KEY (proxy)";
+    console.log(`[Brain] Embedding client initialized using ${source}`);
+  }
+  return _embeddingClient;
+}
+
+// ─── Fallback flag ────────────────────────────────────────────────────────────
+
+let _usingFallbackEmbeddings = false;
+
 export function isUsingFallbackEmbeddings(): boolean {
   return _usingFallbackEmbeddings;
 }
+
+// ─── Chat completion (unchanged) ──────────────────────────────────────────────
 
 export async function chatCompletion(
   systemPrompt: string,
@@ -42,35 +76,42 @@ export async function chatCompletion(
   return response.choices[0]?.message?.content ?? "";
 }
 
+// ─── Embedding generation (uses direct OpenAI key) ────────────────────────────
+
 export async function generateEmbedding(text: string): Promise<{ vector: number[]; isFallback: boolean }> {
   if (_usingFallbackEmbeddings) {
     return { vector: generateFallbackEmbedding(text), isFallback: true };
   }
 
-  const client = getOpenAIClient();
-
   try {
+    const client = getEmbeddingClient();
+
     const response = await client.embeddings.create({
       model: "text-embedding-3-small",
       input: text,
     });
+
     return { vector: response.data[0].embedding, isFallback: false };
+
   } catch (error: any) {
-    const isUnsupported = error?.status === 404 ||
+    const isUnsupported =
+      error?.status === 404 ||
       error?.status === 400 ||
       error?.message?.includes("not supported") ||
       error?.message?.includes("not found");
 
     if (isUnsupported) {
-      console.warn("Embeddings API not available via AI Integrations, switching to fallback permanently");
+      console.warn("[Brain] Embeddings API not available, switching to fallback permanently");
       _usingFallbackEmbeddings = true;
       return { vector: generateFallbackEmbedding(text), isFallback: true };
     }
 
-    console.error("Embedding generation failed with unexpected error, using fallback:", error?.message);
+    console.error("[Brain] Embedding generation failed, using fallback:", error?.message);
     return { vector: generateFallbackEmbedding(text), isFallback: true };
   }
 }
+
+// ─── Deterministic fallback embedding (safety net only) ───────────────────────
 
 function generateFallbackEmbedding(text: string): number[] {
   const dim = 1536;
