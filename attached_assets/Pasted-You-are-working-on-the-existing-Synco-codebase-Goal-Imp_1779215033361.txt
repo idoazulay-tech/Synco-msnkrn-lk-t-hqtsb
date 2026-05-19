@@ -1,0 +1,127 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Implement Synco Memory Confidence Policy so low-score memories do not become false context, while still allowing early-stage Synco to ask better questions when memory is sparse.
+
+Current status:
+- Qdrant works.
+- Real OpenAI embeddings work.
+- isFallback is false.
+- A real memory was seeded for default-user.
+- Relevant Hebrew memory search returns best score around 0.3749.
+- Current score threshold 0.72 is too strict for early MVP.
+- But weak memories must NOT be treated as confirmed facts.
+
+Product principle:
+At the beginning, Synco has little or no memory. It is legitimate that Synco asks more clarifying questions while learning the user’s life, habits, routines, and intentions.
+Synco must not connect memories to the current situation as fact unless confidence is strong.
+Wrong memory links create frustration and loss of trust.
+
+Important safety rules:
+- Modify only server/ai/memory/syncoMemoryContext.ts
+- Do not modify syncoAIReasoningService.ts
+- Do not modify prompts
+- Do not modify schemas
+- Do not modify validators
+- Do not modify routes
+- Do not modify frontend
+- Do not connect memory to additional AI functions
+- Do not change DB schema
+- Do not expose private memory content in API responses
+- Keep the change minimal and reversible
+
+Task:
+Replace the single hardcoded threshold behavior with a confidence-tier policy.
+
+Implement these levels:
+
+1. ignore
+score < 0.35
+Do not use the memory.
+
+2. weak_signal
+score >= 0.35 and score < 0.50
+Use only as a signal to ask a clarifying question.
+Do not present it as a fact about the user.
+
+3. suggested_context
+score >= 0.50 and score < 0.70
+Use as a possible connection.
+The assistant may say "יכול להיות שזה קשור ל..." and ask for confirmation.
+
+4. active_context
+score >= 0.70
+Use as active context.
+Still do not perform high-impact actions without user confirmation.
+
+Implementation requirements:
+
+1. Add a helper:
+getMemoryConfidenceLevel(score: number):
+  'ignore' | 'weak_signal' | 'suggested_context' | 'active_context'
+
+2. Search Qdrant with a retrieval threshold of 0.35.
+This is a development threshold for Hebrew MVP memory testing.
+Add a clear comment that this should be tuned later based on real user data quality.
+
+3. Ignore memories below 0.35.
+
+4. Assign confidenceLevel internally for each retrieved memory.
+
+5. If the best retrieved memory is weak_signal:
+Add a cautious Hebrew block to enrichedText:
+
+[אות זיכרון חלש לבדיקה בלבד]
+נמצא זיכרון שאולי קשור לקלט הנוכחי, אך רמת הביטחון נמוכה.
+אין להציג זאת כעובדה על המשתמש.
+מותר להשתמש בזה רק כדי לשאול שאלת הבהרה קצרה.
+[סוף אות זיכרון חלש]
+
+6. If the best retrieved memory is suggested_context:
+Add a cautious Hebrew block:
+
+[הקשר אפשרי לבדיקה]
+נמצא זיכרון שעשוי להיות קשור לקלט הנוכחי.
+אין להציג זאת כעובדה מוחלטת.
+אפשר להציע קשר בזהירות ולבקש אישור מהמשתמש.
+[סוף הקשר אפשרי]
+
+7. If the best retrieved memory is active_context:
+Use the existing regular memory context block:
+[הקשר זיכרון רלוונטי של סינקו]
+
+8. Keep source as:
+- memory_empty when no memories are above 0.35
+- memory_enriched when any memory block is added
+
+9. Do not change the public return shape unless absolutely necessary.
+If you need internal metadata for confidence level, keep it internal to this module.
+
+10. Do not log full private memory content.
+
+After the change, run:
+npx tsc --noEmit
+npx tsx scripts/test-synco-memory-context.ts
+
+Then run a direct diagnostic:
+enrichUserPromptWithMemory({
+  userId: "default-user",
+  text: "אני צריך לסדר את היום שלי ויש לי הרבה דברים פתוחים",
+  patternFamily: "generic_planning",
+  maxMemories: 5
+})
+
+Report:
+A. File modified
+B. Exact confidence-tier policy implemented
+C. TypeScript result
+D. Memory test result
+E. Direct diagnostic:
+   - source
+   - memories.length
+   - best score
+   - confidence level
+   - whether enrichedText includes weak/suggested/active memory block
+F. Confirmation that no other AI functions were connected
+G. Confirmation that no routes or response shapes changed
+H. Next recommended step, but do not implement it

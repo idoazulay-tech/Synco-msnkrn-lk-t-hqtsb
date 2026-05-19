@@ -8,6 +8,12 @@
 //   Guarded behind AI_FEATURES.externalKnowledgeEnabled.
 //   Set env var SYNCO_EXTERNAL_KNOWLEDGE_ENABLED=true to activate.
 //
+// Confidence-tier policy (v2):
+//   Memories are retrieved with a low threshold (0.35) to capture early Hebrew
+//   MVP signals. Each memory is assigned a confidence level before being used.
+//   Only memories with sufficient confidence are exposed to the AI — and even
+//   then, weak memories are wrapped in cautious blocks to prevent false facts.
+//
 // Integration point (future):
 //   In syncoAIReasoningService.ts, before each provider.generateStructured() call:
 //   const enriched = await enrichUserPromptWithMemory({ userId, text: userPrompt, patternFamily });
@@ -49,31 +55,80 @@ export interface SyncoMemoryContextResult {
   source: 'memory_enriched' | 'memory_empty' | 'memory_disabled' | 'memory_error';
 }
 
-// ─── buildMemoryContextBlock ──────────────────────────────────────────────────
-// Creates a Hebrew-language context block to be prepended to the user prompt.
-// Returns an empty string when there are no memories — safe to concatenate.
+// ─── Confidence tiers ─────────────────────────────────────────────────────────
 //
-// Output format example:
+//  ignore           score < 0.35   — too weak, discard entirely
+//  weak_signal      0.35 – <0.50   — may prompt a clarifying question only
+//  suggested_context 0.50 – <0.70  — possible connection, ask for confirmation
+//  active_context   >= 0.70        — use as active context
 //
-//   [הקשר זיכרון רלוונטי של סינקו]
-//   1. המשתמש בדרך כלל מתחיל את שגרת הבוקר ב-7:00.
-//   2. פגישה עם לקוח בדרך כלל נמשכת שעה וחצי.
-//   [סוף הקשר זיכרון]
+export type MemoryConfidenceLevel =
+  | 'ignore'
+  | 'weak_signal'
+  | 'suggested_context'
+  | 'active_context';
 
-export function buildMemoryContextBlock(memories: SyncoRetrievedMemory[]): string {
+export function getMemoryConfidenceLevel(score: number): MemoryConfidenceLevel {
+  if (score >= 0.70) return 'active_context';
+  if (score >= 0.50) return 'suggested_context';
+  if (score >= 0.35) return 'weak_signal';
+  return 'ignore';
+}
+
+// ─── buildMemoryContextBlock ──────────────────────────────────────────────────
+// Creates a Hebrew-language context block appropriate to the confidence level.
+// bestScore drives which block variant is emitted.
+// Returns an empty string when there are no memories — safe to concatenate.
+
+export function buildMemoryContextBlock(
+  memories: SyncoRetrievedMemory[],
+  bestScore?: number
+): string {
   if (memories.length === 0) return '';
+
+  const level = bestScore !== undefined
+    ? getMemoryConfidenceLevel(bestScore)
+    : 'active_context';
 
   const lines = memories
     .map((m, idx) => `${idx + 1}. ${m.content.trim()}`)
     .join('\n');
 
+  if (level === 'weak_signal') {
+    return (
+      '[אות זיכרון חלש לבדיקה בלבד]\n' +
+      'נמצא זיכרון שאולי קשור לקלט הנוכחי, אך רמת הביטחון נמוכה.\n' +
+      'אין להציג זאת כעובדה על המשתמש.\n' +
+      'מותר להשתמש בזה רק כדי לשאול שאלת הבהרה קצרה.\n' +
+      `${lines}\n` +
+      '[סוף אות זיכרון חלש]'
+    );
+  }
+
+  if (level === 'suggested_context') {
+    return (
+      '[הקשר אפשרי לבדיקה]\n' +
+      'נמצא זיכרון שעשוי להיות קשור לקלט הנוכחי.\n' +
+      'אין להציג זאת כעובדה מוחלטת.\n' +
+      'אפשר להציע קשר בזהירות ולבקש אישור מהמשתמש.\n' +
+      `${lines}\n` +
+      '[סוף הקשר אפשרי]'
+    );
+  }
+
+  // active_context
   return `[הקשר זיכרון רלוונטי של סינקו]\n${lines}\n[סוף הקשר זיכרון]`;
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 const DEFAULT_MAX_MEMORIES = 5;
-const SCORE_THRESHOLD      = 0.72;
+
+// Retrieval threshold: 0.35 is deliberately low for early Hebrew MVP testing.
+// Hebrew embeddings via text-embedding-3-small produce lower cosine scores than
+// English. This threshold captures early signals for clarifying-question use.
+// TODO: tune upward (towards 0.55–0.65) once a real user corpus is collected.
+const RETRIEVAL_THRESHOLD = 0.35;
 
 function extractContent(payload: Record<string, unknown>): string {
   if (typeof payload.text        === 'string' && payload.text)        return payload.text;
@@ -114,6 +169,13 @@ function deduplicateMemories(memories: SyncoRetrievedMemory[]): SyncoRetrievedMe
 // - If userId or text is missing, returns ok:false immediately.
 // - If externalKnowledgeEnabled is false, returns source='memory_disabled' (ok:true).
 // - All errors are caught and surfaced as warnings, not exceptions.
+//
+// CONFIDENCE CONTRACT:
+// - Memories below RETRIEVAL_THRESHOLD (0.35) are discarded at the Qdrant layer.
+// - Memories between 0.35–0.50 get a cautious weak-signal block.
+// - Memories between 0.50–0.70 get a suggested-context block.
+// - Only memories ≥ 0.70 are treated as active context.
+// - In all cases, AI must not use memory as confirmed fact without user confirmation.
 
 export async function enrichUserPromptWithMemory(
   input: SyncoMemoryContextInput
@@ -151,10 +213,10 @@ export async function enrichUserPromptWithMemory(
     : DEFAULT_MAX_MEMORIES;
 
   try {
-    // ── Retrieve from Qdrant in parallel ─────────────────────────────────────
+    // ── Retrieve from Qdrant using low retrieval threshold ────────────────────
     const [eventResults, insightResults] = await Promise.all([
-      searchMemory(text, userId, 'events',   maxMemories, SCORE_THRESHOLD),
-      searchMemory(text, userId, 'insights', 3,           SCORE_THRESHOLD),
+      searchMemory(text, userId, 'events',   maxMemories, RETRIEVAL_THRESHOLD),
+      searchMemory(text, userId, 'insights', 3,           RETRIEVAL_THRESHOLD),
     ]);
 
     // ── Map to SyncoRetrievedMemory[] ─────────────────────────────────────────
@@ -183,7 +245,7 @@ export async function enrichUserPromptWithMemory(
     // ── Deduplicate by id and content ─────────────────────────────────────────
     const memories = deduplicateMemories(withContent);
 
-    // ── No memories found ─────────────────────────────────────────────────────
+    // ── No memories found above retrieval threshold ───────────────────────────
     if (memories.length === 0) {
       return {
         ok:           true,
@@ -195,8 +257,24 @@ export async function enrichUserPromptWithMemory(
       };
     }
 
-    // ── Build enriched prompt ─────────────────────────────────────────────────
-    const contextBlock = buildMemoryContextBlock(memories);
+    // ── Determine best confidence level (highest score wins) ──────────────────
+    const bestScore = Math.max(...memories.map(m => m.score ?? 0));
+    const bestLevel = getMemoryConfidenceLevel(bestScore);
+
+    // Discard memories below ignore threshold (belt-and-suspenders)
+    if (bestLevel === 'ignore') {
+      return {
+        ok:           true,
+        originalText: text,
+        enrichedText: text,
+        memories:     [],
+        warnings:     [],
+        source:       'memory_empty',
+      };
+    }
+
+    // ── Build confidence-appropriate context block ────────────────────────────
+    const contextBlock = buildMemoryContextBlock(memories, bestScore);
     const enrichedText = contextBlock ? `${contextBlock}\n\n${text}` : text;
 
     return {
