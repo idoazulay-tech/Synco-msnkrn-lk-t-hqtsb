@@ -6,6 +6,50 @@ import { prisma } from '../lib/prisma.js';
 import { buildDailyLearningSummary } from '../services/learningSummaryService.js';
 import { buildPlanningLearningContext } from '../services/planningLearningContextService.js';
 import { buildDurationSuggestionContext } from '../services/durationIntelligenceService.js';
+import { storeUserMessage } from '../brain/services/memory.js';
+
+// ─── Synco Brain Memory ingestion helpers ────────────────────────────────────
+// Only high-value, low-noise event types are mirrored to Qdrant.
+// task_rescheduled, task_deleted, etc. are intentionally excluded to avoid
+// noisy or misleading memory context.
+
+function shouldIngestLearningEvent(eventType: string): boolean {
+  return (
+    eventType === 'task_created' ||
+    eventType === 'task_completed' ||
+    eventType === 'task_execution_completed'
+  );
+}
+
+function buildMemoryTextFromLearningEvent(event: {
+  eventType: string;
+  taskTitleSnapshot: string | null;
+  metadata?: Record<string, unknown> | null;
+}): string {
+  const title = event.taskTitleSnapshot?.trim();
+  if (!title) return '';
+
+  if (event.eventType === 'task_created') {
+    return `המשתמש יצר משימה חדשה: ${title}. זה עשוי להעיד על כוונה או צורך לתכנן פעולה.`;
+  }
+
+  if (event.eventType === 'task_completed') {
+    return `המשתמש השלים משימה: ${title}. זהו סימן ביצוע בפועל.`;
+  }
+
+  if (event.eventType === 'task_execution_completed') {
+    const meta   = event.metadata ?? {};
+    const planned = typeof meta.plannedDurationMinutes === 'number'
+      ? `${meta.plannedDurationMinutes}`
+      : 'לא ידוע';
+    const actual  = typeof meta.actualDurationMinutes === 'number'
+      ? `${meta.actualDurationMinutes}`
+      : 'לא ידוע';
+    return `המשתמש סיים ביצוע של משימה: ${title}. משך מתוכנן: ${planned} דקות. משך בפועל: ${actual} דקות.`;
+  }
+
+  return '';
+}
 
 const router = Router();
 
@@ -244,6 +288,34 @@ router.post('/events', async (req: Request, res: Response) => {
         metadata:          metadata          ?? null,
       },
     });
+
+    // ── Fire-and-forget: mirror high-value events into Qdrant ─────────────────
+    // Runs after response is sent; never blocks or changes the API response.
+    // Failures are logged as warnings only — Postgres save is already committed.
+    if (shouldIngestLearningEvent(event.eventType)) {
+      const memoryText = buildMemoryTextFromLearningEvent({
+        eventType:         event.eventType,
+        taskTitleSnapshot: event.taskTitleSnapshot,
+        metadata:          event.metadata as Record<string, unknown> | null,
+      });
+      if (memoryText) {
+        void storeUserMessage(event.userId, memoryText, {
+          type:            event.eventType,
+          source:          'learning_event',
+          taskId:          event.taskId   ?? undefined,
+          learningEventId: event.id,
+          dateIso:         event.dateIso  ?? undefined,
+          status:          'active',
+          importance:      event.eventType === 'task_completed' ? 'high' : 'medium',
+        }).catch((err: unknown) => {
+          console.warn('[SyncoMemory] Failed to mirror learning event to Qdrant', {
+            eventType: event.eventType,
+            eventId:   event.id,
+            message:   err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    }
 
     res.json({
       ok: true,

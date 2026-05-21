@@ -1,0 +1,130 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Add the first organic Synco Brain Memory ingestion hook from real learning events into Qdrant.
+
+Current status:
+- Qdrant works.
+- Real OpenAI embeddings work.
+- Synco Memory Confidence Policy works.
+- parsePlanningInputWithAI is connected to memory.
+- interpretDayCommandWithAI is connected to memory.
+- Learning events are already saved to Postgres through server/routes/learning.ts.
+- Learning events are NOT yet mirrored into Qdrant.
+- We want to start with only high-value, low-noise events.
+
+Important product principle:
+Synco memory must be built from meaningful real user activity, not noise.
+Wrong or noisy memories create bad context and reduce trust.
+
+Important safety rules:
+- Modify only server/routes/learning.ts
+- Do not modify frontend files.
+- Do not modify DB schema.
+- Do not modify AI services.
+- Do not modify prompts.
+- Do not modify schemas.
+- Do not modify validators.
+- Do not modify memory confidence policy.
+- Do not modify routes except server/routes/learning.ts.
+- Do not change response shape.
+- Do not make Qdrant write block the API response.
+- If Qdrant write fails, POST /api/learning/events must still succeed if Postgres save succeeded.
+- Do not ingest all event types.
+- Keep the change minimal and reversible.
+
+Task:
+Inside server/routes/learning.ts, after prisma.learningEvent.create() succeeds, add a fire-and-forget Qdrant memory write for only these event types:
+
+- task_created
+- task_completed
+- task_execution_completed
+
+Use the existing Brain memory service:
+storeUserMessage(userId, memoryText, metadata)
+
+Do not use storeEvent yet unless storeUserMessage is clearly unsuitable.
+
+Implementation requirements:
+
+1. Import storeUserMessage from the existing server/brain/services/memory.ts path.
+
+2. Add a small local helper function in server/routes/learning.ts:
+
+shouldIngestLearningEvent(eventType: string): boolean
+
+Return true only for:
+task_created
+task_completed
+task_execution_completed
+
+3. Add a small local helper function:
+
+buildMemoryTextFromLearningEvent(event): string
+
+It should build a clear Hebrew memory sentence from available event fields.
+
+Examples:
+
+For task_created:
+"המשתמש יצר משימה חדשה: {taskTitleSnapshot}. זה עשוי להעיד על כוונה או צורך לתכנן פעולה."
+
+For task_completed:
+"המשתמש השלים משימה: {taskTitleSnapshot}. זהו סימן ביצוע בפועל."
+
+For task_execution_completed:
+"המשתמש סיים ביצוע של משימה: {taskTitleSnapshot}. משך מתוכנן: {plannedDurationMinutes} דקות. משך בפועל: {actualDurationMinutes} דקות."
+
+Rules:
+- If taskTitleSnapshot is missing, do not ingest.
+- Keep the text factual.
+- Do not infer emotions.
+- Do not infer habits yet.
+- Do not say "always" or "usually".
+- Do not create psychological conclusions.
+- Use only fields that exist on the event/payload.
+
+4. After the Postgres event is created:
+if shouldIngestLearningEvent(event.eventType) and memoryText is non-empty:
+  void storeUserMessage(event.userId, memoryText, {
+    type: event.eventType,
+    source: 'learning_event',
+    taskId: event.taskId,
+    learningEventId: event.id,
+    dateIso: event.dateIso,
+    status: 'active',
+    importance: event.eventType === 'task_completed' ? 'high' : 'medium'
+  }).catch((error) => {
+    console.warn('[SyncoMemory] Failed to mirror learning event to Qdrant', {
+      eventType: event.eventType,
+      eventId: event.id,
+      message: error instanceof Error ? error.message : String(error)
+    });
+  });
+
+5. Do not await the Qdrant write.
+6. Do not include the Qdrant result in the API response.
+7. Do not print private memory content in logs.
+8. Keep existing API response exactly the same.
+
+After the change, run:
+npx tsc --noEmit
+npx tsx scripts/test-synco-memory-context.ts
+
+Then run a safe diagnostic:
+- Create or simulate one task_created learning event through the existing route if there is an existing safe way to do it.
+- If not, explain exactly how to test manually with curl.
+- After event creation, query Qdrant using the existing memory debug route for default-user and the task title.
+- Confirm whether a memory was retrievable.
+
+Return:
+A. File modified
+B. Exact code changes made
+C. Which event types are ingested
+D. Which event types are intentionally skipped
+E. TypeScript result
+F. Memory test result
+G. Manual or automatic ingestion diagnostic result
+H. Confirmation that response shape did not change
+I. Confirmation that Qdrant failures do not block Postgres save
+J. Next recommended step, but do not implement it
