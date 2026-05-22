@@ -69,7 +69,7 @@ interface TaskState {
   addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'history'>) => Task;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
-  completeTask: (id: string, completed: boolean, confirmedDurationMinutes?: number | null) => void;
+  completeTask: (id: string, completed: boolean) => void;
   startTaskExecution: (taskId: string) => void;
   moveToStandby: (id: string, notes: string) => void;
   scheduleStandbyTask: (id: string, startTime: Date, endTime: Date) => void;
@@ -243,7 +243,7 @@ export const useTaskStore = create<TaskState>()(
         }
       },
 
-      completeTask: (id, completed, confirmedDurationMinutes?) => {
+      completeTask: (id, completed) => {
         const resolvedId = id.includes('_occ_') ? getMasterTaskId(id) : id;
         const task = get().tasks.find((t) => t.id === resolvedId);
         if (!task) return;
@@ -273,7 +273,7 @@ export const useTaskStore = create<TaskState>()(
 
         // learning event — fire-and-forget
         if (completed) {
-          const now    = new Date();
+          const now = new Date();
           const nowIso = now.toISOString();
           const dateIso = nowIso.split('T')[0];
 
@@ -293,73 +293,9 @@ export const useTaskStore = create<TaskState>()(
             },
           });
 
-          const plannedDurationMinutes = task.duration ?? null;
-
-          // ── Branch A & B: confirmedDurationMinutes provided by user via duration capture UI ──
-          if (confirmedDurationMinutes !== undefined) {
-            const isValidDuration =
-              confirmedDurationMinutes !== null &&
-              typeof confirmedDurationMinutes === 'number' &&
-              isFinite(confirmedDurationMinutes) &&
-              confirmedDurationMinutes > 0;
-
-            if (isValidDuration) {
-              // User explicitly reported an actual duration (כמתוכנן / +X דק׳ / אחר)
-              const actualDurationMinutes = confirmedDurationMinutes as number;
-              const durationDeltaMinutes =
-                plannedDurationMinutes !== null
-                  ? actualDurationMinutes - plannedDurationMinutes
-                  : null;
-
-              logLearningEvent({
-                userId: USER_ID,
-                taskId: resolvedId,
-                eventType: 'task_execution_completed',
-                source: 'completeTask',
-                taskTitleSnapshot: task.title,
-                dateIso,
-                metadata: {
-                  plannedDurationMinutes,
-                  actualDurationMinutes,
-                  durationDeltaMinutes,
-                  plannedStartTime: task.startTime ? task.startTime.toISOString() : null,
-                  actualStartTime:  null,
-                  actualEndTime:    nowIso,
-                  actualStartSource: 'user_reported',
-                  evidenceType:      'user_reported_duration',
-                  durationConfidence:'confirmed',
-                  integrityStatus:   'accepted_fact',
-                },
-              });
-            } else {
-              // confirmedDurationMinutes === null → user chose "לא זוכר"
-              // Store completion fact only; no duration memory allowed.
-              logLearningEvent({
-                userId: USER_ID,
-                taskId: resolvedId,
-                eventType: 'task_execution_completed',
-                source: 'completeTask',
-                taskTitleSnapshot: task.title,
-                dateIso,
-                metadata: {
-                  plannedDurationMinutes,
-                  actualDurationMinutes:  null,
-                  durationDeltaMinutes:   null,
-                  plannedStartTime: task.startTime ? task.startTime.toISOString() : null,
-                  actualStartTime:  null,
-                  actualEndTime:    nowIso,
-                  actualStartSource: 'user_reported_no_duration',
-                },
-              });
-            }
-
-            // No executionStartTimes to clear — user-reported path never uses it
-            return;
-          }
-
-          // ── Branch C: existing timer path (confirmedDurationMinutes === undefined) ──
+          // task_execution_completed — additional depth layer
           // Stage 3ג.1 Expiry Guard: executionStartTime older than 24h → treat as expired
-          const EXECUTION_EXPIRY_MS = 24 * 60 * 60 * 1000;
+          const EXECUTION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
           const rawPersistedStart = get().executionStartTimes[resolvedId] ?? null;
           let persistedStartTime: string | null = null;
           let isExpired = false;
@@ -369,6 +305,7 @@ export const useTaskStore = create<TaskState>()(
             const ageMs   = now.getTime() - startMs;
             if (ageMs > EXECUTION_EXPIRY_MS) {
               isExpired = true;
+              // clean up expired entry immediately
               set((state) => {
                 const cleaned = { ...state.executionStartTimes };
                 delete cleaned[resolvedId];
@@ -388,8 +325,10 @@ export const useTaskStore = create<TaskState>()(
               ? 'execution_start'
               : 'planned_fallback';
 
+          const plannedDurationMinutes = task.duration ?? null;
+
           let actualDurationMinutes: number | null = null;
-          let durationDeltaMinutes:  number | null = null;
+          let durationDeltaMinutes: number | null = null;
 
           if (actualStartTimeIso) {
             const startMs = new Date(actualStartTimeIso).getTime();
@@ -414,8 +353,8 @@ export const useTaskStore = create<TaskState>()(
               actualDurationMinutes,
               durationDeltaMinutes,
               plannedStartTime: task.startTime ? task.startTime.toISOString() : null,
-              actualStartTime:  actualStartTimeIso,
-              actualEndTime:    nowIso,
+              actualStartTime: actualStartTimeIso,
+              actualEndTime: nowIso,
               actualStartSource,
             },
           });

@@ -39,30 +39,22 @@ function buildMemoryTextFromLearningEvent(event: {
 
   if (event.eventType === 'task_execution_completed') {
     // Elapsed scheduled time is not actual execution duration.
-    // Only timer-confirmed duration or explicit user-reported duration is eligible for duration memory.
+    // Only timer-confirmed duration is eligible for duration memory.
     const meta        = event.metadata ?? {};
     const startSource = typeof meta.actualStartSource === 'string'
       ? meta.actualStartSource
       : 'unknown';
     const actualMins  = meta.actualDurationMinutes;
     const isConfirmed =
-      (startSource === 'execution_start' || startSource === 'user_reported') &&
+      startSource === 'execution_start' &&
       typeof actualMins === 'number' &&
       isFinite(actualMins) &&
       actualMins > 0;
 
     if (!isConfirmed) {
-      // planned_fallback / expired / user_reported_no_duration / unknown
-      // — elapsed block is not actual duration.
+      // planned_fallback / expired / unknown — elapsed block is not actual duration.
       // task_completed already records the completion fact separately.
       return '';
-    }
-
-    if (startSource === 'user_reported') {
-      return (
-        `המשתמש השלים את המשימה: ${title}. ` +
-        `משך הביצוע בפועל שדווח ואושר על ידי המשתמש: ${actualMins} דקות.`
-      );
     }
 
     return (
@@ -322,12 +314,9 @@ router.post('/events', async (req: Request, res: Response) => {
         metadata:          event.metadata as Record<string, unknown> | null,
       });
       if (memoryText) {
-        const execSource =
-          event.eventType === 'task_execution_completed'
-            ? (event.metadata as Record<string, unknown> | null)?.actualStartSource
-            : undefined;
-        const isTimerConfirmed = execSource === 'execution_start';
-        const isUserReported   = execSource === 'user_reported';
+        const isTimerConfirmed =
+          event.eventType === 'task_execution_completed' &&
+          (event.metadata as Record<string, unknown> | null)?.actualStartSource === 'execution_start';
 
         void storeUserMessage(event.userId, memoryText, {
           type:               event.eventType,
@@ -339,11 +328,6 @@ router.post('/events', async (req: Request, res: Response) => {
           importance:         event.eventType === 'task_completed' ? 'high' : 'medium',
           ...(isTimerConfirmed && {
             evidenceType:      'timer_confirmed',
-            durationConfidence:'confirmed',
-            integrityStatus:   'accepted_fact',
-          }),
-          ...(isUserReported && {
-            evidenceType:      'user_reported_duration',
             durationConfidence:'confirmed',
             integrityStatus:   'accepted_fact',
           }),
