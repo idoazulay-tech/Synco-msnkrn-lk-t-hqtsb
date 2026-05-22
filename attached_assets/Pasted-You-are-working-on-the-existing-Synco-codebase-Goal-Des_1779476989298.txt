@@ -1,0 +1,66 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Design the smallest safe UI and data-flow change for Low-Friction Confirmed Duration Capture, using the existing CompletionDialog flow.
+
+Current confirmed state:
+- A critical duration-memory bug was fixed.
+- task_execution_completed now writes duration memory only when:
+  actualStartSource === 'execution_start'
+  and actualDurationMinutes is valid.
+- planned_fallback / expired_execution_start_fallback no longer write duration memory to Qdrant.
+- task_completed stores completion fact only, without any duration claim.
+- No contaminated duration memories currently require cleanup.
+
+Important correction:
+Do NOT implement task_elapsed_unconfirmed as a Qdrant learning memory yet.
+An elapsed scheduled block without user response is missing information, not a factual memory to learn from.
+For now, it should remain an unresolved state that prompts a lightweight user confirmation.
+
+Product goal:
+A user should not need to press "Done" exactly when a task ends.
+If the user later confirms completion without timer evidence, Synco should offer a very fast way to report actual duration.
+Only explicit user-provided duration may become confirmed duration memory.
+
+Rules:
+- Timer start + completion = confirmed duration evidence.
+- Completion without timer = confirmed completion only, unless the user explicitly reports duration.
+- User selecting "כמתוכנן" counts as explicit duration confirmation.
+- User selecting a minute amount counts as explicit duration confirmation.
+- User selecting "לא זוכר" or skipping duration creates no duration memory.
+- elapsed scheduled block is never used as actual or estimated duration.
+
+This task is inspection and design only.
+Do not modify any files.
+
+Inspect:
+1. The existing CompletionDialog component and its props.
+2. HomePage handling of CompletionDialog completion actions.
+3. src/store/taskStore.ts completeTask and executionStartTimes logic.
+4. src/lib/api/learningClient.ts logTaskExecutionCompleted signature and metadata support.
+5. Any existing component/input that already supports duration selection or quick buttons.
+6. Whether CompletionDialog already differentiates timer-started tasks from tasks completed without timer.
+
+Return:
+
+A. Exact current completion UI flow.
+B. Exact current function call path from clicking "Completed" to task_execution_completed.
+C. Where a confirmed duration chosen by the user can be passed with the smallest change.
+D. Whether existing logTaskExecutionCompleted can already accept:
+   - actualDurationMinutes
+   - actualStartSource or new explicit-report source
+   - durationConfidence
+   - evidenceType
+E. Minimal proposed UX:
+   - what appears when there was timer evidence
+   - what appears when there was no timer evidence
+   - exact buttons required for MVP
+F. Minimal proposed data-flow changes.
+G. Exact files that would be modified in the first implementation.
+H. Whether any DB/schema change is actually needed.
+I. How explicit user duration should become Qdrant accepted_fact without changing the current timer-confirmed rule incorrectly.
+J. Tests required before implementation.
+K. Risks and rollback plan.
+
+Do not implement code.
+Only inspect and design.
