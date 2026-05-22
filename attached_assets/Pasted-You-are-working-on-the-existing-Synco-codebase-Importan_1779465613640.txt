@@ -1,0 +1,55 @@
+You are working on the existing Synco codebase.
+
+Important new Synco product rule:
+
+A scheduled task block that elapsed without user confirmation is NOT proof that the task was completed and is NOT proof of actual duration.
+
+Synco must distinguish:
+- plannedDuration
+- elapsedScheduledBlock
+- actualDurationConfirmed
+- actualDurationEstimated
+- executionStatus: confirmed | estimated | unconfirmed_elapsed | not_completed
+
+Product goal:
+Many users will not press "completed" exactly when a task ends.
+Synco must learn real duration with minimal friction, using later quick confirmation, voice update, timer evidence, or strong execution signals.
+It must never learn actual duration merely because scheduled time passed.
+
+This task is inspection and design only.
+Do not modify any files.
+
+Inspect the current codebase for:
+
+1. Task status fields and task model
+2. Completion actions and completeTask logic
+3. Timer start/stop and execution-completed events
+4. How planned duration is stored
+5. How actualDurationMinutes is currently generated
+6. Whether any logic treats endTime passing as task completion
+7. Existing notification or task-report UI after a task ends
+8. Existing fields/events that can support late confirmation
+9. Existing support for voice reporting or fast feedback
+10. Any current events that should map to:
+   - confirmed completion
+   - confirmed actual duration
+   - estimated duration
+   - elapsed but unconfirmed
+
+Return:
+
+A. Current task status and duration model
+B. Current completion flow
+C. Current timer/execution flow
+D. Whether elapsed time is currently mistaken for completion
+E. Available signals for confirmed actual duration
+F. Missing fields/events needed for unconfirmed_elapsed
+G. Proposed Low-Friction Completion & Duration Capture design
+H. How this should connect to Memory Integrity Gate
+I. Which memories may be generated from each confidence level
+J. Smallest safe implementation step after design
+K. Files that would need modification
+L. Risks and rollback plan
+
+Do not implement code.
+Only inspect and design.
