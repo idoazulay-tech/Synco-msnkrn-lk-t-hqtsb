@@ -21,12 +21,9 @@ export interface UserMemoryHit {
 export async function storeUserMessage(
   userId: string,
   text: string,
-  meta?: { type?: string; source?: string; pointId?: string; [key: string]: unknown }
+  meta?: { type?: string; source?: string; [key: string]: unknown }
 ): Promise<string> {
-  // Use caller-supplied deterministic ID when provided (learning-event derived memories).
-  // Fall back to a random UUID for all other non-learning memory writes — unchanged behavior.
-  const { pointId: callerPointId, type, source, ...extraPayload } = meta ?? {};
-  const pointId = callerPointId ?? uuid();
+  const pointId = uuid();
 
   if (!qdrant) {
     console.warn("[Memory] Qdrant not available, skipping event storage");
@@ -35,6 +32,9 @@ export async function storeUserMessage(
 
   const { vector, isFallback } = await generateEmbedding(text);
   const timestamp = new Date().toISOString();
+
+  // Destructure known fields; spread remaining as extra payload fields
+  const { type, source, ...extraPayload } = meta ?? {};
 
   await qdrant.upsert(COLLECTIONS.events, {
     wait: true,

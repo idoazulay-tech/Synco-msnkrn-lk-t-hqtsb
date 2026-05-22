@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams, useNavigate, useLocation } from "react-router-dom";
 import { useTaskStore } from "@/store/taskStore";
 import HomePage from "./pages/HomePage";
 import DayViewPage from "./pages/DayViewPage";
@@ -52,6 +52,35 @@ const RescheduleRedirect = () => {
   return <Navigate to={`/task/${id}/edit`} replace />;
 };
 
+const ONBOARDING_CHECKED_KEY = 'synco_onboarding_checked';
+
+const OnboardingGate = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.pathname === '/onboarding') return;
+    if (sessionStorage.getItem(ONBOARDING_CHECKED_KEY)) return;
+
+    const check = async () => {
+      try {
+        const res = await fetch('/api/onboarding/default-user');
+        if (!res.ok) return;
+        const data = await res.json();
+        sessionStorage.setItem(ONBOARDING_CHECKED_KEY, 'true');
+        if (!data.status || data.status === 'NOT_STARTED') {
+          navigate('/onboarding', { replace: true });
+        }
+      } catch {
+        // offline / server not ready — skip silently
+      }
+    };
+    check();
+  }, [navigate, location.pathname]);
+
+  return null;
+};
+
 const defaultQueryFn = async ({ queryKey }: { queryKey: readonly unknown[] }) => {
   const url = queryKey[0] as string;
   const response = await fetch(url);
@@ -78,6 +107,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <OnboardingGate />
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/day" element={<DayViewPage />} />

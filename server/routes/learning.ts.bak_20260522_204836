@@ -7,7 +7,72 @@ import { buildDailyLearningSummary } from '../services/learningSummaryService.js
 import { buildPlanningLearningContext } from '../services/planningLearningContextService.js';
 import { buildDurationSuggestionContext } from '../services/durationIntelligenceService.js';
 import { storeUserMessage } from '../brain/services/memory.js';
-import { deriveFactualMemoriesFromLearningEvent } from '../brain/services/learningMemoryDerivation.js';
+
+// ─── Synco Brain Memory ingestion helpers ────────────────────────────────────
+// Only high-value, low-noise event types are mirrored to Qdrant.
+// task_rescheduled, task_deleted, etc. are intentionally excluded to avoid
+// noisy or misleading memory context.
+
+function shouldIngestLearningEvent(eventType: string): boolean {
+  return (
+    eventType === 'task_created' ||
+    eventType === 'task_completed' ||
+    eventType === 'task_execution_completed'
+  );
+}
+
+function buildMemoryTextFromLearningEvent(event: {
+  eventType: string;
+  taskTitleSnapshot: string | null;
+  metadata?: Record<string, unknown> | null;
+}): string {
+  const title = event.taskTitleSnapshot?.trim();
+  if (!title) return '';
+
+  if (event.eventType === 'task_created') {
+    return `המשתמש יצר משימה חדשה: ${title}. זה עשוי להעיד על כוונה או צורך לתכנן פעולה.`;
+  }
+
+  if (event.eventType === 'task_completed') {
+    return `המשתמש השלים משימה: ${title}. זהו סימן ביצוע בפועל.`;
+  }
+
+  if (event.eventType === 'task_execution_completed') {
+    // Elapsed scheduled time is not actual execution duration.
+    // Only timer-confirmed duration or explicit user-reported duration is eligible for duration memory.
+    const meta        = event.metadata ?? {};
+    const startSource = typeof meta.actualStartSource === 'string'
+      ? meta.actualStartSource
+      : 'unknown';
+    const actualMins  = meta.actualDurationMinutes;
+    const isConfirmed =
+      (startSource === 'execution_start' || startSource === 'user_reported') &&
+      typeof actualMins === 'number' &&
+      isFinite(actualMins) &&
+      actualMins > 0;
+
+    if (!isConfirmed) {
+      // planned_fallback / expired / user_reported_no_duration / unknown
+      // — elapsed block is not actual duration.
+      // task_completed already records the completion fact separately.
+      return '';
+    }
+
+    if (startSource === 'user_reported') {
+      return (
+        `המשתמש השלים את המשימה: ${title}. ` +
+        `משך הביצוע בפועל שדווח ואושר על ידי המשתמש: ${actualMins} דקות.`
+      );
+    }
+
+    return (
+      `המשתמש סיים ביצוע של המשימה: ${title}. ` +
+      `משך הביצוע בפועל שאושר באמצעות טיימר: ${actualMins} דקות.`
+    );
+  }
+
+  return '';
+}
 
 const router = Router();
 
@@ -247,33 +312,46 @@ router.post('/events', async (req: Request, res: Response) => {
       },
     });
 
-    // ── Fire-and-forget: Memory Derivation Engine ────────────────────────────
-    // Derives factual memories from the saved event and writes each to Qdrant
-    // with a deterministic point ID (idempotent upsert).
-    // Postgres commit is already done above; Qdrant failures are warnings only.
-    // One event may produce multiple distinct derived memories (e.g. actual_duration
-    // + planned_vs_actual_duration from task_execution_completed).
-    {
-      const derivedMemories = deriveFactualMemoriesFromLearningEvent({
-        id:                event.id,
-        userId:            event.userId,
+    // ── Fire-and-forget: mirror high-value events into Qdrant ─────────────────
+    // Runs after response is sent; never blocks or changes the API response.
+    // Failures are logged as warnings only — Postgres save is already committed.
+    if (shouldIngestLearningEvent(event.eventType)) {
+      const memoryText = buildMemoryTextFromLearningEvent({
         eventType:         event.eventType,
         taskTitleSnapshot: event.taskTitleSnapshot,
-        taskId:            event.taskId,
-        dateIso:           event.dateIso,
         metadata:          event.metadata as Record<string, unknown> | null,
       });
+      if (memoryText) {
+        const execSource =
+          event.eventType === 'task_execution_completed'
+            ? (event.metadata as Record<string, unknown> | null)?.actualStartSource
+            : undefined;
+        const isTimerConfirmed = execSource === 'execution_start';
+        const isUserReported   = execSource === 'user_reported';
 
-      for (const mem of derivedMemories) {
-        void storeUserMessage(event.userId, mem.content, {
-          ...mem.metadata,
-          pointId: mem.pointId,
+        void storeUserMessage(event.userId, memoryText, {
+          type:               event.eventType,
+          source:             'learning_event',
+          taskId:             event.taskId   ?? undefined,
+          learningEventId:    event.id,
+          dateIso:            event.dateIso  ?? undefined,
+          status:             'active',
+          importance:         event.eventType === 'task_completed' ? 'high' : 'medium',
+          ...(isTimerConfirmed && {
+            evidenceType:      'timer_confirmed',
+            durationConfidence:'confirmed',
+            integrityStatus:   'accepted_fact',
+          }),
+          ...(isUserReported && {
+            evidenceType:      'user_reported_duration',
+            durationConfidence:'confirmed',
+            integrityStatus:   'accepted_fact',
+          }),
         }).catch((err: unknown) => {
-          console.warn('[SyncoMemory] Failed to write derived memory to Qdrant', {
+          console.warn('[SyncoMemory] Failed to mirror learning event to Qdrant', {
             eventType: event.eventType,
             eventId:   event.id,
-            memoryKind: mem.memoryKind,
-            message:    err instanceof Error ? err.message : String(err),
+            message:   err instanceof Error ? err.message : String(err),
           });
         });
       }
