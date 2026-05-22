@@ -13,8 +13,6 @@ import { CompactSchedule, ScheduleToggle } from '@/components/layout/CompactSche
 import { isRecurringOccurrence, formatRecurringSummary, getMasterTaskId } from '@/lib/recurringEngine';
 import { TaskReportDialog } from '@/components/task/TaskReportDialog';
 import { TaskReportIntroDialog, isTaskReportIntroDismissed } from '@/components/task/TaskReportIntroDialog';
-import { DurationCaptureCard } from '@/components/task/DurationCaptureCard';
-import { Task } from '@/types/task';
 
 const TaskDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -24,8 +22,6 @@ const TaskDetailPage = () => {
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [showIntroDialog, setShowIntroDialog] = useState(false);
   const [reportPendingAfterIntro, setReportPendingAfterIntro] = useState(false);
-  // Duration capture — must be before the early-return so it's always called
-  const [pendingDurationTask, setPendingDurationTask] = useState<Task | null>(null);
   const { getTaskById, completeTask, getCurrentTask, startTaskExecution, executionStartTimes } = useTaskStore();
   const task = id ? getTaskById(id) : undefined;
   const currentTask = getCurrentTask();
@@ -53,26 +49,8 @@ const TaskDetailPage = () => {
   };
 
   const handleComplete = () => {
-    if (hasStarted) {
-      // Timer evidence exists — use the confirmed timer path, no picker needed
-      completeTask(task.id, true);
-      navigate('/');
-    } else {
-      // No timer evidence — intercept: show duration picker before completing
-      setPendingDurationTask(task);
-    }
-  };
-
-  const handleDurationSelected = (confirmedMinutes: number | null) => {
-    if (!pendingDurationTask) return;
-    completeTask(pendingDurationTask.id, true, confirmedMinutes);
-    setPendingDurationTask(null);
+    completeTask(task.id, true);
     navigate('/');
-  };
-
-  const handleDurationCancel = () => {
-    // User changed mind — leave task uncompleted
-    setPendingDurationTask(null);
   };
 
   const handleReschedule = () => {
@@ -444,17 +422,6 @@ const TaskDetailPage = () => {
             <TaskReportDialog
               task={task}
               onClose={() => setShowReportDialog(false)}
-            />
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {pendingDurationTask && (
-            <DurationCaptureCard
-              taskTitle={pendingDurationTask.title}
-              plannedDurationMinutes={pendingDurationTask.duration ?? 30}
-              onSelect={handleDurationSelected}
-              onCancel={handleDurationCancel}
             />
           )}
         </AnimatePresence>

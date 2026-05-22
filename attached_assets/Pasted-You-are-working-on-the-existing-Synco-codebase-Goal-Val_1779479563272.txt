@@ -1,0 +1,206 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Validate the completed Low-Friction Confirmed Duration Capture implementation end-to-end, and close any existing completion-path integrity gap before adding new features.
+
+Current confirmed implementation:
+- For no-timer completion from HomePage, a bottom-sheet duration capture UI was added.
+- Available options currently implemented:
+  - "כמתוכנן"
+  - "+5 דק׳"
+  - "+10 דק׳"
+  - "+15 דק׳"
+  - "+20 דק׳"
+  - "+30 דק׳"
+  - "אחר"
+  - "לא זוכר"
+  - cancel / close
+- Voice reporting ("הקלט") was intentionally not implemented yet.
+- taskStore.completeTask now supports an optional confirmedDurationMinutes parameter.
+- server/routes/learning.ts accepts actualStartSource='user_reported' as confirmed duration evidence.
+- planned_fallback and expired_execution_start_fallback must remain rejected from duration memory.
+- TypeScript is clean and existing smoke tests passed.
+
+Important decision:
+Do NOT implement voice input in this task.
+Do NOT add new product features.
+First prove the existing duration-capture path is correct and ensure there is no existing UI completion entry point that bypasses it.
+
+Mandatory Synco invariants:
+1. A no-timer completion must not reach completeTask as completed until the user selects:
+   - a confirmed duration option,
+   - a valid "אחר" value,
+   - or "לא זוכר".
+2. A task with valid timer evidence must complete through the existing timer-confirmed path without seeing the duration picker.
+3. plannedDuration or elapsed scheduled block must never automatically be written as actual duration.
+4. "כמתוכנן" is accepted only because the user explicitly selected it.
+5. "+N דק׳" means plannedDurationMinutes + N.
+6. "לא זוכר" stores completion fact only, with no duration memory.
+7. Any existing completion button outside HomePage that bypasses this logic is a memory-integrity bug and must be fixed minimally.
+
+Safety rules:
+- Inspect before changing.
+- Create timestamped .bak backups before modifying any file.
+- Do not modify DB schema.
+- Do not modify Qdrant infrastructure.
+- Do not modify AI prompts, schemas, validators, reasoning services, or syncoMemoryContext.
+- Do not connect any additional AI functions.
+- Do not implement voice reporting yet.
+- Do not change API response shapes.
+- Only modify files if an actual uncovered completion path or validation bug is found.
+
+PART 1 — Inspect all completion entry points
+
+Search the entire frontend for every caller or action that can mark a task completed, including:
+- completeTask(
+- handleComplete(
+- apiComplete(
+- status: 'completed'
+- completion buttons in Task Detail, HomePage, dialogs, cards, mobile components, or any task actions
+
+Return a complete list of completion entry points and mark each one as:
+- protected by duration capture when no timer exists
+- timer-confirmed existing path
+- bypasses duration capture and requires a minimal fix
+- not user-facing / irrelevant
+
+If Task Detail or any other screen currently allows direct completion without going through the new duration capture flow, implement the smallest safe fix so it uses the same confirmed-duration capture behavior.
+Do not add a duration picker to a page that has no current completion action.
+
+PART 2 — End-to-end Qdrant payload diagnostics
+
+Use identifiable diagnostic tasks and the existing working app/API flow. Do not print secret values.
+
+Diagnostic A — Timer evidence path:
+- Use a timer-started test task.
+- Complete it through the existing timer-confirmed flow.
+- Verify:
+  - no duration picker appears
+  - task_completed is stored
+  - task_execution_completed duration memory is stored
+  - actualStartSource = 'execution_start'
+  - evidenceType = 'timer_confirmed'
+  - durationConfidence = 'confirmed'
+  - integrityStatus = 'accepted_fact'
+  - fallback = false
+
+Diagnostic B — "כמתוכנן":
+- Use a no-timer task with plannedDurationMinutes = 20.
+- Complete it and choose "כמתוכנן".
+- Verify:
+  - duration picker appeared before completion
+  - actualDurationMinutes = 20
+  - actualStartSource = 'user_reported'
+  - evidenceType = 'user_reported_duration'
+  - durationConfidence = 'confirmed'
+  - integrityStatus = 'accepted_fact'
+  - Qdrant memory stores 20 minutes
+
+Diagnostic C — "+15 דק׳":
+- Use a no-timer task with plannedDurationMinutes = 20.
+- Choose "+15 דק׳".
+- Verify:
+  - actualDurationMinutes = 35
+  - durationDeltaMinutes = 15
+  - actualStartSource = 'user_reported'
+  - evidenceType = 'user_reported_duration'
+  - Qdrant memory stores 35 minutes
+  - no scheduled elapsed time was used
+
+Diagnostic D — "+30 דק׳":
+- Use a no-timer task with plannedDurationMinutes = 30.
+- Choose "+30 דק׳".
+- Verify:
+  - actualDurationMinutes = 60
+  - durationDeltaMinutes = 30
+  - Qdrant memory stores 60 minutes
+
+Diagnostic E — "אחר":
+- Use a no-timer task.
+- Choose "אחר".
+- Enter 37.
+- Verify:
+  - actualDurationMinutes = 37
+  - actualStartSource = 'user_reported'
+  - evidenceType = 'user_reported_duration'
+  - Qdrant memory stores 37 minutes
+- Also test invalid input:
+  - empty, zero, negative number, and non-number must not complete the duration capture or write a duration memory
+
+Diagnostic F — "לא זוכר":
+- Use a no-timer task.
+- Choose "לא זוכר".
+- Verify:
+  - completion fact is stored through task_completed
+  - no duration memory is written
+  - actualStartSource is not accepted as duration evidence
+  - planned duration and elapsed scheduled time are not written as actual duration
+
+Diagnostic G — Inline HomePage "סיימתי":
+- Use a no-timer task and complete from the inline HomePage "סיימתי" action.
+- Verify duration picker appears before completeTask executes.
+- Choose "+10 דק׳" on a 20-minute planned task.
+- Verify:
+  - actualDurationMinutes = 30
+  - evidenceType = 'user_reported_duration'
+  - Qdrant memory stores 30 minutes
+
+Diagnostic H — Cancel:
+- Enter duration capture for a no-timer task.
+- Tap cancel/close/backdrop.
+- Verify:
+  - task remains uncompleted
+  - no task_completed event is created
+  - no task_execution_completed duration memory is written
+
+Diagnostic I — Rejection safety:
+- Simulate or inspect events with:
+  - planned_fallback
+  - expired_execution_start_fallback
+  - user_reported_no_duration
+  - null duration
+  - zero duration
+  - negative duration
+- Verify all are rejected from Qdrant duration memory.
+
+PART 3 — Required checks
+
+Run:
+npx tsc --noEmit
+npx tsx scripts/test-synco-memory-context.ts
+
+Also verify browser/runtime logs contain no new errors when opening and using the duration picker.
+
+PART 4 — Voice decision
+
+Do not implement "הקלט" now.
+Report:
+- whether an existing VoiceInput/parser can likely support it later
+- exact files that would be involved
+- the smallest safe next task for voice duration reporting
+
+PART 5 — Final delivery report
+
+Return:
+
+A. Files inspected
+B. Complete list of all completion entry points found
+C. Which entry points were already protected
+D. Whether an uncovered completion bypass was found
+E. Backup files created, if any modification was required
+F. Files modified, if any, and exact minimal fix
+G. Timer evidence diagnostic result
+H. "כמתוכנן" diagnostic result
+I. "+15 דק׳" diagnostic result
+J. "+30 דק׳" diagnostic result
+K. "אחר" and invalid-input diagnostic result
+L. "לא זוכר" diagnostic result
+M. Inline HomePage diagnostic result
+N. Cancel diagnostic result
+O. Rejection-safety diagnostic result
+P. TypeScript result
+Q. Memory test result
+R. Browser/runtime error result
+S. Confirmation that no DB schema or API response shape changed
+T. Voice reporting follow-up recommendation, not implemented
+U. Next recommended step, not implemented
