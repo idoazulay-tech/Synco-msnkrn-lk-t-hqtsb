@@ -21,7 +21,7 @@ export interface UserMemoryHit {
 export async function storeUserMessage(
   userId: string,
   text: string,
-  meta?: { type?: string; source?: string }
+  meta?: { type?: string; source?: string; [key: string]: unknown }
 ): Promise<string> {
   const pointId = uuid();
 
@@ -33,6 +33,9 @@ export async function storeUserMessage(
   const { vector, isFallback } = await generateEmbedding(text);
   const timestamp = new Date().toISOString();
 
+  // Destructure known fields; spread remaining as extra payload fields
+  const { type, source, ...extraPayload } = meta ?? {};
+
   await qdrant.upsert(COLLECTIONS.events, {
     wait: true,
     points: [{
@@ -42,9 +45,10 @@ export async function storeUserMessage(
         userId,
         text,
         timestamp,
-        type: meta?.type ?? "message",
-        source: meta?.source ?? "user",
+        type: type ?? "message",
+        source: source ?? "user",
         isFallbackEmbedding: isFallback,
+        ...extraPayload,
       },
     }],
   });

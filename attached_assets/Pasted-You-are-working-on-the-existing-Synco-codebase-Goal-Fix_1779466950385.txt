@@ -1,0 +1,132 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Fix a critical memory-integrity bug: Synco must never store elapsed scheduled time as actual or estimated execution duration unless there is real duration evidence.
+
+Current confirmed issue:
+When the user presses "Done" without starting the execution timer, the existing flow emits task_execution_completed with:
+- actualStartSource = 'planned_fallback' or 'expired_execution_start_fallback'
+- actualDurationMinutes computed from now minus planned task start time
+
+This value is NOT actual task duration and is NOT a valid duration estimate.
+It only means scheduled time elapsed before the user marked completion.
+
+Mandatory Synco invariant:
+plannedDuration and elapsedScheduledBlock must never be stored or presented as actualDuration or actualDurationEstimated.
+
+A user pressing "Done" without timer evidence confirms task completion only, not execution duration.
+
+Approved duration evidence for this stage:
+- actualStartSource === 'execution_start'
+- actualDurationMinutes is a valid positive number
+
+Future duration evidence such as explicit user voice/text reporting is not implemented yet and must not be invented.
+
+Important safety rules:
+- Modify only server/routes/learning.ts
+- Do not modify frontend files
+- Do not modify task model or DB schema
+- Do not modify AI services
+- Do not modify prompts, schemas, validators, routes other than this file, or Memory Confidence Policy
+- Do not connect additional AI functions
+- Do not change API response shape
+- Keep Qdrant writes fire-and-forget
+- Do not log private memory text
+
+Task:
+
+1. Inspect the current implementation in server/routes/learning.ts before changing it.
+
+2. Update organic Qdrant ingestion behavior for task_execution_completed:
+
+A. When metadata.actualStartSource === 'execution_start'
+and metadata.actualDurationMinutes is a valid positive finite number:
+- Keep ingestion enabled.
+- Build a factual confirmed duration memory text, for example:
+  "המשתמש סיים ביצוע של המשימה: {taskTitleSnapshot}. משך הביצוע בפועל שאושר באמצעות טיימר: {actualDurationMinutes} דקות."
+- Metadata should clearly include:
+  evidenceType: 'timer_confirmed'
+  durationConfidence: 'confirmed'
+  integrityStatus: 'accepted_fact'
+
+B. When metadata.actualStartSource is:
+- 'planned_fallback'
+- 'expired_execution_start_fallback'
+- missing
+- unknown
+
+Then:
+- Do NOT write a task_execution_completed duration memory to Qdrant.
+- Return an empty memory text from buildMemoryTextFromLearningEvent for this event, or otherwise skip the memory write safely.
+- Do not label this as estimated duration.
+- The separate task_completed event remains responsible for remembering that completion occurred.
+
+3. Keep task_created ingestion unchanged.
+
+4. Keep task_completed ingestion unchanged as factual completion only.
+
+5. Do not add unconfirmed_elapsed ingestion yet.
+That will be designed later as a separate low-friction completion confirmation feature.
+
+6. Add a short code comment near the task_execution_completed condition:
+"Elapsed scheduled time is not actual execution duration. Only timer-confirmed duration is eligible for duration memory."
+
+Validation requirements:
+
+1. Run:
+npx tsc --noEmit
+npx tsx scripts/test-synco-memory-context.ts
+
+2. Diagnostic A: confirmed timer duration
+Create one task_execution_completed learning event with:
+- taskTitleSnapshot: "בדיקת זמן מאושר סינקו"
+- metadata.plannedDurationMinutes: 30
+- metadata.actualDurationMinutes: 42
+- metadata.durationDeltaMinutes: 12
+- metadata.actualStartSource: "execution_start"
+
+Verify:
+- Postgres saved: yes
+- Qdrant duration memory saved: yes
+- fallback: false
+- stored memory describes confirmed duration
+- metadata includes evidenceType=timer_confirmed
+- memory retrievable
+
+3. Diagnostic B: unconfirmed fallback duration
+Create one task_execution_completed learning event with:
+- taskTitleSnapshot: "בדיקת זמן לא מאושר סינקו"
+- metadata.plannedDurationMinutes: 30
+- metadata.actualDurationMinutes: 120
+- metadata.durationDeltaMinutes: 90
+- metadata.actualStartSource: "planned_fallback"
+
+Verify:
+- Postgres saved: yes
+- No task_execution_completed duration memory written to Qdrant for this event
+- No stored memory describes 120 minutes as actual or estimated duration
+
+4. Diagnostic C: completion fact still works
+Create one task_completed learning event with:
+- taskTitleSnapshot: "בדיקת השלמה ללא זמן סינקו"
+
+Verify:
+- Qdrant stores completion fact only
+- Stored memory does not claim any duration
+
+5. Inspect existing diagnostic memories already written to Qdrant during earlier tests.
+Report whether there are any task_execution_completed memories created from planned_fallback / unknown evidence that incorrectly contain duration.
+Do not delete or modify them yet. Only report exact count and safe cleanup recommendation.
+
+Return:
+A. File modified
+B. Exact memory-integrity change made
+C. Confirmed timer-duration diagnostic result
+D. Unconfirmed fallback-duration diagnostic result
+E. Completion-fact diagnostic result
+F. Existing contaminated-memory inspection result
+G. TypeScript result
+H. Memory test result
+I. Confirmation that API response shapes did not change
+J. Confirmation that Qdrant failure still does not block Postgres success
+K. Next recommended step, but do not implement it

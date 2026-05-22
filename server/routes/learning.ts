@@ -38,14 +38,29 @@ function buildMemoryTextFromLearningEvent(event: {
   }
 
   if (event.eventType === 'task_execution_completed') {
-    const meta   = event.metadata ?? {};
-    const planned = typeof meta.plannedDurationMinutes === 'number'
-      ? `${meta.plannedDurationMinutes}`
-      : 'לא ידוע';
-    const actual  = typeof meta.actualDurationMinutes === 'number'
-      ? `${meta.actualDurationMinutes}`
-      : 'לא ידוע';
-    return `המשתמש סיים ביצוע של משימה: ${title}. משך מתוכנן: ${planned} דקות. משך בפועל: ${actual} דקות.`;
+    // Elapsed scheduled time is not actual execution duration.
+    // Only timer-confirmed duration is eligible for duration memory.
+    const meta        = event.metadata ?? {};
+    const startSource = typeof meta.actualStartSource === 'string'
+      ? meta.actualStartSource
+      : 'unknown';
+    const actualMins  = meta.actualDurationMinutes;
+    const isConfirmed =
+      startSource === 'execution_start' &&
+      typeof actualMins === 'number' &&
+      isFinite(actualMins) &&
+      actualMins > 0;
+
+    if (!isConfirmed) {
+      // planned_fallback / expired / unknown — elapsed block is not actual duration.
+      // task_completed already records the completion fact separately.
+      return '';
+    }
+
+    return (
+      `המשתמש סיים ביצוע של המשימה: ${title}. ` +
+      `משך הביצוע בפועל שאושר באמצעות טיימר: ${actualMins} דקות.`
+    );
   }
 
   return '';
@@ -299,14 +314,23 @@ router.post('/events', async (req: Request, res: Response) => {
         metadata:          event.metadata as Record<string, unknown> | null,
       });
       if (memoryText) {
+        const isTimerConfirmed =
+          event.eventType === 'task_execution_completed' &&
+          (event.metadata as Record<string, unknown> | null)?.actualStartSource === 'execution_start';
+
         void storeUserMessage(event.userId, memoryText, {
-          type:            event.eventType,
-          source:          'learning_event',
-          taskId:          event.taskId   ?? undefined,
-          learningEventId: event.id,
-          dateIso:         event.dateIso  ?? undefined,
-          status:          'active',
-          importance:      event.eventType === 'task_completed' ? 'high' : 'medium',
+          type:               event.eventType,
+          source:             'learning_event',
+          taskId:             event.taskId   ?? undefined,
+          learningEventId:    event.id,
+          dateIso:            event.dateIso  ?? undefined,
+          status:             'active',
+          importance:         event.eventType === 'task_completed' ? 'high' : 'medium',
+          ...(isTimerConfirmed && {
+            evidenceType:      'timer_confirmed',
+            durationConfidence:'confirmed',
+            integrityStatus:   'accepted_fact',
+          }),
         }).catch((err: unknown) => {
           console.warn('[SyncoMemory] Failed to mirror learning event to Qdrant', {
             eventType: event.eventType,
