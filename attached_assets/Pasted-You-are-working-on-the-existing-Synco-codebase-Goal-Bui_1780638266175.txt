@@ -1,0 +1,349 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Build the first safe foundation of Synco Memory Integrity Gate and Memory Derivation Engine, now that real user activity and confirmed duration capture are producing memory data.
+
+This is a controlled implementation task.
+First inspect the exact current implementation and existing data shapes.
+Then implement only the minimal safe foundation described below if it fits the current architecture without DB schema changes or breaking existing flows.
+
+CURRENT CONFIRMED STATE
+
+- Qdrant works.
+- Real OpenAI embeddings work with fallback=false.
+- Synco Memory Confidence Policy works.
+- parsePlanningInputWithAI and interpretDayCommandWithAI are connected to memory.
+- Organic Qdrant ingestion currently exists in server/routes/learning.ts for:
+  - task_created
+  - task_completed
+  - task_execution_completed
+- Low-Friction Confirmed Duration Capture is implemented:
+  - HomePage no-timer completion is intercepted.
+  - TaskDetailPage no-timer completion bypass was found and fixed.
+  - Shared DurationCaptureCard exists at src/components/task/DurationCaptureCard.tsx.
+  - "כמתוכנן", "+5", "+10", "+15", "+20", "+30", "אחר", "לא זוכר", and cancel are working.
+  - Voice reporting is intentionally deferred.
+- Duration memory integrity is already protected:
+  - execution_start + valid duration → accepted timer-confirmed duration memory.
+  - user_reported + valid duration → accepted user-reported duration memory.
+  - planned_fallback / expired_execution_start_fallback / user_reported_no_duration / invalid duration → no duration memory.
+
+ARCHITECTURAL PRINCIPLES
+
+1. One meaningful user activity may produce multiple distinct factual derived memories.
+
+Example:
+A confirmed task execution may produce:
+- task_completion
+- actual_duration
+- planned_vs_actual_duration
+
+2. Do NOT implement the incorrect rule:
+"one LearningEvent = one memory only."
+
+3. Correct duplicate rule:
+The same derived memory must never be created twice from the same factual source.
+
+4. Correct deterministic identity:
+sourceLearningEventId + memoryKind + schemaVersion
+
+5. Facts may be stored immediately.
+Patterns, habits, behavioral conclusions, emotional conclusions, or planning rules must NOT be inferred from one event.
+
+6. Suspicious or duplicate information must not gain false weight in future pattern learning.
+
+7. Do not ingest task_rescheduled yet.
+It remains noisy until a later context/noise-collapse policy is designed.
+
+SAFETY RULES
+
+- Before modifying any file:
+  - inspect its current content
+  - create a timestamped .bak copy for every file that will be changed
+- Keep changes minimal and additive.
+- Do not modify frontend files in this task.
+- Do not modify DB schema.
+- Do not modify AI prompts, schemas, validators, reasoning services, or syncoMemoryContext.
+- Do not connect additional AI functions.
+- Do not change API response shapes.
+- Keep Qdrant writes fire-and-forget after Postgres has already succeeded.
+- If a new helper file is appropriate, prefer adding one isolated file rather than overloading server/routes/learning.ts.
+- Do not log full private memory text.
+
+PART 1 — INSPECT BEFORE IMPLEMENTING
+
+Inspect:
+- server/routes/learning.ts
+- server/brain/services/memory.ts
+- server/brain/types/index.ts
+- server/lib/qdrant.ts
+- server/lib/qdrant-init.ts
+- Current storeUserMessage implementation and its point ID generation
+- Current metadata written into Qdrant for learning-event memories
+
+Confirm:
+A. How current learning-event memory point IDs are generated.
+B. Whether current writes use random IDs and can duplicate on retries.
+C. Whether storeUserMessage can accept an optional deterministic point ID without breaking normal memory writes.
+D. Whether existing payload supports:
+   - sourceLearningEventId
+   - memoryKind
+   - schemaVersion
+   - integrityStatus
+   - evidenceType
+   - durationConfidence
+
+PART 2 — IMPLEMENT A MINIMAL DERIVED-MEMORY MODEL
+
+Implement a small isolated Memory Derivation layer.
+
+Preferred file:
+server/brain/services/learningMemoryDerivation.ts
+
+If the existing architecture has a clearly better nearby location, use it and explain why.
+
+Add types/constants locally or using existing types only where safe:
+
+type ApprovedLearningMemoryKind =
+  | 'task_intent'
+  | 'task_completion'
+  | 'actual_duration'
+  | 'planned_vs_actual_duration';
+
+const LEARNING_MEMORY_SCHEMA_VERSION = 1;
+
+Create a function such as:
+
+deriveFactualMemoriesFromLearningEvent(input): DerivedLearningMemory[]
+
+Each derived memory must include:
+- sourceLearningEventId
+- memoryKind
+- schemaVersion
+- integrityStatus: 'accepted_fact'
+- content: factual Hebrew memory text
+- metadata required for storage
+
+DERIVATION RULES
+
+1. task_created
+Produce exactly:
+- memoryKind: 'task_intent'
+
+Text:
+"המשתמש יצר משימה חדשה: {title}."
+
+Conditions:
+- Only if taskTitleSnapshot exists and is non-empty.
+- Do not infer importance, habit, emotion, or intention beyond the factual creation.
+
+2. task_completed
+Produce exactly:
+- memoryKind: 'task_completion'
+
+Text:
+"המשתמש השלים את המשימה: {title}."
+
+Conditions:
+- Only if taskTitleSnapshot exists and is non-empty.
+- Do not include duration.
+
+3. task_execution_completed
+
+Only if duration evidence is accepted:
+- actualStartSource === 'execution_start'
+  OR actualStartSource === 'user_reported'
+- actualDurationMinutes is a valid positive finite number
+
+Produce:
+A. memoryKind: 'actual_duration'
+
+For execution_start text:
+"המשתמש ביצע את המשימה: {title}. משך הביצוע בפועל שאושר באמצעות טיימר: {actualDurationMinutes} דקות."
+
+For user_reported text:
+"המשתמש ביצע את המשימה: {title}. משך הביצוע בפועל שדווח ואושר על ידי המשתמש: {actualDurationMinutes} דקות."
+
+B. memoryKind: 'planned_vs_actual_duration'
+Only if plannedDurationMinutes is also a valid positive finite number.
+
+Text:
+"המשימה {title} תוכננה למשך {plannedDurationMinutes} דקות ובוצעה בפועל במשך {actualDurationMinutes} דקות, לפי זמן שאושר."
+
+Metadata must preserve the evidence source:
+For execution_start:
+- evidenceType: 'timer_confirmed'
+- durationConfidence: 'confirmed'
+
+For user_reported:
+- evidenceType: 'user_reported_duration'
+- durationConfidence: 'confirmed'
+
+Do NOT generate duration-derived memories for:
+- planned_fallback
+- expired_execution_start_fallback
+- user_reported_no_duration
+- missing or unknown source
+- null, zero, negative, or invalid actual duration
+
+Do NOT generate any pattern or recommendation.
+
+PART 3 — DETERMINISTIC IDENTITIES AND DUPLICATE SAFETY
+
+Implement deterministic identity per derived memory:
+
+identity input:
+`${sourceLearningEventId}:${memoryKind}:v${schemaVersion}`
+
+Convert this stable string into a Qdrant-compatible deterministic UUID using Node standard crypto, for example:
+- SHA-256 hash of the identity string
+- format the first 32 hex characters as UUID
+- set appropriate deterministic UUID formatting consistently
+
+Do not add a new dependency if Node crypto is sufficient.
+
+Extend the existing memory write path minimally so:
+- storeUserMessage may accept an optional pointId / deterministicPointId.
+- When no pointId is provided, all existing non-learning memory behavior remains unchanged.
+- When a derived learning memory is written, pass its deterministic point ID.
+- Retrying the same sourceLearningEventId + memoryKind + schemaVersion upserts the same Qdrant point.
+- Different memoryKinds from the same sourceLearningEventId create different points.
+
+PART 4 — CONNECT DERIVATION TO THE EXISTING LEARNING ROUTE
+
+Modify server/routes/learning.ts minimally:
+
+After Postgres learning event save succeeds:
+- For approved current event types only:
+  - task_created
+  - task_completed
+  - task_execution_completed
+- Call deriveFactualMemoriesFromLearningEvent(...)
+- For every returned derived memory:
+  - fire-and-forget storeUserMessage with:
+    - its factual text
+    - deterministic point ID
+    - source: 'learning_event'
+    - sourceLearningEventId / learningEventId
+    - memoryKind
+    - schemaVersion
+    - integrityStatus: 'accepted_fact'
+    - taskId
+    - dateIso
+    - evidence fields when applicable
+
+Important:
+- The Postgres response must not wait for Qdrant.
+- One Qdrant write failure must only produce a safe warning without private memory content.
+- It must not fail the API response.
+- Remove or replace the previous one-text-per-event mirroring block so the same learning event is not written both through the old path and the new derived path.
+
+PART 5 — DO NOT IMPLEMENT FULL CONTEXTUAL SUSPICION YET
+
+In this first foundation:
+- Implement deterministic duplicate prevention for the same derived memory.
+- Reserve integrityStatus values for later:
+  - duplicate_ignored
+  - suspicious_pending
+  - contradiction_pending
+  - pattern_candidate
+  - confirmed_pattern
+
+Do not yet classify separate different source events as suspicious duplicates.
+That later step will require context rules using taskId, timing, eventType, previous status, duration, and UI action correlation.
+
+Add a TODO comment where appropriate:
+"Future Memory Integrity Gate phase: evaluate cross-event UI retries, double-clicks, reschedule noise and contradictions before using events as pattern evidence."
+
+PART 6 — VALIDATION
+
+Run:
+npx tsc --noEmit
+npx tsx scripts/test-synco-memory-context.ts
+
+Run end-to-end diagnostics:
+
+Diagnostic A — task_created:
+- Create one test learning event with a unique title.
+- Verify exactly one derived Qdrant point is written:
+  memoryKind = 'task_intent'
+  integrityStatus = 'accepted_fact'
+
+Diagnostic B — task_completed:
+- Create one test learning event with a unique title.
+- Verify exactly one derived Qdrant point is written:
+  memoryKind = 'task_completion'
+  no duration claim
+
+Diagnostic C — timer-confirmed execution:
+- Create one task_execution_completed event:
+  title: "בדיקת Memory Derivation טיימר"
+  plannedDurationMinutes: 20
+  actualDurationMinutes: 31
+  actualStartSource: 'execution_start'
+- Verify exactly two derived points are written:
+  - memoryKind = 'actual_duration'
+  - memoryKind = 'planned_vs_actual_duration'
+- Verify both carry:
+  evidenceType = 'timer_confirmed'
+  durationConfidence = 'confirmed'
+  integrityStatus = 'accepted_fact'
+
+Diagnostic D — user-reported execution:
+- Create one task_execution_completed event:
+  title: "בדיקת Memory Derivation דיווח"
+  plannedDurationMinutes: 20
+  actualDurationMinutes: 35
+  actualStartSource: 'user_reported'
+- Verify exactly two derived points are written:
+  - actual_duration
+  - planned_vs_actual_duration
+- Verify evidenceType = 'user_reported_duration'
+
+Diagnostic E — rejected duration sources:
+- Test:
+  planned_fallback
+  expired_execution_start_fallback
+  user_reported_no_duration
+  null actual duration
+- Verify none generate actual_duration or planned_vs_actual_duration memories.
+
+Diagnostic F — idempotency:
+- Take the sourceLearningEventId created in Diagnostic D.
+- Invoke derivation/storage again for that same exact source event.
+- Verify Qdrant still contains exactly two derived points for it, not four.
+- Verify the deterministic point IDs remain unchanged.
+
+Diagnostic G — multiple memoryKinds allowed:
+- Verify Diagnostic D created two different Qdrant point IDs from one sourceLearningEventId:
+  one for actual_duration
+  one for planned_vs_actual_duration
+
+Diagnostic H — existing flows unaffected:
+- Complete a no-timer task through UI with "לא זוכר".
+- Verify task_completed creates a task_completion memory only.
+- Verify no duration-derived memory is created.
+
+PART 7 — FINAL REPORT
+
+Return:
+A. Files inspected
+B. Backup files created
+C. Files modified or created
+D. Current old ingestion block removed/replaced confirmation
+E. Exact derived memoryKinds implemented
+F. Deterministic ID implementation
+G. Confirmation normal non-learning memory writes preserve old random-ID behavior
+H. task_created diagnostic result
+I. task_completed diagnostic result
+J. timer-confirmed execution diagnostic result
+K. user-reported execution diagnostic result
+L. rejected sources diagnostic result
+M. idempotency diagnostic result
+N. proof that one event can create multiple distinct memories without duplication
+O. TypeScript result
+P. Memory test result
+Q. Confirmation that no DB schema changed
+R. Confirmation that no API response shape changed
+S. Confirmation that Qdrant failures remain non-blocking
+T. Reserved next phase for contextual suspicious-event detection, not implemented

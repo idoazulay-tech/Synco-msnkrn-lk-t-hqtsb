@@ -235,32 +235,24 @@ export async function searchMemory(
 ): Promise<MemorySearchResult[]> {
   if (!qdrant) return [];
 
-  const { vector, isFallback } = await generateEmbedding(query);
+  const { vector } = await generateEmbedding(query);
   const collectionName = COLLECTIONS[collection];
 
-  try {
-    const results = await qdrant.search(collectionName, {
-      vector,
-      limit,
-      score_threshold: scoreThreshold,
-      filter: {
-        must: [{ key: "userId", match: { value: userId } }],
-      },
-    });
+  const results = await qdrant.search(collectionName, {
+    vector,
+    limit,
+    score_threshold: scoreThreshold,
+    filter: {
+      must: [{ key: "userId", match: { value: userId } }],
+    },
+  });
 
-    return results.map(r => ({
-      id: typeof r.id === 'string' ? r.id : String(r.id),
-      score: r.score,
-      payload: r.payload as Record<string, unknown>,
-      collection: collectionName,
-    }));
-  } catch (err: unknown) {
-    // Qdrant search errors (version mismatch, fallback-embedding incompatibility,
-    // transient connectivity) are non-fatal — return empty results gracefully.
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[Memory] searchMemory failed for collection '${collectionName}' (fallback=${isFallback}): ${msg}`);
-    return [];
-  }
+  return results.map(r => ({
+    id: typeof r.id === 'string' ? r.id : String(r.id),
+    score: r.score,
+    payload: r.payload as Record<string, unknown>,
+    collection: collectionName,
+  }));
 }
 
 export async function searchKnowledge(
