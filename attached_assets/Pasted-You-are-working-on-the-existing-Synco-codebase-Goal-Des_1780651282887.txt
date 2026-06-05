@@ -1,0 +1,88 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Design the next phase of Synco Memory Integrity Gate: contextual suspicious-event detection.
+
+This is inspection and design only.
+Do not modify any files.
+
+Current confirmed state:
+- Synco has a Memory Derivation Engine.
+- server/brain/services/learningMemoryDerivation.ts exists.
+- server/routes/learning.ts now uses derivation instead of the old one-text-per-event ingestion.
+- One source LearningEvent can create multiple distinct derived factual memories.
+- Deterministic Qdrant point IDs are based on:
+  sourceLearningEventId + memoryKind + schemaVersion
+- This prevents retry duplication of the same derived memory while allowing multiple memoryKinds from the same event.
+- Current memoryKinds:
+  - task_intent
+  - task_completion
+  - actual_duration
+  - planned_vs_actual_duration
+- No patterns, habits, behavioral rules, emotional conclusions, or planning rules are inferred from one event.
+- Qdrant failures are non-blocking.
+- Qdrant Cloud may currently be temporarily unavailable with 404, so do not rely on live Qdrant diagnostics in this task.
+
+Product goal:
+Synco must learn broadly from user activity, but must not give false weight to duplicate, noisy, contradictory, or suspicious events.
+
+Important distinction:
+- Exact retry duplicate:
+  same sourceLearningEventId + same memoryKind + same schemaVersion
+  is already handled by deterministic point IDs.
+
+- Contextual suspicious duplicate:
+  different LearningEvent IDs, but likely caused by the same user action, double-click, UI retry, or drag/edit noise.
+  This is NOT handled yet.
+
+This task should design the next safe layer.
+
+Inspect:
+1. server/brain/services/learningMemoryDerivation.ts
+2. server/routes/learning.ts
+3. src/store/taskStore.ts
+4. src/lib/api/learningClient.ts
+5. Any current LearningEvent model/schema definition
+6. Any fields available in payload metadata:
+   - taskId
+   - eventType
+   - source
+   - occurredAt / createdAt
+   - fromStatus / toStatus
+   - fromStartTime / toStartTime
+   - fromEndTime / toEndTime
+   - actualDurationMinutes
+   - plannedDurationMinutes
+   - durationDeltaMinutes
+   - actualStartSource
+
+Design:
+A. What contextual duplicate/suspicious cases can be detected deterministically now?
+B. What cases require more metadata or UI correlation later?
+C. What integrity statuses should be used now:
+   - accepted_fact
+   - duplicate_ignored
+   - suspicious_pending
+D. Where should this gate live?
+   Preferred:
+   before deriveFactualMemoriesFromLearningEvent writes memories,
+   but after Postgres LearningEvent is saved.
+E. Should raw Postgres LearningEvent always be preserved?
+F. How should suspicious events be marked without writing active Qdrant memories?
+G. Should suspicious events be written to Qdrant at all, or only remain in Postgres for now?
+H. Which event types should be checked first:
+   - task_completed
+   - task_execution_completed
+   - task_created
+I. Why task_rescheduled should still not be ingested until a reschedule-noise collapse policy exists.
+J. Minimal safe implementation plan.
+K. Tests needed:
+   - double-click completion
+   - repeated task_completed for same task within seconds
+   - task_execution_completed repeated with same taskId and same duration
+   - two real completions of a recurring task at different times should NOT be treated as duplicate
+   - task_rescheduled still excluded
+L. Risks and rollback plan.
+
+Do not implement code.
+Only inspect and design.
