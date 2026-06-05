@@ -1,0 +1,1 @@
+- [Learning Integrity Gate](learning-integrity-gate.md) — Phase 1 contextual duplicate gate live; fail-open; task_rescheduled excluded pending burst-collapse policy.

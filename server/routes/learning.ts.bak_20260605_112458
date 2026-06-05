@@ -8,7 +8,6 @@ import { buildPlanningLearningContext } from '../services/planningLearningContex
 import { buildDurationSuggestionContext } from '../services/durationIntelligenceService.js';
 import { storeUserMessage } from '../brain/services/memory.js';
 import { deriveFactualMemoriesFromLearningEvent } from '../brain/services/learningMemoryDerivation.js';
-import { runContextualDuplicateGate } from '../brain/services/learningIntegrityGate.js';
 
 const router = Router();
 
@@ -247,44 +246,6 @@ router.post('/events', async (req: Request, res: Response) => {
         metadata:          metadata          ?? null,
       },
     });
-
-    // ── Integrity Gate ────────────────────────────────────────────────────────
-    // Runs AFTER Postgres commit (raw event always preserved).
-    // Detects contextual duplicates (double-click, network retry) and skips
-    // Qdrant derivation for suppressed events. Fails open on any error.
-    {
-      const gateResult = await runContextualDuplicateGate({
-        id:        event.id,
-        userId:    event.userId,
-        taskId:    event.taskId,
-        eventType: event.eventType,
-        dateIso:   event.dateIso,
-        occurredAt: event.occurredAt,
-      });
-
-      if (gateResult.status === 'duplicate_ignored') {
-        console.warn('[LearningIntegrityGate] duplicate_ignored', {
-          eventId:         event.id,
-          priorEventId:    gateResult.priorEventId,
-          userId:          event.userId,
-          taskId:          event.taskId,
-          eventType:       event.eventType,
-          dateIso:         event.dateIso,
-          windowMs:        gateResult.windowMs,
-          occurredAtDiffMs: gateResult.occurredAtDiffMs,
-        });
-
-        return res.json({
-          ok: true,
-          event: {
-            id:         event.id,
-            eventType:  event.eventType,
-            taskId:     event.taskId,
-            occurredAt: event.occurredAt.toISOString(),
-          },
-        });
-      }
-    }
 
     // ── Fire-and-forget: Memory Derivation Engine ────────────────────────────
     // Derives factual memories from the saved event and writes each to Qdrant

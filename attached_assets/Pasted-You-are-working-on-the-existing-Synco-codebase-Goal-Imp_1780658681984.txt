@@ -1,0 +1,252 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Implement Phase 1 of Synco Learning Integrity Gate: contextual duplicate detection for high-value learning events before derived memories are written to Qdrant.
+
+This is an implementation task.
+
+CURRENT CONFIRMED STATE
+
+- Memory Derivation Engine exists:
+  server/brain/services/learningMemoryDerivation.ts
+- server/routes/learning.ts uses derivation instead of old one-text-per-event ingestion.
+- One LearningEvent can create multiple factual derived memories.
+- Deterministic Qdrant point IDs are based on:
+  sourceLearningEventId + memoryKind + schemaVersion
+- This prevents duplicate writes for the same derived memory from the same source event.
+- It does NOT prevent contextual duplicates where different LearningEvent rows represent the same user action.
+- learningIntegrityGate.ts does not exist yet.
+- Qdrant failures are non-blocking.
+- Qdrant Cloud may be temporarily unavailable, so implementation must not depend on live Qdrant availability.
+
+IMPORTANT PRODUCT PRINCIPLE
+
+Raw activity history is always preserved in Postgres.
+But likely duplicate UI actions must not gain false weight as active memory or future pattern evidence.
+
+Examples:
+- Double-click "סיימתי"
+- Same task_completed sent twice within seconds
+- Same task_execution_completed sent twice within seconds
+- Same task_created with the same taskId sent twice
+
+MANDATORY RULES
+
+1. Raw LearningEvent is always saved to Postgres if it passes validation.
+2. The Integrity Gate runs only after prisma.learningEvent.create() succeeds.
+3. If an event is accepted:
+   - derive factual memories
+   - fire-and-forget Qdrant writes as today
+4. If an event is duplicate_ignored:
+   - do NOT derive memories
+   - do NOT write to Qdrant
+   - log a safe structured warning without private memory content
+   - return the exact same API response shape as today
+5. Do NOT add integrityStatus to the API response in this phase.
+6. Do NOT modify DB schema.
+7. Do NOT modify frontend.
+8. Do NOT ingest task_rescheduled yet.
+9. Gate failures must fail open:
+   if the gate query errors, return accepted so real events are not suppressed due to infrastructure bugs.
+
+SAFETY RULES
+
+- Before modifying files, inspect current contents and create timestamped .bak files.
+- Modify only the minimum required files.
+- Prefer adding one isolated helper file for the gate.
+- Do not modify AI prompts, schemas, validators, reasoning services, syncoMemoryContext, or frontend files.
+- Do not change API response shapes.
+- Qdrant writes must remain fire-and-forget.
+- Do not log full private task titles. If needed, log only event IDs, userId, taskId, eventType, dateIso, and timing metadata.
+
+PART 1 — CREATE INTEGRITY GATE HELPER
+
+Create:
+
+server/brain/services/learningIntegrityGate.ts
+
+Implement:
+
+type LearningIntegrityStatus = 'accepted' | 'duplicate_ignored';
+
+interface LearningIntegrityGateResult {
+  status: LearningIntegrityStatus;
+  priorEventId?: string;
+  windowMs?: number;
+  occurredAtDiffMs?: number;
+  reason?: string;
+}
+
+Export:
+
+runContextualDuplicateGate(event): Promise<LearningIntegrityGateResult>
+
+Input can be typed locally if importing Prisma types is awkward.
+
+Gate config:
+
+task_completed:
+- windowMs: 3000
+- useDateIso: true
+
+task_execution_completed:
+- windowMs: 5000
+- useDateIso: true
+
+task_created:
+- windowMs: 3000
+- useDateIso: false
+
+Logic:
+
+1. If process.env.SYNCO_INTEGRITY_GATE_ENABLED === 'false':
+   return { status: 'accepted', reason: 'disabled' }
+
+2. If event.eventType is not in config:
+   return { status: 'accepted', reason: 'event_not_gated' }
+
+3. If event.taskId is missing:
+   return { status: 'accepted', reason: 'missing_task_id' }
+
+4. Build windowStart:
+   event.occurredAt - windowMs
+
+5. Query Postgres for a prior LearningEvent with:
+   - same userId
+   - same taskId
+   - same eventType
+   - occurredAt >= windowStart
+   - occurredAt < event.occurredAt
+   - id != event.id
+   - if useDateIso is true and event.dateIso exists:
+       same dateIso
+
+6. For task_created:
+   - do NOT require dateIso match.
+   - same taskId + eventType within 3 seconds is duplicate.
+
+7. If prior event exists:
+   return:
+   {
+     status: 'duplicate_ignored',
+     priorEventId: prior.id,
+     windowMs,
+     occurredAtDiffMs
+   }
+
+8. If none:
+   return { status: 'accepted' }
+
+9. On any gate error:
+   console.warn('[LearningIntegrityGate] gate_error_fail_open', safe metadata only)
+   return { status: 'accepted', reason: 'gate_error_fail_open' }
+
+Important:
+For recurring task completions, dateIso protects different occurrences from being treated as duplicates.
+If useDateIso is true but event.dateIso is missing, still run the gate using userId + taskId + eventType + time window only, but set reason/metadata internally if useful. Do not reject the event just because dateIso is missing.
+
+PART 2 — INTEGRATE INTO server/routes/learning.ts
+
+After prisma.learningEvent.create() succeeds and before deriveFactualMemoriesFromLearningEvent():
+
+1. Call runContextualDuplicateGate(event)
+
+2. If result.status === 'duplicate_ignored':
+   - log:
+     [LearningIntegrityGate] duplicate_ignored
+     with:
+       eventId
+       priorEventId
+       userId
+       taskId
+       eventType
+       dateIso
+       windowMs
+       occurredAtDiffMs
+   - do NOT call deriveFactualMemoriesFromLearningEvent
+   - do NOT write to Qdrant
+   - return the existing response shape exactly:
+     { ok: true, event: { id, eventType, taskId, occurredAt } }
+
+3. If result.status === 'accepted':
+   - continue current derivation loop unchanged.
+
+Do not add integrityStatus to the API response.
+
+PART 3 — TESTING
+
+Run:
+npx tsc --noEmit
+npx tsx scripts/test-synco-memory-context.ts
+
+Create a diagnostic script only if useful, for example:
+
+scripts/test-learning-integrity-gate.ts
+
+Required diagnostics:
+
+Diagnostic A — duplicate task_completed:
+- Post task_completed for same userId/taskId/eventType/dateIso twice immediately.
+- First event should be accepted and derivation may run.
+- Second event should be duplicate_ignored internally.
+- Verify second event does not call derivation/storeUserMessage.
+- If Qdrant is unavailable, verify by route logs / derivation skip / no storeUserMessage call.
+
+Diagnostic B — duplicate task_execution_completed:
+- Post task_execution_completed twice within 5 seconds with same userId/taskId/dateIso.
+- First accepted.
+- Second duplicate_ignored.
+- Verify second does not derive actual_duration or planned_vs_actual_duration.
+
+Diagnostic C — recurring different dateIso:
+- Post task_completed for same userId/taskId/eventType but different dateIso values.
+- Both should be accepted.
+- This proves recurring occurrences are not incorrectly suppressed.
+
+Diagnostic D — task_created duplicate:
+- Post task_created twice with same taskId.
+- Second duplicate_ignored even if dateIso differs or is missing.
+
+Diagnostic E — taskId missing:
+- Event with missing taskId should be accepted by the gate.
+- Existing route validation behavior should remain unchanged.
+
+Diagnostic F — task_rescheduled:
+- Confirm it is not gated and still produces no derived memories.
+- Do not add it to derivation.
+
+Diagnostic G — gate disabled:
+- With SYNCO_INTEGRITY_GATE_ENABLED=false, duplicates should be accepted.
+- Do this only if safe to simulate via direct function call or temporary env in diagnostic script.
+- Do not permanently disable the gate.
+
+Diagnostic H — API response shape:
+- Confirm response is still exactly:
+  { ok: true, event: { id, eventType, taskId, occurredAt } }
+- No integrityStatus field is returned.
+
+PART 4 — FINAL REPORT
+
+Return:
+
+A. Files inspected
+B. Backup files created
+C. Files created or modified
+D. Exact gate config implemented
+E. Exact integration point in learning.ts
+F. Confirmation raw Postgres events are always preserved
+G. Confirmation duplicate_ignored events do not derive memories
+H. Confirmation API response shape did not change
+I. Diagnostic A result
+J. Diagnostic B result
+K. Diagnostic C result
+L. Diagnostic D result
+M. Diagnostic E result
+N. Diagnostic F result
+O. Diagnostic G result or safe explanation if not run
+P. Diagnostic H result
+Q. TypeScript result
+R. Memory test result
+S. Confirmation no DB schema changed
+T. Confirmation task_rescheduled remains excluded
+U. Next recommended step, but do not implement it
