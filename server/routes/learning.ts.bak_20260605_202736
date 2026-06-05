@@ -9,7 +9,6 @@ import { buildDurationSuggestionContext } from '../services/durationIntelligence
 import { storeUserMessage } from '../brain/services/memory.js';
 import { deriveFactualMemoriesFromLearningEvent } from '../brain/services/learningMemoryDerivation.js';
 import { runContextualDuplicateGate } from '../brain/services/learningIntegrityGate.js';
-import { annotateRescheduleBurst } from '../brain/services/rescheduleBurstDetector.js';
 
 const router = Router();
 
@@ -285,29 +284,6 @@ router.post('/events', async (req: Request, res: Response) => {
           },
         });
       }
-    }
-
-    // ── Fire-and-forget: Reschedule Burst Annotation (Phase 3) ──────────────
-    // Annotates task_rescheduled events with burst membership metadata
-    // (burstRole, isInitialPlacementRefinement) in their Postgres metadata field.
-    // Zero Qdrant writes. Never blocks the HTTP response.
-    if (event.eventType === 'task_rescheduled') {
-      void annotateRescheduleBurst({
-        id:        event.id,
-        userId:    event.userId,
-        taskId:    event.taskId,
-        eventType: event.eventType,
-        dateIso:   event.dateIso,
-        occurredAt: event.occurredAt,
-        metadata:  event.metadata as Record<string, unknown> | null,
-      }).catch((err: unknown) => {
-        console.warn('[RescheduleBurstDetector] unhandled annotation error', {
-          eventId:   event.id,
-          taskId:    event.taskId,
-          userId:    event.userId,
-          error:     err instanceof Error ? err.message : String(err),
-        });
-      });
     }
 
     // ── Fire-and-forget: Memory Derivation Engine ────────────────────────────

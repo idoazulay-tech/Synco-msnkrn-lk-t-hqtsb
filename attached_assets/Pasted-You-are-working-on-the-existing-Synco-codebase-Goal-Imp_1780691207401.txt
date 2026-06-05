@@ -1,0 +1,341 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Implement Phase 3 of Synco Reschedule Burst Collapse foundation: annotate task_rescheduled raw events with burst metadata and initial-placement-refinement metadata, without writing anything to Qdrant and without inferring behavioral conclusions.
+
+This is an implementation task.
+
+CURRENT CONFIRMED STATE
+
+- Phase 1 Learning Integrity Gate is implemented and tested.
+- Phase 2 Reschedule Data Quality Fix is implemented and tested.
+- task_rescheduled now includes:
+  - dateIso
+  - metadata.taskCreatedAt
+- task_rescheduled still does NOT write to Qdrant.
+- deriveFactualMemoriesFromLearningEvent returns [] for task_rescheduled.
+- No DB schema changes have been made.
+- No API response shape changes have been made.
+- No frontend UI changes are needed.
+
+IMPORTANT PRODUCT DECISION
+
+Use a 5-minute burst window.
+
+The product rule is:
+Multiple movements of the same task within a 5-minute window are treated as one schedule-editing burst, not as repeated postponements.
+
+Therefore:
+BURST_WINDOW_MS = 5 * 60_000
+INITIAL_PLACEMENT_WINDOW_MS = 5 * 60_000
+
+Do not use 2 minutes as the default in this implementation.
+
+ARCHITECTURAL DISTINCTION
+
+Do NOT treat normal reschedule burst members as duplicate_ignored.
+
+duplicate_ignored means:
+- technical duplicate
+- retry
+- double-click
+- an event that should not have existed
+
+reschedule burst means:
+- several real user edits
+- user is arranging the schedule
+- each raw event is real and must remain preserved
+- the sequence should be summarized semantically later
+
+Mandatory rules:
+1. Every raw task_rescheduled event remains saved in Postgres.
+2. task_rescheduled still creates zero Qdrant memories in Phase 3.
+3. No task_rescheduled event should be labeled as postponement, avoidance, procrastination, planning failure, discipline issue, or pattern.
+4. Burst annotation is metadata only.
+5. Initial placement refinement is metadata only.
+6. No synthetic task_rescheduled_collapsed event yet.
+7. No new event types.
+8. No DB schema changes.
+9. No API response shape changes.
+10. No frontend changes.
+11. All annotation work should be fire-and-forget and non-blocking.
+
+SAFETY RULES
+
+- Before modifying files, inspect current contents.
+- Create timestamped .bak backup files for every file modified.
+- Modify only the minimum required files.
+- Prefer creating one isolated helper service:
+  server/brain/services/rescheduleBurstDetector.ts
+- Modify server/routes/learning.ts only to call the helper after the existing integrity gate.
+- Do not modify Memory Derivation Engine except only if tests show it is needed to confirm task_rescheduled still returns [].
+- Do not modify Learning Integrity Gate.
+- Do not modify AI prompts, schemas, validators, reasoning services, or syncoMemoryContext.
+- Do not modify frontend.
+- Do not log private task content.
+
+PART 1 — CREATE RESCHEDULE BURST DETECTOR SERVICE
+
+Create:
+
+server/brain/services/rescheduleBurstDetector.ts
+
+Export:
+
+detectRescheduleBurstContext(event): Promise<RescheduleBurstContext>
+
+and/or
+
+annotateRescheduleBurst(event): Promise<void>
+
+Use whichever split is cleanest, but keep the service easy to test.
+
+Constants:
+
+const BURST_WINDOW_MS = 5 * 60_000;
+const INITIAL_PLACEMENT_WINDOW_MS = 5 * 60_000;
+
+Feature flag:
+If process.env.SYNCO_BURST_DETECTION_ENABLED === 'false':
+- skip annotation entirely
+- return safely
+- raw event remains saved
+- zero Qdrant writes
+
+Input event must include:
+- id
+- userId
+- taskId
+- eventType
+- dateIso
+- occurredAt
+- metadata
+
+If eventType !== 'task_rescheduled':
+- do nothing
+
+If taskId is missing:
+- annotate current event as safely as possible or skip annotation.
+- Do not throw.
+- Do not block API response.
+
+PART 2 — DETECTION LOGIC
+
+For every new task_rescheduled event:
+
+1. Determine initial placement refinement:
+
+Read:
+metadata.taskCreatedAt
+
+If it is a valid ISO date:
+isInitialPlacementRefinement =
+  event.occurredAt - taskCreatedAt <= 5 minutes
+
+If missing or invalid:
+isInitialPlacementRefinement = false
+
+Important:
+isInitialPlacementRefinement is factual metadata only.
+It means:
+"the task was moved within 5 minutes of creation, so the user may still be placing it."
+
+It does NOT mean:
+- avoidance
+- postponement
+- planning failure
+- discipline issue
+
+2. Detect prior burst events:
+
+Find prior task_rescheduled events with:
+- same userId
+- same taskId
+- eventType = 'task_rescheduled'
+- occurredAt >= event.occurredAt - BURST_WINDOW_MS
+- occurredAt < event.occurredAt
+- id != current event.id
+- if event.dateIso is present:
+  same dateIso
+- if event.dateIso is missing:
+  omit dateIso filter and degrade gracefully
+
+Order by occurredAt ascending.
+
+3. Assign burstRole:
+
+If no prior burst events:
+- current event metadata.burstRole = 'sole'
+
+If prior burst events exist:
+- current event metadata.burstRole = 'final'
+- prior events in the same burst should be updated to metadata.burstRole = 'member'
+
+Important:
+'final' means "currently latest event in this burst based on known data."
+If another movement arrives within 5 minutes later, the previous final becomes member and the new one becomes final.
+
+4. Preserve existing metadata:
+
+Prisma Json update replaces metadata.
+So when updating metadata:
+- read existing metadata
+- spread existing fields
+- add:
+  burstRole
+  isInitialPlacementRefinement
+  burstWindowMs: 300000
+  burstDetectedAt: new Date().toISOString()
+- do not remove:
+  duration
+  priority
+  flexibility
+  taskCreatedAt
+  any existing fields
+
+For prior events updated to member:
+- preserve their existing metadata too.
+- only add/update burstRole and burstWindowMs/burstDetectedAt if safe.
+
+5. Fire-and-forget:
+
+The annotation must not block the response.
+If annotation fails:
+- console.warn with safe metadata only:
+  eventId
+  taskId
+  userId
+  dateIso
+  error message
+- do not throw
+- do not change API response
+
+PART 3 — INTEGRATE INTO server/routes/learning.ts
+
+After:
+- prisma.learningEvent.create()
+- Learning Integrity Gate check
+
+Before or alongside derivation loop is acceptable, but remember:
+- task_rescheduled currently derives [].
+- The annotation is independent from Qdrant.
+
+Recommended:
+After the integrity gate accepted/duplicate handling and before or after derivation loop, add:
+
+if (event.eventType === 'task_rescheduled') {
+  void annotateRescheduleBurst(event).catch(...)
+}
+
+Important:
+- If event is duplicate_ignored by the duplicate gate, no annotation needed.
+- But task_rescheduled is not gated currently, so it should normally reach annotation.
+- Do not add task_rescheduled to Learning Integrity Gate config.
+- Do not add task_rescheduled to Memory Derivation.
+
+PART 4 — DO NOT WRITE TO QDRANT
+
+Confirm:
+- deriveFactualMemoriesFromLearningEvent(task_rescheduled) still returns []
+- storeUserMessage is never called for task_rescheduled in Phase 3
+- No Qdrant writes occur from reschedule burst annotation
+
+PART 5 — TESTS
+
+Create or update a diagnostic test script:
+
+scripts/test-phase3-reschedule-burst.ts
+
+Required tests:
+
+T1 — Three moves within 5 minutes:
+- Create 3 task_rescheduled events for same userId/taskId/dateIso:
+  t0
+  t0 + 90 seconds
+  t0 + 180 seconds
+- Verify:
+  first event metadata.burstRole = 'member'
+  second event metadata.burstRole = 'member'
+  third event metadata.burstRole = 'final'
+  all three raw Postgres rows remain saved
+  zero Qdrant writes
+
+T2 — Single isolated move:
+- Create one task_rescheduled event with no prior within 5 minutes.
+- Verify:
+  metadata.burstRole = 'sole'
+  raw event saved
+  zero Qdrant writes
+
+T3 — Initial placement refinement:
+- taskCreatedAt = occurredAt - 2 minutes
+- Verify:
+  isInitialPlacementRefinement = true
+  no postponement/avoidance/planning-failure label anywhere
+
+T4 — Not initial placement refinement:
+- taskCreatedAt = occurredAt - 2 hours
+- Verify:
+  isInitialPlacementRefinement = false
+
+T5 — Different dateIso:
+- Same userId/taskId but different dateIso values within 5 minutes.
+- Verify:
+  events are not merged into same burst when dateIso exists.
+
+T6 — Missing taskCreatedAt:
+- metadata.taskCreatedAt missing or null.
+- Verify:
+  isInitialPlacementRefinement = false
+  no error thrown
+
+T7 — Feature flag off:
+- SYNCO_BURST_DETECTION_ENABLED=false
+- task_rescheduled event is saved raw
+- no burstRole annotation added
+- zero Qdrant writes
+
+T8 — Derivation unchanged:
+- deriveFactualMemoriesFromLearningEvent(task_rescheduled) returns []
+- storeUserMessage not called for reschedule annotation
+
+T9 — Gate regression:
+- duplicate task_completed still duplicate_ignored
+- recurring different-dateIso task_completed still accepted
+
+Run:
+npx tsc --noEmit
+npx tsx scripts/test-synco-memory-context.ts
+npx tsx scripts/test-learning-integrity-gate.ts
+npx tsx scripts/test-phase3-reschedule-burst.ts
+
+PART 6 — FINAL REPORT
+
+Return:
+
+A. Files inspected
+B. Backup files created
+C. Files created or modified
+D. Exact constants implemented
+E. Exact burstRole values implemented
+F. Exact isInitialPlacementRefinement logic
+G. Where annotation is called in learning.ts
+H. Confirmation raw task_rescheduled rows are always preserved
+I. Confirmation task_rescheduled still writes zero Qdrant memories
+J. T1 result
+K. T2 result
+L. T3 result
+M. T4 result
+N. T5 result
+O. T6 result
+P. T7 result
+Q. T8 result
+R. T9 result
+S. TypeScript result
+T. Memory context test result
+U. Learning integrity gate test result
+V. Phase 3 burst test result
+W. Confirmation no DB schema changed
+X. Confirmation no API response shape changed
+Y. Confirmation no UI changed
+Z. Next recommended step, but do not implement it
