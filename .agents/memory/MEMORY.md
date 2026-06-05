@@ -1,1 +1,2 @@
 - [Learning Integrity Gate](learning-integrity-gate.md) — Phase 1 contextual duplicate gate live; fail-open; task_rescheduled excluded pending burst-collapse policy.
+- [Reschedule Data Quality](reschedule-data-quality.md) — Phase 2 done: task_rescheduled now carries dateIso + metadata.taskCreatedAt; Phase 3 burst-collapse ready to build.

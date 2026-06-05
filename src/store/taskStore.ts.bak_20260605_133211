@@ -196,16 +196,14 @@ export const useTaskStore = create<TaskState>()(
               eventType: 'task_rescheduled',
               source: 'taskStore/updateTask',
               taskTitleSnapshot: previousTask.title,
-              dateIso: (updates.startTime ?? previousTask.startTime).toISOString().split('T')[0],
               fromStartTime: previousTask.startTime.toISOString(),
               fromEndTime:   previousTask.endTime.toISOString(),
               toStartTime:   (updates.startTime ?? previousTask.startTime).toISOString(),
               toEndTime:     (updates.endTime   ?? previousTask.endTime).toISOString(),
               metadata: {
-                duration:      updatedTask.duration,
-                priority:      updatedTask.priority ?? null,
-                flexibility:   updatedTask.flexibility ?? null,
-                taskCreatedAt: previousTask.createdAt?.toISOString?.() ?? null,
+                duration:    updatedTask.duration,
+                priority:    updatedTask.priority ?? null,
+                flexibility: updatedTask.flexibility ?? null,
               },
             });
           }
