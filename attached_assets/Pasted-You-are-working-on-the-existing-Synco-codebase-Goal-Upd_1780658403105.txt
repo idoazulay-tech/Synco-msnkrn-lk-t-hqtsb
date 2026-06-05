@@ -1,0 +1,327 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Update the next Synco Brain architecture plan after the completed Memory Derivation Engine, with a stronger distinction between raw activity, entity memory, derived memories, and learned conclusions.
+
+This is inspection and design only.
+Do not modify any files yet.
+
+CURRENT CONFIRMED STATE
+
+- Qdrant works when the cloud instance is available.
+- Qdrant failures are non-blocking.
+- Real OpenAI embeddings work with fallback=false.
+- Memory Confidence Policy works.
+- parsePlanningInputWithAI and interpretDayCommandWithAI are connected to memory.
+- Organic memory ingestion exists through server/routes/learning.ts.
+- Memory Derivation Engine exists at:
+  server/brain/services/learningMemoryDerivation.ts
+- One LearningEvent can create multiple factual derived memories by memoryKind.
+- Deterministic point IDs are based on:
+  sourceLearningEventId + memoryKind + schemaVersion
+- Implemented memoryKinds:
+  task_intent
+  task_completion
+  actual_duration
+  planned_vs_actual_duration
+- No patterns, habits, emotional conclusions, behavioral conclusions, or planning rules should be inferred from one event.
+- Low-Friction Confirmed Duration Capture exists:
+  HomePage and TaskDetailPage no-timer completion are protected.
+  user_reported duration is accepted only when explicitly selected.
+  planned_fallback and expired_execution_start_fallback are rejected from duration memory.
+  user_reported_no_duration writes no duration memory.
+
+IMPORTANT PRODUCT ARCHITECTURE UPDATE
+
+Synco must distinguish between four layers:
+
+1. Raw Activity History
+Every meaningful user action may be preserved as factual history.
+Examples:
+- task created
+- task completed
+- task moved
+- time edited
+- duration reported
+- entity mentioned
+- place mentioned
+- event mentioned
+
+Raw activity is not the same as a conclusion.
+
+2. Entity Memory
+Entities may be stored early when detected because they are anchors for future context.
+Examples:
+- people: שני, דני, אמא, מאמן
+- places: בית, עבודה, חדר כושר
+- life domains: עבודה, לימודים, זוגיות, כלב, משפחה
+- projects, recurring events, teams, courses, roles
+
+If the user mentions "שני", Synco may store an entity mention:
+- entityName: שני
+- entityType: person, if clear enough, otherwise unknown_person
+- source context: the task/message where she was mentioned
+
+But Synco must NOT infer from one mention:
+- emotional relationship
+- fear/love/avoidance
+- priority rule
+- behavioral pattern
+- psychological conclusion
+
+Those require accumulated evidence and/or explicit confirmation.
+
+3. Derived Factual Memories
+These are factual, bounded memories derived from raw events.
+Example:
+- task_created → task_intent
+- task_completed → task_completion
+- task_execution_completed with confirmed duration → actual_duration + planned_vs_actual_duration
+
+Derived memories are allowed when factual and supported by the event.
+
+4. Learned Conclusions / Patterns
+These are higher-level claims.
+Examples:
+- user often underestimates task duration
+- user postpones admin tasks
+- tasks related to a person receive high priority
+- evening tasks often take longer
+- user avoids a specific type of task
+
+These must NOT be created from a single event.
+They require:
+- multiple supporting events
+- Memory Integrity Gate
+- confidence scoring
+- sometimes user confirmation
+
+CORE RULE
+
+Every activity can be stored.
+Only reliable evidence can become active memory.
+Only accumulated evidence can become a conclusion.
+
+NEW RESCHEDULE POLICY
+
+Task movement is important, but it is noisy.
+
+1. Five-minute edit burst:
+Multiple movements of the same task within a 5-minute window should be treated as one scheduling/editing burst, not multiple postponements.
+
+Example:
+Task moved:
+09:00 → 09:15
+09:15 → 09:30
+09:30 → 10:00
+all within 5 minutes.
+
+Synco should not learn:
+"The user postponed the task 3 times."
+
+Synco should understand:
+"The user was editing/refining the task placement."
+
+2. Five-minute initial placement refinement:
+If a task is moved within 5 minutes after the task was created, Synco should treat this as initial placement refinement.
+
+Meaning:
+The user may still be finding the right slot.
+This must NOT count as:
+- postponement
+- avoidance
+- planning failure
+- discipline issue
+- execution problem
+
+At most, later and cautiously, it may support:
+"The initial placement may not have been exact."
+
+3. Raw movements may still be preserved.
+But reschedule events should not become active learned conclusions or pattern evidence until a burst/collapse policy exists.
+
+4. task_rescheduled should still NOT create normal Qdrant memories yet.
+Before adding it to memory derivation, Synco needs a reschedule burst collapse policy.
+
+IMPORTANT DISTINCTION
+
+Do not confuse:
+- raw reschedule history
+with:
+- reschedule pattern learning
+
+For now:
+task_rescheduled may remain stored in Postgres as raw activity.
+It should not produce active Qdrant learning memories until a collapse/integrity policy exists.
+
+THIS TASK
+
+Inspect and design only.
+Do not implement code.
+
+Inspect:
+1. server/brain/services/learningMemoryDerivation.ts
+2. server/routes/learning.ts
+3. server/brain/services/memory.ts
+4. server/brain/services/learningIntegrityGate.ts if it exists
+5. src/store/taskStore.ts
+6. src/lib/api/learningClient.ts
+7. Prisma LearningEvent model/schema
+8. Any metadata currently available for:
+   - task_created
+   - task_completed
+   - task_execution_completed
+   - task_rescheduled
+
+Specifically inspect available fields:
+- taskId
+- userId
+- eventType
+- source
+- dateIso
+- occurredAt
+- createdAt
+- taskTitleSnapshot
+- fromStatus
+- toStatus
+- fromStartTime
+- toStartTime
+- fromEndTime
+- toEndTime
+- metadata
+- metadata.createdAt if exists
+- metadata.taskCreatedAt if exists
+- metadata.actionId / correlationId if exists
+- metadata.duration fields
+
+DESIGN REPORT REQUIREMENTS
+
+Return a revised architecture/design report with:
+
+A. Current memory architecture summary
+Explain the current flow:
+LearningEvent → Memory Derivation Engine → derived memories → Qdrant.
+
+B. Current raw activity preservation
+Explain what is already preserved in Postgres and whether all learning events are retained.
+
+C. Current derived memory behavior
+List which event types currently produce derived memories and which memoryKinds.
+
+D. Current conclusion/pattern behavior
+Confirm that no conclusions or patterns are currently inferred from one event.
+
+E. Separation model
+Define clearly:
+- Raw Activity
+- Entity Memory
+- Derived Factual Memory
+- Learned Conclusion / Pattern
+
+F. Entity memory design
+Design how Synco should later extract entities such as people, places, projects, events, studies, roles, pets and domains.
+
+Include:
+- what can be stored immediately
+- what must not be inferred immediately
+- how entity mentions should connect to future actions
+- how user confirmation should be used when relationship/type is uncertain
+
+G. Current reschedule data availability
+For task_rescheduled, report exactly what fields are currently available.
+Can we know:
+- when the task was created?
+- how soon after creation it was moved?
+- whether multiple moves belong to one user editing burst?
+- whether there is any correlation/action ID?
+- whether dateIso is currently present or missing?
+
+H. Five-minute edit burst policy design
+Design how to collapse multiple task_rescheduled events within 5 minutes into one editing burst.
+
+Include:
+- grouping key
+- burst start
+- burst end
+- what raw events remain stored
+- what derived memory should or should not be created
+- whether any Qdrant memory is created in phase 1
+
+I. Initial placement refinement policy
+Design how to detect movement within 5 minutes after task creation.
+
+Include:
+- required fields
+- what can be detected now
+- what cannot be detected yet
+- how to avoid labeling this as postponement
+
+J. Contextual duplicate gate relationship
+Explain how this reschedule burst policy differs from the duplicate gate.
+
+Duplicate gate handles:
+- double-click
+- retry
+- same event effect repeated
+
+Reschedule burst handles:
+- multiple real edits that should be summarized as one placement refinement
+
+K. Proposed implementation sequence
+Give the safest phased sequence:
+
+Phase 1:
+Contextual duplicate gate for:
+- task_created
+- task_completed
+- task_execution_completed
+
+Phase 2:
+Reschedule raw data quality fix:
+- ensure dateIso exists
+- ensure task creation timestamp or taskCreatedAt is available
+- ensure enough metadata exists for burst grouping
+
+Phase 3:
+Reschedule burst collapse design implementation
+- keep raw events
+- create one collapsed summary only when burst closes
+- do not create behavioral conclusion
+
+Phase 4:
+Entity extraction layer
+- entity mentions stored as entities, not conclusions
+
+Phase 5:
+Pattern learning layer
+- only after enough clean facts exist
+
+L. Minimal safe next implementation step
+Based on the current code, recommend the single next implementation step.
+Do NOT implement it.
+
+Important:
+If the contextual duplicate gate is still missing, it should likely remain the next step before reschedule burst ingestion.
+If the duplicate gate already exists, then recommend the smallest data-quality step for reschedule burst.
+
+M. Tests required
+List tests for:
+- double-click completion suppressed from memory
+- retry duplicate suppressed from memory
+- same task completed on different dateIso accepted
+- several task_rescheduled within 5 minutes treated as one editing burst
+- task moved within 5 minutes after creation treated as initial refinement
+- task moved hours later not treated as initial refinement
+- entity mention stored as entity, not conclusion
+- no pattern inferred from one event
+
+N. Risks and rollback plan
+
+O. Final recommendation
+State clearly:
+What should we implement next, and what should we explicitly not implement yet?
+
+Do not modify files.
+Do not create files.
+Do not run migrations.
+Only inspect and design.
