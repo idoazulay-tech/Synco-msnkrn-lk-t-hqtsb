@@ -1,0 +1,265 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Design Synco Open Questions Engine and Deferred Clarification system.
+
+This is inspection and design only.
+Do not modify files yet.
+
+CURRENT CONFIRMED STATE
+
+- Synco has Memory Confidence Policy.
+- Synco has Memory Derivation Engine.
+- Synco has Learning Integrity Gate.
+- Synco has Low-Friction Confirmed Duration Capture.
+- Synco has Reschedule Burst Detection.
+- Synco has Settled Reschedule Memory Phase 4a as script-first.
+- parsePlanningInputWithAI and interpretDayCommandWithAI are connected to memory.
+- The system distinguishes raw events, derived factual memories, and learned conclusions.
+- Synco must not infer patterns from one event.
+
+NEW PRODUCT REQUIREMENT
+
+Synco must distinguish between:
+1. Questions that are critical right now for executing the user’s request.
+2. Questions that are useful for learning the user better, but are not critical to execute the current request.
+
+If information is critical to the current action:
+- Ask now, in the current flow.
+- Ask the smallest number of questions, ideally one focused question.
+
+If information is missing but not critical:
+- Do not block the user.
+- Execute the safe action.
+- Add a deferred open question to a dedicated app area.
+
+Suggested area name:
+- "מרכז ההיכרות"
+Other possible names:
+- "אזור ההשלמות"
+- "מרכז הדיוק"
+- "סינקו שואל"
+
+Example:
+User says:
+"תזכיר לי לדבר עם דניאל על הפרויקט בשבת"
+
+Synco should:
+- Create/schedule the task for Saturday.
+- Not block the user by asking who Daniel is or what project.
+- Add deferred questions:
+  - "מי זה דניאל עבורך?"
+  - "על איזה פרויקט מדובר?"
+  - "האם דניאל קשור לעבודה, לסינקו, למשפחה או למשהו אחר?"
+
+When the user later answers in the dedicated area:
+- Store the answer into memory/entity/profile.
+- Close the answered question.
+- Generate follow-up questions only if the new information creates a meaningful gap.
+
+IMPORTANT INTELLIGENCE REQUIREMENT
+
+Every new input to Synco should be checked against open questions.
+
+Inputs include:
+- typed free text
+- voice input
+- task creation
+- task edits
+- day planning commands
+- task completion reports
+- user answers in the dedicated questions area
+
+If a new input contains enough information to answer an existing open question:
+- Synco should link the answer to the question.
+- Update memory/profile/entities.
+- Mark the question as answered or resolved.
+- Remove it from the active questions list.
+- Create follow-up questions only when useful and not intrusive.
+
+CORE PRODUCT RULE
+
+Synco should not stop execution because information is missing for learning.
+Synco should stop execution only when information is missing for doing the requested action correctly.
+
+DESIGN GOALS
+
+1. Reduce unnecessary real-time questions.
+2. Avoid false conclusions.
+3. Let Synco act quickly when safe.
+4. Let Synco learn over time through deferred questions.
+5. Convert every input into useful structured knowledge where possible.
+6. Keep user trust by not pretending to know what it does not know.
+
+INSPECT EXISTING CODE
+
+Please inspect:
+1. Current routes/pages/components that could host a "מרכז ההיכרות" or deferred questions area.
+2. Any existing "organization", "inbox", "drafts", "settings", "profile", "memory", or "questions" UI.
+3. src/store task/user state files.
+4. server routes related to learning, memory, AI, profile, or user data.
+5. server/brain services:
+   - memory.ts
+   - learningMemoryDerivation.ts
+   - syncoMemoryContext.ts if relevant
+   - any profile/insight storage
+6. AI reasoning service:
+   - parsePlanningInputWithAI
+   - interpretDayCommandWithAI
+   - any schema that returns questions, assumptions, warnings
+7. Any schemas/types where AI already returns:
+   - questions
+   - assumptions
+   - missing fields
+   - confidence
+   - entities
+8. Current voice input flow and whether it can provide free text to a matcher.
+9. Current DB/Prisma models and whether a new OpenQuestion model would be needed, or whether existing storage can safely hold it.
+
+DESIGN REPORT REQUIREMENTS
+
+Return a complete design report:
+
+A. Current state:
+- Where Synco currently asks questions.
+- Where those questions are returned.
+- Whether any questions are persisted today.
+- Whether there is currently a UI area for open/deferred questions.
+
+B. Decision rule:
+Define how Synco decides:
+- ask now
+- defer question
+- make safe assumption
+- execute action
+- propose and ask for confirmation
+
+C. OpenQuestion data model:
+Propose fields:
+- id
+- userId
+- questionText
+- questionType
+- status: open | answered | resolved | dismissed
+- priority
+- blocking: boolean
+- relatedTaskId
+- relatedEntityName
+- relatedProjectId
+- sourceInputId / sourceLearningEventId
+- reason
+- createdAt
+- updatedAt
+- answeredAt
+- answerText
+- answerSource
+- confidence
+- followUpOfQuestionId
+- expiresAt if needed
+
+D. Question types:
+Examples:
+- entity_identity
+- entity_relationship
+- project_identity
+- task_context
+- location_context
+- time_preference
+- priority_preference
+- routine_learning
+- domain_classification
+- ambiguity_resolution
+
+E. Question priority:
+Define what becomes:
+- immediate/blocking
+- high deferred
+- normal deferred
+- low/background
+
+F. UI design:
+Recommend the first MVP version of the area.
+Name recommendation:
+- "מרכז ההיכרות"
+or another better name.
+Where should it live in the app?
+What should the user see?
+How to avoid making it feel like homework?
+
+G. Answer flow:
+What happens when user answers a question:
+- memory update
+- entity update
+- task update if relevant
+- close question
+- generate follow-up question if useful
+
+H. Automatic answer matching:
+Design how new free text / voice / task input is matched against open questions.
+Include:
+- exact matching
+- entity matching
+- semantic matching with memory embeddings
+- AI-assisted matching if needed
+- confidence thresholds
+- when to auto-close
+- when to ask confirmation before closing
+
+I. Relationship to Memory Confidence Policy:
+How weak/suggested/active memory should affect open questions.
+
+J. Relationship to Entity Memory:
+How open questions help identify people, places, projects and domains without over-inference.
+
+K. Relationship to task planning:
+How deferred questions allow Synco to still create/schedule tasks now.
+
+L. API/backend design:
+Propose routes/services needed:
+- createOpenQuestion
+- listOpenQuestions
+- answerOpenQuestion
+- resolveOpenQuestionFromInput
+- generateFollowUpQuestions
+
+M. Storage recommendation:
+Should this be:
+- Prisma table?
+- Qdrant only?
+- both?
+- local store for MVP?
+Give the safest recommendation.
+
+N. Minimal safe implementation phases:
+
+Phase 1:
+Persist open questions manually from AI outputs or task parsing.
+
+Phase 2:
+Add UI "מרכז ההיכרות" to answer questions.
+
+Phase 3:
+When answered, store answer into memory/profile and close question.
+
+Phase 4:
+Auto-match new inputs to open questions.
+
+Phase 5:
+Generate follow-up questions carefully.
+
+O. Tests required:
+- non-critical missing info becomes deferred question
+- critical missing info asks now
+- deferred question appears in UI
+- answering updates memory and closes question
+- later free text answers existing question automatically
+- ambiguous answer does not auto-close
+- follow-up question generated only when useful
+- no conclusions from one answer unless explicitly confirmed
+
+P. Risks and rollback plan.
+
+Q. Final recommendation:
+What should we implement first?
+Do not implement code.
+Only inspect and design.
