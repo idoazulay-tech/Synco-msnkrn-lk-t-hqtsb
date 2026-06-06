@@ -77,3 +77,8 @@ export type UserTask = Prisma.UserTaskModel
  * 
  */
 export type PlanningDraft = Prisma.PlanningDraftModel
+/**
+ * Model OpenQuestion
+ * 
+ */
+export type OpenQuestion = Prisma.OpenQuestionModel

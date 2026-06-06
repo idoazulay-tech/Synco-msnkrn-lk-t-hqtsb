@@ -1,0 +1,269 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Implement Phase 1 of Synco Open Questions Engine: durable backend infrastructure for deferred non-blocking clarification questions.
+
+This is an implementation task.
+
+CURRENT CONFIRMED STATE
+
+- Synco already asks in-flow blocking questions through:
+  - detectMissingInfo
+  - orgInquiryQuestions
+  - parsePlanningInputWithAI
+  - interpretDayCommandWithAI
+  - task breakdown/report schemas
+- Some curiosity/question infrastructure exists, but it is in-memory and not shown in the frontend.
+- There is no durable OpenQuestion model.
+- There is no persistent UI-backed deferred questions area.
+- There is no mechanism yet for automatically matching future input to open questions.
+
+PRODUCT RULE
+
+Synco should ask now only when missing information blocks the requested action.
+
+If missing information is useful for learning but not critical to the current action:
+- Execute the safe action now.
+- Create a deferred open question.
+- Let the user answer later in "מרכז ההיכרות" / "סינקו שואל".
+
+Examples:
+User says:
+"תזכיר לי לדבר עם דניאל על הפרויקט בשבת"
+
+Synco should:
+- Create/schedule the task.
+- Create deferred questions like:
+  - "מי זה דניאל עבורך?"
+  - "על איזה פרויקט מדובר?"
+- Not block task creation.
+
+IMPORTANT SCOPE FOR PHASE 1
+
+Implement only durable backend infrastructure.
+
+Do NOT implement:
+- full frontend page yet
+- auto-matching from free text
+- voice matching
+- entity extraction AI
+- pattern learning
+- follow-up generation
+- Qdrant memory writes from answers
+- changes to planning AI behavior
+
+This phase creates the foundation only.
+
+SAFETY RULES
+
+- Before modifying files, inspect current code and create timestamped .bak backups.
+- Keep changes minimal and additive.
+- Do not modify existing AI prompts, schemas, validators, or reasoning services.
+- Do not modify Qdrant infrastructure.
+- Do not modify Memory Confidence Policy.
+- Do not modify Learning Integrity Gate.
+- Do not modify Memory Derivation Engine.
+- Do not change existing API response shapes.
+- Add new routes only under a clearly isolated path.
+- Do not break existing in-memory curiosity/org inquiry flows.
+
+PART 1 — PRISMA MODEL
+
+Add a new Prisma model:
+
+OpenQuestion
+
+Fields:
+
+id                    String   @id @default(cuid())
+userId                String
+questionText          String
+questionType          String
+status                String   @default("open")
+priority              String   @default("normal")
+blocking              Boolean  @default(false)
+
+relatedTaskId         String?
+relatedTaskTitle      String?
+relatedEntityName     String?
+relatedEntityType     String?
+relatedProjectId      String?
+
+sourceInputText       String?
+sourceLearningEventId String?
+sourceInputRoute      String?
+
+generationReason      String?
+assumptionMade        String?
+
+answeredAt            DateTime?
+answerText            String?
+answerSource          String?
+answerConfidence      Float?
+
+memoryWrittenAt       DateTime?
+
+followUpOfQuestionId  String?
+expiresAt             DateTime?
+
+createdAt             DateTime @default(now())
+updatedAt             DateTime @updatedAt
+
+Indexes:
+@@index([userId])
+@@index([userId, status])
+@@index([relatedTaskId])
+@@index([userId, questionType, status])
+
+Run prisma generate / migration according to the existing project conventions.
+
+PART 2 — SERVICE LAYER
+
+Create:
+
+server/brain/services/openQuestions.ts
+
+Implement functions:
+
+createOpenQuestion(input)
+listOpenQuestions(userId, opts?)
+answerOpenQuestion(questionId, userId, answerText, opts?)
+dismissOpenQuestion(questionId, userId)
+snoozeOpenQuestion(questionId, userId, until?)
+
+Rules:
+
+createOpenQuestion:
+- Create only if questionText is non-empty.
+- Default status = open.
+- Default blocking = false.
+- Default priority = normal.
+- Truncate sourceInputText to max 100 chars.
+- Do not create duplicate identical open questions for same:
+  userId + questionType + relatedEntityName + relatedTaskId + questionText
+- If duplicate exists, return the existing question instead of creating a new one.
+
+listOpenQuestions:
+- Return status='open' by default.
+- Sort by priority and createdAt.
+- Do not return expired questions unless explicitly requested.
+
+answerOpenQuestion:
+- Validate non-empty answerText.
+- Set:
+  status='answered'
+  answeredAt=now
+  answerText
+  answerSource='user_explicit' by default
+  answerConfidence=1.0 by default
+- Do not write to Qdrant yet in Phase 1.
+- Do not generate follow-up questions yet in Phase 1.
+
+dismissOpenQuestion:
+- status='dismissed'
+
+snoozeOpenQuestion:
+- status remains open
+- set expiresAt or snoozedUntil if there is already a preferred existing pattern.
+- If no snooze field exists, use expiresAt cautiously or report that a dedicated snoozedUntil field is needed.
+- Do not overcomplicate.
+
+PART 3 — ROUTES
+
+Create a new isolated route file, for example:
+
+server/routes/openQuestions.ts
+
+Routes:
+
+GET /api/open-questions?userId=...
+- list open questions
+
+POST /api/open-questions
+- create question manually/backend
+
+POST /api/open-questions/:id/answer
+- answer question
+
+POST /api/open-questions/:id/dismiss
+- dismiss question
+
+Optional:
+POST /api/open-questions/:id/snooze
+
+Register the route in the existing server route setup.
+
+Do not modify existing response shapes elsewhere.
+
+PART 4 — VALIDATION SCRIPT
+
+Create:
+
+scripts/test-open-questions.ts
+
+Tests:
+
+T1 — create open question
+- creates question with status open
+
+T2 — duplicate prevention
+- same userId/questionType/relatedEntityName/relatedTaskId/questionText returns existing question, not duplicate
+
+T3 — list open questions
+- returns only open questions by default
+
+T4 — answer question
+- status becomes answered
+- answerText saved
+- answerSource = user_explicit
+- answerConfidence = 1.0
+
+T5 — dismiss question
+- status becomes dismissed
+- no longer appears in default open list
+
+T6 — sourceInputText truncation
+- long text is truncated to <=100 chars
+
+T7 — non-blocking default
+- blocking defaults to false
+
+T8 — no Qdrant writes
+- answering question does not call storeUserMessage in Phase 1
+
+T9 — route response shape
+- open question routes return stable new response shapes only
+- existing routes are unchanged
+
+PART 5 — RUN TESTS
+
+Run:
+
+npx prisma generate
+npx tsc --noEmit
+npx tsx scripts/test-open-questions.ts
+npx tsx scripts/test-synco-memory-context.ts
+npx tsx scripts/test-learning-integrity-gate.ts
+npx tsx scripts/test-phase3-reschedule-burst.ts
+npx tsx scripts/test-phase4-settled-reschedule.ts
+
+PART 6 — FINAL REPORT
+
+Return:
+
+A. Files inspected
+B. Backup files created
+C. Files created or modified
+D. Prisma model added
+E. Migration/generate result
+F. Service functions implemented
+G. Routes implemented
+H. Duplicate prevention behavior
+I. Answer behavior
+J. Confirmation no Qdrant writes from answers yet
+K. Confirmation existing routes unchanged
+L. Open questions test result
+M. TypeScript result
+N. Existing memory/context/gate/burst/settled tests result
+O. No frontend changes confirmation
+P. Next recommended step, but do not implement it

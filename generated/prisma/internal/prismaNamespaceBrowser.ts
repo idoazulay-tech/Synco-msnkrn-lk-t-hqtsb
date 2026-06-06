@@ -62,7 +62,8 @@ export const ModelName = {
   OnboardingState: 'OnboardingState',
   LearningEvent: 'LearningEvent',
   UserTask: 'UserTask',
-  PlanningDraft: 'PlanningDraft'
+  PlanningDraft: 'PlanningDraft',
+  OpenQuestion: 'OpenQuestion'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -273,6 +274,38 @@ export const PlanningDraftScalarFieldEnum = {
 } as const
 
 export type PlanningDraftScalarFieldEnum = (typeof PlanningDraftScalarFieldEnum)[keyof typeof PlanningDraftScalarFieldEnum]
+
+
+export const OpenQuestionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  questionText: 'questionText',
+  questionType: 'questionType',
+  status: 'status',
+  priority: 'priority',
+  blocking: 'blocking',
+  relatedTaskId: 'relatedTaskId',
+  relatedTaskTitle: 'relatedTaskTitle',
+  relatedEntityName: 'relatedEntityName',
+  relatedEntityType: 'relatedEntityType',
+  relatedProjectId: 'relatedProjectId',
+  sourceInputText: 'sourceInputText',
+  sourceLearningEventId: 'sourceLearningEventId',
+  sourceInputRoute: 'sourceInputRoute',
+  generationReason: 'generationReason',
+  assumptionMade: 'assumptionMade',
+  answeredAt: 'answeredAt',
+  answerText: 'answerText',
+  answerSource: 'answerSource',
+  answerConfidence: 'answerConfidence',
+  memoryWrittenAt: 'memoryWrittenAt',
+  followUpOfQuestionId: 'followUpOfQuestionId',
+  expiresAt: 'expiresAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type OpenQuestionScalarFieldEnum = (typeof OpenQuestionScalarFieldEnum)[keyof typeof OpenQuestionScalarFieldEnum]
 
 
 export const SortOrder = {

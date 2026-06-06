@@ -395,7 +395,8 @@ export const ModelName = {
   OnboardingState: 'OnboardingState',
   LearningEvent: 'LearningEvent',
   UserTask: 'UserTask',
-  PlanningDraft: 'PlanningDraft'
+  PlanningDraft: 'PlanningDraft',
+  OpenQuestion: 'OpenQuestion'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -411,7 +412,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "taskFile" | "taskRun" | "runStep" | "insightLog" | "userSettings" | "regulationLog" | "userMetrics" | "brainFlag" | "onboardingState" | "learningEvent" | "userTask" | "planningDraft"
+    modelProps: "taskFile" | "taskRun" | "runStep" | "insightLog" | "userSettings" | "regulationLog" | "userMetrics" | "brainFlag" | "onboardingState" | "learningEvent" | "userTask" | "planningDraft" | "openQuestion"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1303,6 +1304,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    OpenQuestion: {
+      payload: Prisma.$OpenQuestionPayload<ExtArgs>
+      fields: Prisma.OpenQuestionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.OpenQuestionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.OpenQuestionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload>
+        }
+        findFirst: {
+          args: Prisma.OpenQuestionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.OpenQuestionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload>
+        }
+        findMany: {
+          args: Prisma.OpenQuestionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload>[]
+        }
+        create: {
+          args: Prisma.OpenQuestionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload>
+        }
+        createMany: {
+          args: Prisma.OpenQuestionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.OpenQuestionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload>[]
+        }
+        delete: {
+          args: Prisma.OpenQuestionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload>
+        }
+        update: {
+          args: Prisma.OpenQuestionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload>
+        }
+        deleteMany: {
+          args: Prisma.OpenQuestionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.OpenQuestionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.OpenQuestionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload>[]
+        }
+        upsert: {
+          args: Prisma.OpenQuestionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OpenQuestionPayload>
+        }
+        aggregate: {
+          args: Prisma.OpenQuestionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateOpenQuestion>
+        }
+        groupBy: {
+          args: Prisma.OpenQuestionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.OpenQuestionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.OpenQuestionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.OpenQuestionCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1534,6 +1609,38 @@ export const PlanningDraftScalarFieldEnum = {
 } as const
 
 export type PlanningDraftScalarFieldEnum = (typeof PlanningDraftScalarFieldEnum)[keyof typeof PlanningDraftScalarFieldEnum]
+
+
+export const OpenQuestionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  questionText: 'questionText',
+  questionType: 'questionType',
+  status: 'status',
+  priority: 'priority',
+  blocking: 'blocking',
+  relatedTaskId: 'relatedTaskId',
+  relatedTaskTitle: 'relatedTaskTitle',
+  relatedEntityName: 'relatedEntityName',
+  relatedEntityType: 'relatedEntityType',
+  relatedProjectId: 'relatedProjectId',
+  sourceInputText: 'sourceInputText',
+  sourceLearningEventId: 'sourceLearningEventId',
+  sourceInputRoute: 'sourceInputRoute',
+  generationReason: 'generationReason',
+  assumptionMade: 'assumptionMade',
+  answeredAt: 'answeredAt',
+  answerText: 'answerText',
+  answerSource: 'answerSource',
+  answerConfidence: 'answerConfidence',
+  memoryWrittenAt: 'memoryWrittenAt',
+  followUpOfQuestionId: 'followUpOfQuestionId',
+  expiresAt: 'expiresAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type OpenQuestionScalarFieldEnum = (typeof OpenQuestionScalarFieldEnum)[keyof typeof OpenQuestionScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1843,6 +1950,7 @@ export type GlobalOmitConfig = {
   learningEvent?: Prisma.LearningEventOmit
   userTask?: Prisma.UserTaskOmit
   planningDraft?: Prisma.PlanningDraftOmit
+  openQuestion?: Prisma.OpenQuestionOmit
 }
 
 /* Types for Logging */
