@@ -1,0 +1,351 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Implement Phase 4a of Synco Settled Reschedule Memory as a script-first, service-first foundation.
+
+This is an implementation task.
+
+CURRENT CONFIRMED STATE
+
+- Phase 1 Learning Integrity Gate is implemented and tested.
+- Phase 2 Reschedule Data Quality Fix is implemented and tested.
+- Phase 3 Reschedule Burst Collapse Foundation is implemented and tested.
+- task_rescheduled raw events are annotated in metadata with:
+  - burstRole: 'sole' | 'member' | 'final'
+  - isInitialPlacementRefinement: boolean
+  - burstWindowMs
+  - burstDetectedAt
+- BURST_WINDOW_MS = 5 * 60_000
+- INITIAL_PLACEMENT_WINDOW_MS = 5 * 60_000
+- task_rescheduled still writes zero Qdrant memories from POST /api/learning/events.
+- deriveFactualMemoriesFromLearningEvent still returns [] for task_rescheduled.
+- No DB schema changes, no API response shape changes, no frontend changes.
+
+IMPORTANT PRODUCT RULE
+
+Do NOT write a Qdrant memory immediately when burstRole === 'final'.
+
+Why:
+burstRole='final' is tentative.
+A later task_rescheduled event within the 5-minute burst window can retroactively turn the previous final into member.
+A Qdrant memory may be written only after the reschedule burst has settled.
+
+DEFINITION: SETTLED RESCHEDULE
+
+A task_rescheduled event is eligible for settled memory only if:
+
+1. metadata.burstRole is 'final' or 'sole'
+2. metadata.isInitialPlacementRefinement === false
+3. event.occurredAt is older than BURST_WINDOW_MS
+4. There is no later task_rescheduled event for the same:
+   - userId
+   - taskId
+   - dateIso
+   within BURST_WINDOW_MS after this event
+5. metadata.settledMemoryWrittenAt is not present
+6. event has enough factual data to build a safe memory text
+
+MEMORY RULES
+
+Allowed:
+- one factual Qdrant memory per settled reschedule
+- memoryKind: 'reschedule_settled'
+- evidenceType: 'settled_reschedule_burst'
+- integrityStatus: 'accepted_fact'
+- importance: 'low'
+
+Forbidden:
+- no behavioral conclusions
+- no pattern inference
+- no postponement claim
+- no avoidance claim
+- no planning failure claim
+- no procrastination claim
+
+Forbidden words in memory text or metadata values:
+- דחה
+- נמנע
+- מתקשה
+- כשל
+- בעיה
+- דחיינות
+- procrastination
+- avoidance
+- postponement
+- planning_failure
+- delay_pattern
+
+SAFETY RULES
+
+- Before modifying files, inspect current contents.
+- Create timestamped .bak backups for every modified file.
+- Do not modify frontend files.
+- Do not modify DB schema.
+- Do not modify API response shapes.
+- Do not modify AI prompts, schemas, validators, reasoning services, or syncoMemoryContext.
+- Do not modify server/routes/learning.ts in this phase.
+- Do not add lazy trigger in learning.ts yet.
+- Do not add cron, setTimeout, or background worker.
+- Qdrant failures must not corrupt Postgres metadata.
+- Write metadata.settledMemoryWrittenAt only after Qdrant upsert succeeds.
+- If Qdrant fails, do not write settledMemoryWrittenAt so the script can retry later.
+- Do not log private task content.
+
+PART 1 — CREATE SETTLED RESCHEDULE DERIVER SERVICE
+
+Create:
+
+server/brain/services/settledRescheduleDeriver.ts
+
+Important:
+Use "Deriver" spelling, not "Derriver".
+
+Add constants:
+
+const SETTLED_RESCHEDULE_MEMORY_KIND = 'reschedule_settled';
+const SETTLED_RESCHEDULE_SCHEMA_VERSION = 1;
+const BURST_WINDOW_MS = 5 * 60_000;
+
+If BURST_WINDOW_MS already exists in rescheduleBurstDetector.ts, either import it safely or duplicate it with a comment that the values must stay aligned.
+Do not create circular imports.
+
+Implement:
+
+1. findSettledRescheduleEvents(userId: string, opts?)
+
+Find task_rescheduled rows where:
+- userId matches
+- eventType = 'task_rescheduled'
+- metadata.burstRole is 'final' or 'sole'
+- metadata.isInitialPlacementRefinement is false
+- metadata.settledMemoryWrittenAt is missing
+- occurredAt < now - BURST_WINDOW_MS
+- if opts.taskId exists, filter taskId
+- if opts.dateIso exists, filter dateIso
+
+Then for every candidate, verify there is no later task_rescheduled event with:
+- same userId
+- same taskId
+- same dateIso, if dateIso exists
+- occurredAt > candidate.occurredAt
+- occurredAt <= candidate.occurredAt + BURST_WINDOW_MS
+
+Only return candidates that pass this "no later movement" check.
+
+If metadata is awkward to filter directly in Prisma, it is acceptable to fetch a bounded set of task_rescheduled candidates older than BURST_WINDOW_MS and filter metadata in TypeScript.
+Keep it safe and clear.
+
+2. buildSettledRescheduleMemory(event)
+
+Return null if:
+- burstRole is not 'final' or 'sole'
+- isInitialPlacementRefinement is true
+- taskTitleSnapshot is missing
+- event is not task_rescheduled
+
+Build factual Hebrew text:
+
+If fromStartTime and toStartTime exist:
+"המשתמש שינה את זמן המשימה {title} מ־{HH:MM} ל־{HH:MM} בתאריך {dateIso}."
+
+If fromStartTime or toStartTime is missing:
+"המשתמש שינה את זמן המשימה {title} בתאריך {dateIso}."
+
+Important:
+Do not use forbidden words.
+Do not imply why the task moved.
+Do not write any conclusion.
+
+Return a derived memory object with:
+- sourceLearningEventId: event.id
+- memoryKind: 'reschedule_settled'
+- schemaVersion: 1
+- content
+- deterministic pointId based on:
+  event.id + ':' + memoryKind + ':v' + schemaVersion
+- metadata:
+  source: 'learning_event'
+  memoryKind: 'reschedule_settled'
+  schemaVersion: 1
+  integrityStatus: 'accepted_fact'
+  status: 'active'
+  eventType: 'task_rescheduled'
+  burstRole
+  isInitialPlacementRefinement: false
+  evidenceType: 'settled_reschedule_burst'
+  sourceLearningEventId: event.id
+  taskId
+  dateIso
+  fromStartTime
+  toStartTime
+  fromEndTime
+  toEndTime
+  importance: 'low'
+
+3. processSettledReschedules(userId: string, opts?)
+
+Flow:
+- if process.env.SYNCO_SETTLED_DERIVATION_ENABLED === 'false':
+  return safely with disabled status
+- find settled candidates
+- for each candidate:
+  - build memory
+  - if null:
+    - if isInitialPlacementRefinement true:
+      update metadata with:
+        placementRefinementSkippedAt
+        settledMemorySkipReason: 'initial_placement_refinement'
+    - continue
+  - call storeUserMessage with:
+    userId
+    memory content
+    metadata including pointId
+  - await this Qdrant write
+  - only after successful write:
+    update the candidate LearningEvent metadata:
+      settledMemoryWrittenAt: new Date().toISOString()
+      settledMemoryKind: 'reschedule_settled'
+      settledMemoryPointId: pointId
+- if Qdrant write fails:
+  - do not update settledMemoryWrittenAt
+  - count error
+  - continue with next candidate
+- return summary:
+  { processed, skipped, errors, candidates }
+
+PART 2 — UPDATE MEMORY KIND TYPE IF REQUIRED
+
+If ApprovedLearningMemoryKind exists in learningMemoryDerivation.ts and is shared or exported, add:
+
+'reschedule_settled'
+
+Do not make deriveFactualMemoriesFromLearningEvent write reschedule_settled from POST /api/learning/events.
+task_rescheduled must still return [] in the normal derivation path.
+
+If adding the type there is awkward or would create coupling, keep the settled derivation type local to settledRescheduleDeriver.ts and explain why.
+
+PART 3 — CREATE SCRIPT
+
+Create:
+
+scripts/process-settled-reschedules.ts
+
+Behavior:
+- Accept userId from env or default to 'default-user'
+- Call processSettledReschedules(userId)
+- Print only safe summary:
+  - candidates
+  - processed
+  - skipped
+  - errors
+- Do not print full memory content.
+- Do not print secrets.
+
+PART 4 — CREATE TEST SCRIPT
+
+Create:
+
+scripts/test-phase4-settled-reschedule.ts
+
+Required tests:
+
+T1 — final younger than BURST_WINDOW_MS:
+- create or simulate final task_rescheduled event younger than 5 minutes
+- expect findSettledRescheduleEvents returns 0
+- no Qdrant write
+
+T2 — final older than BURST_WINDOW_MS with no later movement:
+- expect 1 settled memory written
+- metadata.settledMemoryWrittenAt written after successful Qdrant
+- memoryKind = 'reschedule_settled'
+- evidenceType = 'settled_reschedule_burst'
+
+T3 — member older than BURST_WINDOW_MS:
+- expect no memory
+
+T4 — final with isInitialPlacementRefinement true:
+- expect no Qdrant memory
+- metadata gets:
+  settledMemorySkipReason = 'initial_placement_refinement'
+  placementRefinementSkippedAt
+
+T5 — sole older than BURST_WINDOW_MS and not initial refinement:
+- expect 1 settled memory
+
+T6 — final with later movement within BURST_WINDOW_MS:
+- expect no memory for the earlier final
+
+T7 — run process twice on same settled event:
+- first run writes memory and settledMemoryWrittenAt
+- second run writes 0 new memories
+- deterministic pointId is stable
+
+T8 — memory text safety:
+- verify memory text contains no forbidden words:
+  דחה, נמנע, מתקשה, כשל, בעיה, דחיינות,
+  procrastination, avoidance, postponement, planning_failure, delay_pattern
+
+T9 — normal POST derivation unchanged:
+- deriveFactualMemoriesFromLearningEvent(task_rescheduled) still returns []
+- POST /api/learning/events with task_rescheduled still does not call storeUserMessage directly
+
+T10 — null time fields:
+- if fromStartTime or toStartTime is null, memory still builds with fallback text
+- no "null" or "undefined" appears in text
+
+T11 — feature flag disabled:
+- SYNCO_SETTLED_DERIVATION_ENABLED=false
+- processSettledReschedules returns disabled / no writes
+- raw events unchanged
+
+PART 5 — RUN VALIDATION
+
+Run:
+
+npx tsc --noEmit
+npx tsx scripts/test-synco-memory-context.ts
+npx tsx scripts/test-learning-integrity-gate.ts
+npx tsx scripts/test-phase3-reschedule-burst.ts
+npx tsx scripts/test-phase4-settled-reschedule.ts
+
+If Qdrant Cloud is unavailable:
+- tests may use mocks/spies for storeUserMessage
+- clearly report whether Qdrant live write was tested or mocked
+- do not mark live Qdrant write as passed if Qdrant is unavailable
+
+PART 6 — FINAL REPORT
+
+Return:
+
+A. Files inspected
+B. Backup files created
+C. Files created or modified
+D. Exact service name and functions
+E. Exact memoryKind implemented
+F. Exact settled eligibility rules
+G. Exact factual memory text
+H. Exact Qdrant metadata payload
+I. Confirmation task_rescheduled still writes zero Qdrant memories from POST /api/learning/events
+J. Confirmation no lazy trigger was added to learning.ts
+K. Confirmation no cron/setTimeout/background worker was added
+L. Confirmation initial placement refinement is skipped
+M. T1 result
+N. T2 result
+O. T3 result
+P. T4 result
+Q. T5 result
+R. T6 result
+S. T7 result
+T. T8 result
+U. T9 result
+V. T10 result
+W. T11 result
+X. TypeScript result
+Y. Memory context test result
+Z. Learning integrity gate test result
+AA. Phase 3 burst test result
+AB. Phase 4 test result
+AC. Confirmation no DB schema changed
+AD. Confirmation no API response shape changed
+AE. Confirmation no frontend changed
+AF. Next recommended step, but do not implement it

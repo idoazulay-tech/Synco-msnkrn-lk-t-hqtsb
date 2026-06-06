@@ -26,8 +26,7 @@ export type ApprovedLearningMemoryKind =
   | 'task_intent'
   | 'task_completion'
   | 'actual_duration'
-  | 'planned_vs_actual_duration'
-  | 'reschedule_settled';
+  | 'planned_vs_actual_duration';
 
 export const LEARNING_MEMORY_SCHEMA_VERSION = 1 as const;
 
