@@ -1,5 +1,5 @@
 /**
- * Synco Open Questions Service — Phase 1 + Phase 2a
+ * Synco Open Questions Service — Phase 1
  *
  * Durable backend infrastructure for deferred non-blocking clarification questions.
  *
@@ -76,83 +76,6 @@ export interface AnswerOpenQuestionOpts {
 
 const SOURCE_INPUT_TEXT_MAX_LEN = 100;
 const DEFAULT_SNOOZE_HOURS = 24;
-
-// ─── Internal classifiers (used by persistDeferredQuestions) ──────────────────
-
-function classifyQuestionType(text: string): string {
-  const t = text.toLowerCase();
-  if (/מי זה|מי ה/.test(t))                                                 return 'entity_identity';
-  if (/איזה פרויקט|על איזה פרויקט/.test(t))                                return 'project_identity';
-  if (/איפה|מיקום|בזום|פיזי/.test(t))                                       return 'location_context';
-  if (/(שעה|מועד).*(עדיפ|רגיל|תמיד)|(עדיפ).*(שעה|מועד)/.test(t))         return 'time_preference';
-  if (/עבודה|משפחה|דומיין|קטגורי/.test(t))                                 return 'domain_classification';
-  return 'task_context';
-}
-
-function classifyPriority(questionType: string): string {
-  if (questionType === 'entity_identity' || questionType === 'project_identity') return 'high';
-  if (['task_context', 'domain_classification', 'location_context'].includes(questionType)) return 'normal';
-  return 'low';
-}
-
-// ─── 0. persistDeferredQuestions (Phase 2a hook helper) ──────────────────────
-
-/**
- * Fire-and-forget helper called by route-level hooks.
- *
- * Converts an array of AI-generated question strings into persisted OpenQuestion rows.
- * Each question is classified by type and priority automatically unless overridden.
- *
- * MUST be called without await in routes — callers attach .catch() to surface any
- * unexpected errors without blocking the response.
- *
- * Persistence rules:
- *   - Only called when an action was successfully executed (or a parse succeeded).
- *   - Never called on needsClarification=true or ask_clarification commandType paths.
- *   - All questions are blocking=false.
- *   - Dedup is handled by createOpenQuestion().
- *   - Individual item errors are caught and logged — never rethrown.
- */
-export async function persistDeferredQuestions(input: {
-  userId:            string;
-  questions:         string[];
-  sourceInputText?:  string;
-  sourceInputRoute?: string;
-  relatedTaskId?:    string;
-  relatedTaskTitle?: string;
-  generationReason?: string;
-  assumptionMade?:   string;
-  questionType?:     string;
-  priority?:         string;
-}): Promise<void> {
-  if (!input.questions || input.questions.length === 0) return;
-
-  for (const questionText of input.questions) {
-    if (!questionText?.trim()) continue;
-
-    const qType    = input.questionType ?? classifyQuestionType(questionText);
-    const priority = input.priority     ?? classifyPriority(qType);
-
-    try {
-      await createOpenQuestion({
-        userId:            input.userId,
-        questionText:      questionText.trim(),
-        questionType:      qType,
-        priority,
-        blocking:          false,
-        relatedTaskId:     input.relatedTaskId,
-        relatedTaskTitle:  input.relatedTaskTitle,
-        sourceInputText:   input.sourceInputText,
-        sourceInputRoute:  input.sourceInputRoute,
-        generationReason:  input.generationReason,
-        assumptionMade:    input.assumptionMade,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn('[OpenQuestions] persistDeferredQuestions: skipped question due to error:', msg);
-    }
-  }
-}
 
 // ─── Priority sort order ──────────────────────────────────────────────────────
 

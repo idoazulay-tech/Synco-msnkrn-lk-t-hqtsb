@@ -3,7 +3,6 @@ import { chatCompletion } from '../brain/utils/openai-client.js';
 import { parsePlanningInputWithAI, interpretDayCommandWithAI } from '../ai/services/syncoAIReasoningService.js';
 import { AI_FEATURES } from '../ai/aiFeatureFlags.js';
 import { prisma } from '../lib/prisma.js';
-import { persistDeferredQuestions } from '../brain/services/openQuestions.js';
 import { buildSchedule } from '../layers/task/planners/schedulePlanner.js';
 import {
   PLANNING_CONFIG_DEFAULTS,
@@ -78,18 +77,6 @@ router.post('/parse', async (req, res) => {
         });
 
         if (aiResult.ok) {
-          // ── Hook 2a-A: persist non-blocking AI planning questions (fire-and-forget) ─
-          if (aiResult.questions && aiResult.questions.length > 0) {
-            persistDeferredQuestions({
-              userId:           typeof userId === 'string' && userId ? userId : 'default-user',
-              questions:        aiResult.questions,
-              sourceInputText:  typeof text === 'string' ? text : undefined,
-              sourceInputRoute: 'planning',
-              generationReason: 'AI returned non-blocking question after planning parse',
-            }).catch((e: unknown) =>
-              console.warn('[planner/parse] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
-            );
-          }
           return res.json({
             ok: true,
             parser: 'ai_structured',
@@ -836,19 +823,6 @@ router.post('/day-command-preview', async (req: Request, res: Response) => {
       requiresExplicitConfirm: op.requiresExplicitConfirm,
     }));
 
-    // ── Hook 2a-B: persist non-blocking questions from successful day-command-preview ─
-    // Only reached when needsClarification is false and action preview succeeded.
-    if (aiResult.questions && aiResult.questions.length > 0) {
-      persistDeferredQuestions({
-        userId,
-        questions:        aiResult.questions,
-        sourceInputText:  typeof text === 'string' ? text : undefined,
-        sourceInputRoute: 'planning',
-        generationReason: 'AI returned non-blocking question after day command preview',
-      }).catch((e: unknown) =>
-        console.warn('[planner/day-command-preview] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
-      );
-    }
     return res.json({
       ok: true,
       mode: 'preview_only',

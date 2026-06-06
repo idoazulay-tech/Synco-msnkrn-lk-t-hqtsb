@@ -1,0 +1,258 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Implement Phase 2a of Synco Open Questions Engine: persist existing non-blocking AI-generated questions into OpenQuestion rows.
+
+This is a backend-only implementation task.
+
+CURRENT CONFIRMED STATE
+
+- Phase 1 Open Questions Engine is complete.
+- Prisma model OpenQuestion exists.
+- server/brain/services/openQuestions.ts exists.
+- /api/open-questions routes exist.
+- createOpenQuestion(), listOpenQuestions(), answerOpenQuestion(), dismissOpenQuestion(), snoozeOpenQuestion(), getOpenQuestionCount() exist.
+- Open Questions tests passed: 44/44.
+- No frontend changes were made.
+- No Qdrant writes happen from OpenQuestion answers yet.
+- Existing in-memory curiosity/org inquiry flows remain untouched.
+- Existing AI behavior and response shapes remain unchanged.
+
+PRODUCT RULE
+
+Synco should ask now only when missing information blocks the requested action.
+
+If missing information is useful for learning but not critical to execute the current request:
+- Execute the safe action now.
+- Persist a deferred OpenQuestion.
+- Let the user answer later in "מרכז ההיכרות" / "סינקו שואל".
+
+Important:
+Do NOT turn blocking questions into deferred questions if they are required for immediate execution.
+Do NOT change current AI responses or response shapes in Phase 2a.
+Do NOT add UI yet.
+
+SCOPE FOR PHASE 2a
+
+Backend hooks only.
+
+Persist existing questions from places where questions are already generated and currently thrown away or only returned transiently.
+
+Potential sources to inspect:
+1. server/routes/planner.ts
+2. server/routes/quick.ts
+3. server/ai/services/syncoAIReasoningService.ts only if needed, but avoid modifying AI service if route-level hook is enough
+4. server/layers/intent/pipeline/detectMissingInfo.ts
+5. server/layers/decision/policies/orgInquiryQuestions.ts
+6. server/brain/services/curiosity.ts
+7. Any route that receives ParsedPlanningIntentSchema.questions[]
+8. Any route that receives DayCommandIntentSchema.questions[]
+9. Any route that handles task breakdown or task report follow-up questions
+
+SAFETY RULES
+
+- Inspect before modifying.
+- Create timestamped .bak backup for every modified file.
+- Keep changes minimal and additive.
+- Prefer adding route-level hooks instead of modifying AI prompts/schemas.
+- Do not modify Prisma schema.
+- Do not modify frontend.
+- Do not modify Qdrant infrastructure.
+- Do not write to Qdrant.
+- Do not modify Memory Confidence Policy.
+- Do not modify Learning Integrity Gate.
+- Do not modify Memory Derivation Engine.
+- Do not change existing API response shapes.
+- Do not block any existing request if OpenQuestion creation fails.
+- OpenQuestion creation must be fire-and-forget or safely caught.
+- Do not log full private user content.
+- Do not persist obviously duplicate questions; rely on createOpenQuestion dedup.
+
+IMPLEMENTATION RULES
+
+1. Add helper if useful:
+
+persistDeferredQuestions({
+  userId,
+  questions,
+  sourceInputText,
+  sourceInputRoute,
+  relatedTaskId,
+  relatedTaskTitle,
+  questionType,
+  generationReason,
+  assumptionMade,
+  priority,
+  blocking
+})
+
+This can live in openQuestions.ts or a small helper file if cleaner.
+
+2. For AI-generated questions[]:
+
+Persist only when:
+- the request successfully created or planned something,
+OR
+- the question is not required to proceed immediately,
+OR
+- the question is clearly useful for learning context/entity/project/domain.
+
+Do not persist when:
+- response commandType is ask_clarification and the system is already asking the user inline because execution is blocked.
+- needsClarification is true and no action was executed.
+- the question is only a transient conflict-resolution question that must be answered now.
+
+3. Default fields for persisted AI questions:
+
+questionType:
+- 'task_context' by default
+- 'entity_identity' if question asks "מי זה..."
+- 'project_identity' if question asks "איזה פרויקט..." / "על איזה פרויקט..."
+- 'location_context' if question asks about location
+- 'time_preference' if question asks about preferred time
+- 'domain_classification' if question asks whether it is work/family/Synco/etc.
+- 'ambiguity_resolution' only if not blocking
+
+priority:
+- high for entity_identity or project_identity
+- normal for task_context/domain/location
+- low for general preference questions
+
+blocking:
+- false for all Phase 2a persisted questions
+
+sourceInputText:
+- truncate to <=100 chars through existing service behavior
+
+sourceInputRoute:
+- 'planning'
+- 'quick'
+- 'task_breakdown'
+- 'task_report'
+- or the actual route name
+
+generationReason:
+- short factual reason, for example:
+  "AI returned non-blocking question after safe action execution"
+  "Unknown entity mentioned in task context"
+
+PART 1 — INSPECT AND REPORT BEFORE IMPLEMENTING
+
+Inspect where questions[] are currently returned and whether they are blocking or non-blocking.
+
+Return internally in final report:
+- which question sources were found
+- which were hooked in Phase 2a
+- which were intentionally left unchanged because they are blocking
+
+PART 2 — IMPLEMENT MINIMAL BACKEND HOOKS
+
+Start with the highest-leverage safe hooks:
+
+A. Planning route hook
+Where parsePlanningInputWithAI / interpretDayCommandWithAI result is used and action succeeds:
+- If questions[] exist but action is not blocked:
+  create OpenQuestion rows fire-and-forget.
+- Link relatedTaskId/relatedTaskTitle if a new task was created and available.
+- If no relatedTaskId exists, still create question with source route and sourceInputText.
+
+B. Quick/entity hook
+In quick route, if extractEntities or pending entity logic identifies a person/place/entity but does not persist a durable question:
+- create entity_identity OpenQuestion for unknown entity.
+- Do not remove or break existing pendingEntities in-memory flow in this phase.
+
+C. Curiosity hook, only if safe
+If curiosityQuestions[] are created and stored in in-memory curiosity queue:
+- also persist them as OpenQuestion rows.
+- Do not remove the in-memory curiosity mechanism.
+
+If any of these hooks are too risky or unclear, skip and report why.
+
+PART 3 — DO NOT IMPLEMENT YET
+
+Do not implement:
+- frontend "סינקו שואל" card
+- full "מרכז ההיכרות" page
+- auto-matching future inputs to open questions
+- Qdrant/profile writes from answers
+- follow-up question generation
+- entity extraction AI
+- pattern learning
+
+PART 4 — TEST SCRIPT
+
+Create or update:
+
+scripts/test-open-questions-hooks.ts
+
+Tests:
+
+T1 — non-blocking planning question persists:
+- simulate a planning result where action succeeds and questions[] contains a learning question.
+- verify OpenQuestion row created with blocking=false.
+
+T2 — blocking clarification is not persisted:
+- simulate commandType='ask_clarification' or needsClarification=true with no action executed.
+- verify no OpenQuestion is created.
+
+T3 — dedup works through hook:
+- same question generated twice creates one row only.
+
+T4 — entity question persists:
+- simulate unknown entity "דניאל" in a safe task context.
+- verify entity_identity OpenQuestion created:
+  "מי זה דניאל עבורך?"
+
+T5 — sourceInputText truncation:
+- long input is truncated to <=100 chars.
+
+T6 — failure does not block route:
+- mock createOpenQuestion failure.
+- verify original request/result still succeeds.
+
+T7 — no Qdrant writes:
+- verify hooks do not call storeUserMessage/storeProfileEntry/storeInsight.
+
+T8 — existing Open Questions service tests still pass:
+- scripts/test-open-questions.ts
+
+PART 5 — RUN VALIDATION
+
+Run:
+
+npx tsc --noEmit
+npx tsx scripts/test-open-questions.ts
+npx tsx scripts/test-open-questions-hooks.ts
+npx tsx scripts/test-synco-memory-context.ts
+npx tsx scripts/test-learning-integrity-gate.ts
+npx tsx scripts/test-phase3-reschedule-burst.ts
+npx tsx scripts/test-phase4-settled-reschedule.ts
+
+PART 6 — FINAL REPORT
+
+Return:
+
+A. Files inspected
+B. Backup files created
+C. Files modified or created
+D. Question sources found
+E. Hooks implemented
+F. Hooks intentionally skipped and why
+G. Blocking vs deferred rule implemented
+H. Example persisted question payload
+I. Confirmation existing response shapes unchanged
+J. Confirmation OpenQuestion creation is non-blocking
+K. Confirmation no Qdrant writes
+L. T1 result
+M. T2 result
+N. T3 result
+O. T4 result
+P. T5 result
+Q. T6 result
+R. T7 result
+S. Open Questions service test result
+T. Hooks test result
+U. TypeScript result
+V. Existing memory/gate/burst/settled test results
+W. No frontend changes confirmation
+X. Next recommended step, but do not implement it

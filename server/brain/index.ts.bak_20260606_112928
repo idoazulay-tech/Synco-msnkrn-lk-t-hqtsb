@@ -1,5 +1,4 @@
 import { type RawInput } from "./services/ingestion.js";
-import { persistDeferredQuestions } from "./services/openQuestions.js";
 import { storeInsight, storeUserMessage, searchUserMemory, buildContext } from "./services/memory.js";
 import { analyzeWithContext } from "./services/understanding.js";
 import { evaluatePolicy, getUserLearningState, updateLearningState } from "./services/policy.js";
@@ -85,16 +84,6 @@ export async function processBrainInput(
 
   if (understanding.curiosityQuestions.length > 0) {
     scheduleCuriosityQuestions(userId, understanding.curiosityQuestions);
-    // ── Hook 2a-C: also persist curiosity questions durably (fire-and-forget) ─
-    persistDeferredQuestions({
-      userId,
-      questions:        understanding.curiosityQuestions,
-      sourceInputText:  text,
-      sourceInputRoute: 'brain',
-      generationReason: 'Brain curiosity question from understanding analysis',
-    }).catch((e: unknown) =>
-      console.warn('[brain] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
-    );
   }
 
   let message = understanding.response;
