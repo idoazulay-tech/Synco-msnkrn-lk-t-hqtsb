@@ -1,0 +1,159 @@
+You are working on the existing Synco codebase.
+
+Goal:
+Design Phase 4 of Synco Reschedule Memory carefully: create factual Qdrant memory only for a settled reschedule burst, not for a tentative burstRole='final' event.
+
+This is inspection and design only.
+Do not modify files yet.
+
+Current confirmed state:
+- Phase 1 Learning Integrity Gate is implemented and tested.
+- Phase 2 Reschedule Data Quality Fix is implemented and tested.
+- Phase 3 Reschedule Burst Collapse Foundation is implemented and tested.
+- server/brain/services/rescheduleBurstDetector.ts exists.
+- task_rescheduled raw events are annotated in metadata with:
+  - burstRole: 'sole' | 'member' | 'final'
+  - isInitialPlacementRefinement: boolean
+  - burstWindowMs
+  - burstDetectedAt
+- BURST_WINDOW_MS = 5 * 60_000
+- INITIAL_PLACEMENT_WINDOW_MS = 5 * 60_000
+- task_rescheduled still writes zero Qdrant memories.
+- deriveFactualMemoriesFromLearningEvent still returns [] for task_rescheduled.
+- No DB schema changes, no API response shape changes, no frontend changes.
+
+Important correction:
+Do NOT create Qdrant memory immediately when burstRole === 'final'.
+
+Why:
+The current 'final' is tentative.
+A later task_rescheduled event within the 5-minute burst window can retroactively turn the previous final into member.
+If Qdrant memory is written immediately, it may become stale or false.
+
+Required Phase 4 principle:
+Only a settled reschedule burst may create one factual Qdrant memory.
+
+Definition:
+A task_rescheduled event is "settled" only if:
+- metadata.burstRole is 'final' or 'sole'
+- isInitialPlacementRefinement is false
+- occurredAt is older than BURST_WINDOW_MS
+- there is no later task_rescheduled event for the same userId + taskId + dateIso within the burst window
+- it has not already produced a settled reschedule memory
+
+Product rules:
+1. Raw task_rescheduled events remain preserved.
+2. Intermediate burst members do not write Qdrant memory.
+3. Initial placement refinement does not write normal reschedule memory.
+4. Settled burst final may write exactly one factual positional memory.
+5. No behavioral conclusion:
+   - no postponement
+   - no avoidance
+   - no planning failure
+   - no procrastination
+   - no pattern
+6. Repeated burst patterns across days belong to a future Pattern Learning phase, not Phase 4.
+
+Inspect:
+- server/brain/services/rescheduleBurstDetector.ts
+- server/brain/services/learningMemoryDerivation.ts
+- server/brain/services/memory.ts
+- server/routes/learning.ts
+- scripts/test-phase3-reschedule-burst.ts
+- Prisma LearningEvent model/schema
+- any existing background job, scheduled task, cron, worker, or cleanup script infrastructure
+
+Design questions:
+
+A. What is the safest way to detect a settled burst without a new DB table?
+Options to evaluate:
+1. lazy processing when a new learning event arrives
+2. explicit diagnostic/reprocessing script
+3. background interval/cron if existing infrastructure exists
+4. route-time delayed setTimeout, if safe or not safe
+
+B. Should Phase 4 be implemented as:
+- a standalone service that scans for settled reschedule finals,
+- or inside the existing learning route,
+- or as a script first?
+
+C. How to prevent duplicate Qdrant memory for the same settled burst?
+Use deterministic point ID identity such as:
+sourceLearningEventId + memoryKind + schemaVersion
+where sourceLearningEventId is the final/sole reschedule event ID.
+
+D. Proposed memoryKind name:
+Recommend one:
+- settled_reschedule
+- task_reschedule_settled
+- reschedule_position_change
+or a better name.
+
+E. Proposed factual memory text:
+For example:
+"המשתמש שינה את זמן המשימה {title} מ־{fromStartTime} ל־{toStartTime} בתאריך {dateIso}."
+
+Important:
+This is factual positional memory only.
+It must not say "דחה", "נמנע", "מתקשה", "כשל בתכנון", or any behavioral conclusion.
+
+F. How to handle burstRole='sole':
+A sole event can also be settled after 5 minutes.
+Should it produce the same memoryKind if not initial placement refinement?
+
+G. How to handle isInitialPlacementRefinement=true:
+Should produce:
+- no Qdrant memory in Phase 4,
+or
+- a lower-importance factual memory later?
+Recommend safest choice.
+
+H. What metadata should be written to Qdrant for a settled reschedule memory?
+Suggested:
+- source: 'learning_event'
+- memoryKind
+- schemaVersion
+- integrityStatus: 'accepted_fact'
+- eventType: 'task_rescheduled'
+- burstRole
+- isInitialPlacementRefinement: false
+- sourceLearningEventId
+- taskId
+- dateIso
+- fromStartTime
+- toStartTime
+- fromEndTime
+- toEndTime
+- evidenceType: 'settled_reschedule_burst'
+- status: 'active'
+
+I. How to ensure task_rescheduled raw events still do not write Qdrant immediately?
+
+J. Minimal safe implementation sequence:
+Prefer a script-first or service-first approach if safer:
+1. Create service to find settled reschedule finals.
+2. Create service to derive exactly one settled reschedule memory.
+3. Add diagnostic script.
+4. Only later consider automatic trigger.
+
+K. Tests required:
+- final event younger than 5 minutes → no memory
+- final event older than 5 minutes with no later movement → one memory
+- member event older than 5 minutes → no memory
+- initial placement refinement final → no normal reschedule memory
+- sole event older than 5 minutes → one factual memory if not initial refinement
+- later movement within 5 minutes prevents previous final from writing memory
+- deterministic ID prevents duplicate memory on rerun
+- memory text contains only factual position change, no behavioral conclusion
+- task_rescheduled derivation still does not run immediately from POST /api/learning/events
+
+L. Risks and rollback plan.
+
+Final recommendation:
+Should Phase 4 be:
+- implemented automatically now,
+- implemented as a manual diagnostic/reprocessing script first,
+- or deferred until we have a worker/cron layer?
+
+Do not modify files.
+Only inspect and design.
