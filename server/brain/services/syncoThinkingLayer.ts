@@ -40,12 +40,21 @@ export type SyncoPattern = {
   decayDiagnostics?: {
     rawConfidence: number;
     decayedConfidence: number;
+    confidenceAfterDecay: number;
+    confidenceBeforeGuard: number;
+    confidenceAfterGuard: number;
+    evidenceCountGuardApplied: boolean;
+    evidenceGuardFactor: number;
     daysSinceLastSeen: number;
     decayFactor: number;
     halfLifeDays: number;
     statusBefore: string;
     statusAfter: "active" | "candidate" | "stale";
   };
+  // Phase 7: populated after trend override is applied
+  trendDiagnostics?: import('./recentTrendAnalyzer.js').TrendAnalysis;
+  // Phase 7: populated by explainability layer
+  patternExplanation?: import('./patternExplainability.js').PatternExplanation;
 };
 
 export type CausalHypothesis = {
@@ -310,6 +319,8 @@ export function evaluateDecisionAgainstLifeRules(
 }
 
 import { applyDecayToPatterns, type DecayOptions } from './patternDecay.js';
+import { applyTrendOverrideToPatterns, type TrendOptions } from './recentTrendAnalyzer.js';
+import { explainPatterns } from './patternExplainability.js';
 
 export function runSyncoThinkingLayer(input: {
   userId: string;
@@ -319,14 +330,30 @@ export function runSyncoThinkingLayer(input: {
   decisionCandidate?: DecisionCandidate;
   // Phase 6: optional decay configuration
   decayOptions?: DecayOptions;
+  // Phase 7: optional trend configuration
+  trendOptions?: TrendOptions;
 }) {
-  const now = input.decayOptions?.now ?? new Date();
+  const now = input.decayOptions?.now ?? input.trendOptions?.now ?? new Date();
 
   // Detect raw patterns from memories
   const rawPatterns = detectPatterns(input.memories);
 
-  // Apply time decay — older patterns lose confidence
-  const patterns = applyDecayToPatterns(rawPatterns, now, input.decayOptions ?? {});
+  // Apply time decay + evidence guard — older patterns lose confidence
+  const decayedPatterns = applyDecayToPatterns(rawPatterns, now, input.decayOptions ?? {});
+
+  // Apply recent trend override — contradicted patterns lose confidence
+  const trendedPatterns = applyTrendOverrideToPatterns(
+    decayedPatterns,
+    input.memories,
+    { ...input.trendOptions, now },
+  );
+
+  // Apply explainability layer — attach PatternExplanation to each pattern
+  const explanations = explainPatterns(trendedPatterns);
+  const patterns: SyncoPattern[] = trendedPatterns.map((p, i) => ({
+    ...p,
+    patternExplanation: explanations[i],
+  }));
 
   // Only non-stale patterns feed hypothesis creation
   // Stale patterns are still returned in output for diagnostic transparency

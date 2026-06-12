@@ -166,7 +166,10 @@ console.log('\n── T6: 30-day pattern decays meaningfully ──────�
   const decayed = applyPatternDecay(pattern, NOW);
 
   ok('T6: confidence dropped by > 50%', decayed.confidence < 0.80 * 0.5);
-  ok('T6: confidence = raw × e^-1', Math.abs(decayed.confidence - 0.80 * Math.exp(-1)) < 0.001);
+  // Phase 7: evidence guard may add up to 15% slowdown — verify within expected range
+  const t6Min = 0.80 * Math.exp(-1);
+  const t6Max = t6Min * (1 + 0.15);
+  ok('T6: confidence = raw × e^-1 (±evidence guard)', decayed.confidence >= t6Min - 0.001 && decayed.confidence <= t6Max + 0.001);
   ok('T6: rawConfidence preserved', decayed.rawConfidence === 0.80);
   info(`T6: raw=0.80 → decayed=${decayed.confidence.toFixed(4)} status=${decayed.status}`);
 }
@@ -180,7 +183,10 @@ console.log('\n── T7: 90-day pattern becomes stale ────────�
 
   ok('T7: status = stale', decayed.status === 'stale');
   ok('T7: confidence < DECAY_THRESHOLD_CANDIDATE', decayed.confidence < DECAY_THRESHOLD_CANDIDATE);
-  ok('T7: confidence ≈ 0.80 × e^-3', Math.abs(decayed.confidence - 0.80 * Math.exp(-3)) < 0.001);
+  // Phase 7: evidence guard may add up to 15% slowdown — verify within expected range
+  const t7Min = 0.80 * Math.exp(-3);
+  const t7Max = t7Min * (1 + 0.15);
+  ok('T7: confidence ≈ 0.80 × e^-3 (±evidence guard)', decayed.confidence >= t7Min - 0.001 && decayed.confidence <= t7Max + 0.001);
   info(`T7: raw=0.80 → decayed=${decayed.confidence.toFixed(4)} (stale threshold=${DECAY_THRESHOLD_CANDIDATE})`);
 }
 

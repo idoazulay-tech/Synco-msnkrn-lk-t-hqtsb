@@ -23,6 +23,7 @@ import { persistDeferredQuestions } from './openQuestions.js';
 import type { SyncoMemory, LifeRule, DecisionCandidate, SyncoPattern, CausalHypothesis, PredictionRisk } from './syncoThinkingLayer.js';
 import { runSyncoThinkingLayer } from './syncoThinkingLayer.js';
 import type { BurstCollapseStats } from './rescheduleBurstCollapse.js';
+import { generateRecommendation, type BrainRecommendation } from './brainRecommendation.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,9 @@ export interface BrainPipelineResult {
   openQuestionsCreated: OpenQuestionCreated[];
   decisionResult: SupportedDecision | null;
 
+  // Phase 7: Hebrew user-facing recommendation (null = no action needed)
+  brainRecommendation: BrainRecommendation | null;
+
   // Transparency: what data was real vs unavailable
   dataAvailability: {
     memoriesAvailable: boolean;
@@ -100,6 +104,7 @@ function safeFallback(error: unknown): BrainPipelineResult {
     inputContext: null,
     openQuestionsCreated: [],
     decisionResult: null,
+    brainRecommendation: null,
     dataAvailability: {
       memoriesAvailable: false,
       memoriesCount: 0,
@@ -213,7 +218,21 @@ export async function runBrainPipeline(
       decisionResult = evaluateDecision(decisionCtx);
     }
 
-    // ── Step 6: build result ───────────────────────────────────────────────
+    // ── Step 6: generate brain recommendation ─────────────────────────────
+    const blockedByLifeRules = decisionResult?.lifeRuleEvaluation?.blockedByRuleIds?.length
+      ? (lifeRules.filter(r => decisionResult?.lifeRuleEvaluation?.blockedByRuleIds.includes(r.ruleId)))
+      : [];
+
+    const contradictedActivePatterns = patterns.filter(
+      p => p.status !== 'stale' && p.trendDiagnostics?.penaltyApplied === true,
+    );
+
+    const brainRecommendation = generateRecommendation({
+      blockedByLifeRules: blockedByLifeRules.length > 0 ? blockedByLifeRules : undefined,
+      contradictedActivePatterns: contradictedActivePatterns.length > 0 ? contradictedActivePatterns : undefined,
+    });
+
+    // ── Step 7: build result ───────────────────────────────────────────────
     const burstStats = input.rescheduleBurstStats;
     const burstNote = burstStats
       ? `reschedule_bursts: ${burstStats.rawRescheduleEventsCount} raw events → ${burstStats.collapsedRescheduleBurstsCount} bursts (window=${burstStats.rescheduleCollapseWindowMinutes}m)`
@@ -238,6 +257,7 @@ export async function runBrainPipeline(
       inputContext,
       openQuestionsCreated,
       decisionResult,
+      brainRecommendation,
       dataAvailability: {
         memoriesAvailable,
         memoriesCount: memories.length,
