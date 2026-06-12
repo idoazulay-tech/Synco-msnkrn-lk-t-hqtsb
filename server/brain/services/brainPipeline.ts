@@ -34,6 +34,10 @@ export interface BrainPipelineInput {
   lifeRules?: LifeRule[];
   currentSignals?: Record<string, unknown>;
 
+  // Source metadata — tells diagnostics where data came from
+  memoriesSource?: 'real_db' | 'unavailable';
+  lifeRulesSource?: 'real_db' | 'unavailable';
+
   // Task context (populated after task creation succeeds)
   relatedTaskId?: string;
   relatedTaskTitle?: string;
@@ -60,9 +64,13 @@ export interface BrainPipelineResult {
   // Transparency: what data was real vs unavailable
   dataAvailability: {
     memoriesAvailable: boolean;
+    memoriesCount: number;
+    memoriesSource: 'real_db' | 'unavailable' | 'injected';
     lifeRulesAvailable: boolean;
-    qdrantAvailable: false;      // not connected yet — always false
-    postgresMemoriesAvailable: false; // memories injected by caller, not fetched
+    lifeRulesCount: number;
+    lifeRulesSource: 'real_db' | 'unavailable' | 'injected';
+    qdrantAvailable: false;
+    postgresMemoriesAvailable: boolean;
   };
 
   // Dev mode only
@@ -89,7 +97,11 @@ function safeFallback(error: unknown): BrainPipelineResult {
     decisionResult: null,
     dataAvailability: {
       memoriesAvailable: false,
+      memoriesCount: 0,
+      memoriesSource: 'unavailable',
       lifeRulesAvailable: false,
+      lifeRulesCount: 0,
+      lifeRulesSource: 'unavailable',
       qdrantAvailable: false,
       postgresMemoriesAvailable: false,
     },
@@ -109,6 +121,9 @@ export async function runBrainPipeline(
 
     const memoriesAvailable = memories.length > 0;
     const lifeRulesAvailable = lifeRules.length > 0;
+    const memoriesSource = input.memoriesSource ?? (memoriesAvailable ? 'injected' : 'unavailable');
+    const lifeRulesSource = input.lifeRulesSource ?? (lifeRulesAvailable ? 'injected' : 'unavailable');
+    const postgresMemoriesAvailable = memoriesSource === 'real_db';
 
     // ── Step 1: analyze input context ──────────────────────────────────────
     const inputContext = analyzeInputContext(input.text);
@@ -196,13 +211,15 @@ export async function runBrainPipeline(
     // ── Step 6: build result ───────────────────────────────────────────────
     const dataAvailabilityNotes: string[] = [
       memoriesAvailable
-        ? `memories: ${memories.length} injected by caller (real)`
+        ? `memories: ${memories.length} loaded from ${memoriesSource}`
         : 'memories: none available — patterns/hypotheses/predictions skipped',
       lifeRulesAvailable
-        ? `life_rules: ${lifeRules.length} injected by caller (real)`
+        ? `life_rules: ${lifeRules.length} loaded from ${lifeRulesSource}`
         : 'life_rules: none available — decision evaluated without rules',
       'qdrant: not connected in pipeline — no vector memory read',
-      'postgres_memories: not fetched in pipeline — injected by caller only',
+      postgresMemoriesAvailable
+        ? 'postgres_memories: loaded from real DB'
+        : 'postgres_memories: not from DB — injected by caller or unavailable',
     ];
 
     const result: BrainPipelineResult = {
@@ -212,9 +229,13 @@ export async function runBrainPipeline(
       decisionResult,
       dataAvailability: {
         memoriesAvailable,
+        memoriesCount: memories.length,
+        memoriesSource,
         lifeRulesAvailable,
+        lifeRulesCount: lifeRules.length,
+        lifeRulesSource,
         qdrantAvailable: false,
-        postgresMemoriesAvailable: false,
+        postgresMemoriesAvailable,
       },
     };
 

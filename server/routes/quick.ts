@@ -6,6 +6,8 @@ import { orgStore, pendingEntities } from './org.js';
 import { resolveAnchorStartIso, TimelineBlock } from '../layers/task/index.js';
 import { persistDeferredQuestions } from '../brain/services/openQuestions.js';
 import { runBrainPipeline } from '../brain/services/brainPipeline.js';
+import { loadBrainMemoriesForUser } from '../brain/services/memoryLoader.js';
+import { loadLifeRulesForUser } from '../brain/services/lifeRuleLoader.js';
 
 // Generic Hebrew words that are task concepts, not real named entities.
 // These must never become entity_identity questions.
@@ -304,20 +306,28 @@ router.post('/', async (req: Request, res: Response) => {
         );
       }
 
-      // Brain Pipeline (Phase 3): run context analysis + open questions + decision support.
-      // Fire-and-forget — never blocks task creation. Failure is logged, not propagated.
+      // Brain Pipeline (Phase 4): load real memories + life rules, then run pipeline.
+      // Fire-and-forget — never blocks task creation. Any failure returns null safely.
       // devMode enabled when request header X-Synco-Dev: 1 is present.
       const devMode = req.headers['x-synco-dev'] === '1';
-      const brainResultPromise = runBrainPipeline({
-        userId: resolvedUserId,
-        text,
-        memories: [],        // not yet fetched from DB — see dataAvailability in diagnostics
-        lifeRules: [],       // not yet fetched from DB — see dataAvailability in diagnostics
-        currentSignals: {},
-        relatedTaskId: taskFile.id,
-        relatedTaskTitle: result.task?.title,
-        devMode,
-      }).catch((e: unknown) => {
+
+      const brainResultPromise = Promise.all([
+        loadBrainMemoriesForUser(resolvedUserId),
+        loadLifeRulesForUser(resolvedUserId),
+      ]).then(([memResult, ruleResult]) =>
+        runBrainPipeline({
+          userId: resolvedUserId,
+          text,
+          memories: memResult.memories,
+          memoriesSource: memResult.source,
+          lifeRules: ruleResult.rules,
+          lifeRulesSource: ruleResult.source,
+          currentSignals: {},
+          relatedTaskId: taskFile.id,
+          relatedTaskTitle: result.task?.title,
+          devMode,
+        })
+      ).catch((e: unknown) => {
         console.warn('[quick] brainPipeline error:', e instanceof Error ? e.message : String(e));
         return null;
       });

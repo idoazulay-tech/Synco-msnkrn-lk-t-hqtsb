@@ -255,3 +255,20 @@ model OpenQuestion {
   @@index([relatedTaskId])
   @@index([userId, questionType, status])
 }
+
+model LifeRule {
+  id          String   @id @default(cuid())
+  userId      String
+  ruleType    String
+  title       String
+  priority    String   @default("medium")
+  active      Boolean  @default(true)
+  scope       String?
+  createdFrom String?
+  confidence  Float    @default(1.0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, active])
+}
