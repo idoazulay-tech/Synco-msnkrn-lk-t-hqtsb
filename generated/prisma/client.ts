@@ -104,3 +104,8 @@ export type PlanningDraft = Prisma.PlanningDraftModel
  * 
  */
 export type OpenQuestion = Prisma.OpenQuestionModel
+/**
+ * Model LifeRule
+ * 
+ */
+export type LifeRule = Prisma.LifeRuleModel

@@ -63,7 +63,8 @@ export const ModelName = {
   LearningEvent: 'LearningEvent',
   UserTask: 'UserTask',
   PlanningDraft: 'PlanningDraft',
-  OpenQuestion: 'OpenQuestion'
+  OpenQuestion: 'OpenQuestion',
+  LifeRule: 'LifeRule'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -306,6 +307,23 @@ export const OpenQuestionScalarFieldEnum = {
 } as const
 
 export type OpenQuestionScalarFieldEnum = (typeof OpenQuestionScalarFieldEnum)[keyof typeof OpenQuestionScalarFieldEnum]
+
+
+export const LifeRuleScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  ruleType: 'ruleType',
+  title: 'title',
+  priority: 'priority',
+  active: 'active',
+  scope: 'scope',
+  createdFrom: 'createdFrom',
+  confidence: 'confidence',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type LifeRuleScalarFieldEnum = (typeof LifeRuleScalarFieldEnum)[keyof typeof LifeRuleScalarFieldEnum]
 
 
 export const SortOrder = {

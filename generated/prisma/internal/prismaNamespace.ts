@@ -396,7 +396,8 @@ export const ModelName = {
   LearningEvent: 'LearningEvent',
   UserTask: 'UserTask',
   PlanningDraft: 'PlanningDraft',
-  OpenQuestion: 'OpenQuestion'
+  OpenQuestion: 'OpenQuestion',
+  LifeRule: 'LifeRule'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -412,7 +413,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "taskFile" | "taskRun" | "runStep" | "insightLog" | "userSettings" | "regulationLog" | "userMetrics" | "brainFlag" | "onboardingState" | "learningEvent" | "userTask" | "planningDraft" | "openQuestion"
+    modelProps: "taskFile" | "taskRun" | "runStep" | "insightLog" | "userSettings" | "regulationLog" | "userMetrics" | "brainFlag" | "onboardingState" | "learningEvent" | "userTask" | "planningDraft" | "openQuestion" | "lifeRule"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1378,6 +1379,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    LifeRule: {
+      payload: Prisma.$LifeRulePayload<ExtArgs>
+      fields: Prisma.LifeRuleFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.LifeRuleFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.LifeRuleFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload>
+        }
+        findFirst: {
+          args: Prisma.LifeRuleFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.LifeRuleFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload>
+        }
+        findMany: {
+          args: Prisma.LifeRuleFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload>[]
+        }
+        create: {
+          args: Prisma.LifeRuleCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload>
+        }
+        createMany: {
+          args: Prisma.LifeRuleCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.LifeRuleCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload>[]
+        }
+        delete: {
+          args: Prisma.LifeRuleDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload>
+        }
+        update: {
+          args: Prisma.LifeRuleUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload>
+        }
+        deleteMany: {
+          args: Prisma.LifeRuleDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.LifeRuleUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.LifeRuleUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload>[]
+        }
+        upsert: {
+          args: Prisma.LifeRuleUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LifeRulePayload>
+        }
+        aggregate: {
+          args: Prisma.LifeRuleAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateLifeRule>
+        }
+        groupBy: {
+          args: Prisma.LifeRuleGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.LifeRuleGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.LifeRuleCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.LifeRuleCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1641,6 +1716,23 @@ export const OpenQuestionScalarFieldEnum = {
 } as const
 
 export type OpenQuestionScalarFieldEnum = (typeof OpenQuestionScalarFieldEnum)[keyof typeof OpenQuestionScalarFieldEnum]
+
+
+export const LifeRuleScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  ruleType: 'ruleType',
+  title: 'title',
+  priority: 'priority',
+  active: 'active',
+  scope: 'scope',
+  createdFrom: 'createdFrom',
+  confidence: 'confidence',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type LifeRuleScalarFieldEnum = (typeof LifeRuleScalarFieldEnum)[keyof typeof LifeRuleScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1951,6 +2043,7 @@ export type GlobalOmitConfig = {
   userTask?: Prisma.UserTaskOmit
   planningDraft?: Prisma.PlanningDraftOmit
   openQuestion?: Prisma.OpenQuestionOmit
+  lifeRule?: Prisma.LifeRuleOmit
 }
 
 /* Types for Logging */
