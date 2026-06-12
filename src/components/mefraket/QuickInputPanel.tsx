@@ -10,6 +10,8 @@ import { RegulationModal } from './RegulationModal';
 import { useTaskStore } from '@/store/taskStore';
 import { startOfDay, endOfDay, addDays } from 'date-fns';
 
+const USER_ID = 'default-user';
+
 interface QuickInputPanelProps {
   mode: 'text' | 'voice';
   onClose: () => void;
@@ -227,9 +229,10 @@ export function QuickInputPanel({ mode, onClose, onModeChange }: QuickInputPanel
       const response = await fetch('/api/quick', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           text: text.trim(),
           existingTasks,
+          userId: USER_ID,
         }),
       });
       

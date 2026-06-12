@@ -4,6 +4,32 @@ import { prisma } from '../lib/prisma.js';
 import { buildInquiryForMissingInfo, OrgInquiry, EntityInfo } from '../layers/decision/policies/orgInquiryQuestions.js';
 import { orgStore, pendingEntities } from './org.js';
 import { resolveAnchorStartIso, TimelineBlock } from '../layers/task/index.js';
+import { persistDeferredQuestions } from '../brain/services/openQuestions.js';
+
+// Generic Hebrew words that are task concepts, not real named entities.
+// These must never become entity_identity questions.
+const QUICK_GENERIC_ENTITY_WORDS = new Set([
+  'משימה', 'משימת', 'בדיקה', 'פרויקט', 'עבודה', 'דוח', 'פירוק',
+  'תזכורת', 'דבר', 'נושא', 'ישיבה', 'פגישה', 'שיחה', 'דיון',
+  'ענין', 'עניין', 'נושאים', 'רשימה', 'תכנון', 'מטלה',
+]);
+
+// Hebrew prepositions/particles that ruleEngine may incorrectly capture
+// as a second word after a person name (e.g. "דניאל על" → strip "על").
+const HEBREW_STOP_SECOND_WORDS = new Set([
+  'על', 'את', 'של', 'אל', 'מן', 'בין', 'כי', 'אם', 'כש', 'עד',
+  'אחרי', 'לפני', 'בגלל', 'כדי', 'למרות', 'אחר', 'תחת', 'מול',
+  'ועל', 'ואת', 'ושל',
+]);
+
+// Strips Hebrew preposition that ruleEngine regex may append to a person name.
+function cleanParticipantName(name: string): string {
+  const words = name.trim().split(/\s+/);
+  if (words.length === 2 && HEBREW_STOP_SECOND_WORDS.has(words[1])) {
+    return words[0];
+  }
+  return name;
+}
 
 const router = Router();
 
@@ -27,12 +53,15 @@ interface PendingEntity {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { text, existingTasks } = req.body;
-    
+    const { text, existingTasks, userId } = req.body;
+
     if (!text || typeof text !== 'string') {
       res.status(400).json({ error: 'Text is required' });
       return;
     }
+
+    // Phase 2b: Use provided userId or fallback to 'default-user'
+    const resolvedUserId = typeof userId === 'string' && userId ? userId : 'default-user';
     
     const result: InterpretResult = interpretInput(text);
     
@@ -248,7 +277,32 @@ router.post('/', async (req: Request, res: Response) => {
           dueAt,
         }
       });
-      
+
+      // Phase 2b hook: persist non-blocking entity identity questions (fire-and-forget)
+      // Only on successful task creation path (no blocking missingInfo).
+      // Uses participants already extracted by ruleEngine — no extra AI call needed.
+      // Format: "מי זה {name} עבורך?" — only for real named entities, not generic words.
+      const participants = result.task?.participants ?? [];
+      const entityQuestions = participants
+        .map(cleanParticipantName)
+        .filter(name => name.length > 1 && !QUICK_GENERIC_ENTITY_WORDS.has(name.toLowerCase()))
+        .map(name => `מי זה ${name} עבורך?`);
+
+      if (entityQuestions.length > 0) {
+        persistDeferredQuestions({
+          userId: resolvedUserId,
+          questions: entityQuestions,
+          sourceInputText: text ? text.slice(0, 100) : undefined,
+          sourceInputRoute: 'quick',
+          relatedTaskId: taskFile.id,
+          relatedTaskTitle: result.task?.title,
+          questionType: 'entity_identity',
+          generationReason: 'Unknown participant detected in quick input',
+        }).catch((e: unknown) =>
+          console.warn('[quick] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
+        );
+      }
+
       res.json({
         ...result,
         action: {

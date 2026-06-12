@@ -28,9 +28,10 @@ router.get('/status', (_req: Request, res: Response) => {
 
 // POST /api/ai/analyze-task-report — AI analysis of a task report
 // Preview only — no DB writes, scope=task_only enforced
+// Phase 2b: accepts optional userId, persists non-blocking followUpQuestions
 router.post('/analyze-task-report', async (req: Request, res: Response) => {
   try {
-    const { taskTitle, taskDescription, selectedOption, selectedLabel, freeText } = req.body;
+    const { taskTitle, taskDescription, selectedOption, selectedLabel, freeText, userId } = req.body;
 
     if (!taskTitle || typeof taskTitle !== 'string') {
       return res.status(400).json({ ok: false, error: 'taskTitle is required' });
@@ -59,6 +60,22 @@ router.post('/analyze-task-report', async (req: Request, res: Response) => {
       });
     }
 
+    // Phase 2b hook: persist non-blocking followUpQuestions (fire-and-forget)
+    if (result.followUpQuestions && result.followUpQuestions.length > 0) {
+      const { persistDeferredQuestions } = await import('../brain/services/openQuestions.js');
+      persistDeferredQuestions({
+        userId: typeof userId === 'string' && userId ? userId : 'default-user',
+        questions: result.followUpQuestions,
+        sourceInputText: taskTitle ? taskTitle.slice(0, 100) : undefined,
+        sourceInputRoute: 'task_report',
+        questionType: 'task_context',
+        priority: 'normal',
+        generationReason: 'AI-generated follow-up questions from task report analysis',
+      }).catch((e: unknown) =>
+        console.warn('[ai/analyze-task-report] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
+      );
+    }
+
     return res.json({
       ok: true,
       source: 'ai',
@@ -73,9 +90,10 @@ router.post('/analyze-task-report', async (req: Request, res: Response) => {
 
 // POST /api/ai/breakdown — AI task breakdown
 // Preview only — no DB writes
+// Phase 2b: accepts optional userId, persists non-blocking clarifyingQuestions only when non-structural
 router.post('/breakdown', async (req: Request, res: Response) => {
   try {
-    const { taskTitle, taskDescription, selectedOption, freeText } = req.body;
+    const { taskTitle, taskDescription, selectedOption, freeText, userId } = req.body;
 
     if (!taskTitle || typeof taskTitle !== 'string') {
       return res.status(400).json({ ok: false, error: 'taskTitle is required' });
@@ -98,6 +116,23 @@ router.post('/breakdown', async (req: Request, res: Response) => {
             ? 'תכונת פירוק משימות כבויה.'
             : 'שגיאת AI — נסה שנית.',
       });
+    }
+
+    // Phase 2b hook: persist non-blocking clarifyingQuestions (fire-and-forget)
+    // Only persist if breakdown succeeded (result.ok=true) and questions are not structurally required
+    if (result.clarifyingQuestions && result.clarifyingQuestions.length > 0 && result.ok) {
+      const { persistDeferredQuestions } = await import('../brain/services/openQuestions.js');
+      persistDeferredQuestions({
+        userId: typeof userId === 'string' && userId ? userId : 'default-user',
+        questions: result.clarifyingQuestions,
+        sourceInputText: taskTitle ? taskTitle.slice(0, 100) : undefined,
+        sourceInputRoute: 'task_breakdown',
+        questionType: 'task_context',
+        priority: 'normal',
+        generationReason: 'AI-generated clarifying questions from task breakdown',
+      }).catch((e: unknown) =>
+        console.warn('[ai/breakdown] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
+      );
     }
 
     return res.json({

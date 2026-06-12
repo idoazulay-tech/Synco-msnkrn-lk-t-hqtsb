@@ -167,6 +167,7 @@ export async function parsePreviewAI(params: {
 // ─── taskReportPreviewAI ──────────────────────────────────────────────────────
 // Calls /api/ai/analyze-task-report
 // Returns AI analysis of a task report. Preview only, scope=task_only.
+// Phase 2b: optionally includes userId for deferred question persistence.
 
 export async function taskReportPreviewAI(params: {
   taskTitle: string;
@@ -174,12 +175,16 @@ export async function taskReportPreviewAI(params: {
   selectedOption: string;
   selectedLabel: string;
   freeText?: string;
+  userId?: string;
 }): Promise<TaskReportPreviewResponse> {
   try {
     const res = await fetch('/api/ai/analyze-task-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        ...params,
+        userId: params.userId ?? 'default-user',
+      }),
     });
     const data = await res.json();
     if (!data.ok) {
@@ -194,18 +199,23 @@ export async function taskReportPreviewAI(params: {
 // ─── breakdownPreviewAI ───────────────────────────────────────────────────────
 // Calls /api/ai/breakdown
 // Returns AI task breakdown. Preview only — user must explicitly trigger.
+// Phase 2b: optionally includes userId for deferred question persistence.
 
 export async function breakdownPreviewAI(params: {
   taskTitle: string;
   taskDescription?: string;
   selectedOption?: string;
   freeText?: string;
+  userId?: string;
 }): Promise<BreakdownPreviewResponse> {
   try {
     const res = await fetch('/api/ai/breakdown', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        ...params,
+        userId: params.userId ?? 'default-user',
+      }),
     });
     const data = await res.json();
     if (!data.ok) {
