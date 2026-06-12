@@ -34,7 +34,18 @@ export type SyncoPattern = {
   firstSeen: string;
   lastSeen: string;
   relatedEntityName?: string;
-  status: "candidate" | "active";
+  status: "candidate" | "active" | "stale";
+  // Phase 6: populated after decay is applied
+  rawConfidence?: number;
+  decayDiagnostics?: {
+    rawConfidence: number;
+    decayedConfidence: number;
+    daysSinceLastSeen: number;
+    decayFactor: number;
+    halfLifeDays: number;
+    statusBefore: string;
+    statusAfter: "active" | "candidate" | "stale";
+  };
 };
 
 export type CausalHypothesis = {
@@ -298,15 +309,30 @@ export function evaluateDecisionAgainstLifeRules(
   };
 }
 
+import { applyDecayToPatterns, type DecayOptions } from './patternDecay.js';
+
 export function runSyncoThinkingLayer(input: {
   userId: string;
   memories: SyncoMemory[];
   currentSignals?: Record<string, unknown>;
   lifeRules?: LifeRule[];
   decisionCandidate?: DecisionCandidate;
+  // Phase 6: optional decay configuration
+  decayOptions?: DecayOptions;
 }) {
-  const patterns = detectPatterns(input.memories);
-  const hypotheses = createCausalHypotheses(patterns, input.memories);
+  const now = input.decayOptions?.now ?? new Date();
+
+  // Detect raw patterns from memories
+  const rawPatterns = detectPatterns(input.memories);
+
+  // Apply time decay — older patterns lose confidence
+  const patterns = applyDecayToPatterns(rawPatterns, now, input.decayOptions ?? {});
+
+  // Only non-stale patterns feed hypothesis creation
+  // Stale patterns are still returned in output for diagnostic transparency
+  const nonStalePatterns = patterns.filter(p => p.status !== 'stale');
+
+  const hypotheses = createCausalHypotheses(nonStalePatterns, input.memories);
   const predictions = predictRisks(
     input.userId,
     input.currentSignals ?? {},
@@ -320,7 +346,7 @@ export function runSyncoThinkingLayer(input: {
       : undefined;
 
   return {
-    patterns,
+    patterns,      // all patterns including stale — for transparency
     hypotheses,
     predictions,
     experiments,
