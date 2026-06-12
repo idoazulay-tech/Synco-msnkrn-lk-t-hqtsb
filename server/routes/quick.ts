@@ -320,6 +320,7 @@ router.post('/', async (req: Request, res: Response) => {
           text,
           memories: memResult.memories,
           memoriesSource: memResult.source,
+          rescheduleBurstStats: memResult.burstCollapseStats,
           lifeRules: ruleResult.rules,
           lifeRulesSource: ruleResult.source,
           currentSignals: {},

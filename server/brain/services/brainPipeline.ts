@@ -22,6 +22,7 @@ import { evaluateDecision, SupportedDecision, DecisionContext } from './decision
 import { persistDeferredQuestions } from './openQuestions.js';
 import type { SyncoMemory, LifeRule, DecisionCandidate, SyncoPattern, CausalHypothesis, PredictionRisk } from './syncoThinkingLayer.js';
 import { runSyncoThinkingLayer } from './syncoThinkingLayer.js';
+import type { BurstCollapseStats } from './rescheduleBurstCollapse.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,9 @@ export interface BrainPipelineInput {
   // Source metadata — tells diagnostics where data came from
   memoriesSource?: 'real_db' | 'unavailable';
   lifeRulesSource?: 'real_db' | 'unavailable';
+
+  // Burst-collapse stats from memoryLoader (Phase 5)
+  rescheduleBurstStats?: BurstCollapseStats;
 
   // Task context (populated after task creation succeeds)
   relatedTaskId?: string;
@@ -80,6 +84,7 @@ export interface BrainPipelineResult {
     predictions: PredictionRisk[];
     inputContextDiagnostics: string[];
     dataAvailabilityNotes: string[];
+    rescheduleBurstStats?: BurstCollapseStats;
   };
 
   // Set if pipeline itself threw an error (task creation continues regardless)
@@ -209,6 +214,11 @@ export async function runBrainPipeline(
     }
 
     // ── Step 6: build result ───────────────────────────────────────────────
+    const burstStats = input.rescheduleBurstStats;
+    const burstNote = burstStats
+      ? `reschedule_bursts: ${burstStats.rawRescheduleEventsCount} raw events → ${burstStats.collapsedRescheduleBurstsCount} bursts (window=${burstStats.rescheduleCollapseWindowMinutes}m)`
+      : 'reschedule_bursts: no reschedule data in this request';
+
     const dataAvailabilityNotes: string[] = [
       memoriesAvailable
         ? `memories: ${memories.length} loaded from ${memoriesSource}`
@@ -220,6 +230,7 @@ export async function runBrainPipeline(
       postgresMemoriesAvailable
         ? 'postgres_memories: loaded from real DB'
         : 'postgres_memories: not from DB — injected by caller or unavailable',
+      burstNote,
     ];
 
     const result: BrainPipelineResult = {
@@ -246,6 +257,7 @@ export async function runBrainPipeline(
         predictions,
         inputContextDiagnostics: inputContext.diagnostics,
         dataAvailabilityNotes,
+        rescheduleBurstStats: burstStats,
       };
     }
 

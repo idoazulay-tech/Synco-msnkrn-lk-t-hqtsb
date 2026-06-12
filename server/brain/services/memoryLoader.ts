@@ -14,6 +14,12 @@
 
 import { prisma } from '../../lib/prisma.js';
 import type { SyncoMemory, MemorySource } from './syncoThinkingLayer.js';
+import {
+  collapseRescheduleBursts,
+  type RawRescheduledEvent,
+  type BurstCollapseStats,
+  DEFAULT_BURST_WINDOW_MINUTES,
+} from './rescheduleBurstCollapse.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -23,9 +29,12 @@ const DEFAULT_LIMIT = 50;
 /** Look back this many days — older events have low recency value */
 const DEFAULT_LOOKBACK_DAYS = 60;
 
+/** Max task_rescheduled rows to load (can be high-frequency) */
+const RESCHEDULE_LIMIT = 200;
+
 /**
  * Event types that carry behavioral signal for the brain.
- * task_rescheduled is intentionally excluded (burst-collapse required).
+ * task_rescheduled is handled separately via burst-collapse.
  */
 const BRAIN_RELEVANT_EVENT_TYPES = [
   'task_created',
@@ -36,6 +45,9 @@ const BRAIN_RELEVANT_EVENT_TYPES = [
   'check_in_response',
   'preference_expressed',
 ] as const;
+
+// Re-export for pipeline consumers
+export type { BurstCollapseStats };
 
 // ─── Mapping helpers ──────────────────────────────────────────────────────────
 
@@ -145,6 +157,7 @@ export interface MemoryLoadResult {
   count: number;
   source: 'real_db' | 'unavailable';
   error?: string;
+  burstCollapseStats?: BurstCollapseStats;
 }
 
 /**
@@ -160,6 +173,7 @@ export async function loadBrainMemoriesForUser(
   const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
 
   try {
+    // ── Query 1: behavioral events (non-reschedule) ───────────────────────
     const rows = await prisma.learningEvent.findMany({
       where: {
         userId,
@@ -183,13 +197,42 @@ export async function loadBrainMemoriesForUser(
       },
     });
 
-    const memories = mapLearningEventsToBrainMemories(rows);
+    const behaviorMemories = mapLearningEventsToBrainMemories(rows);
+
+    // ── Query 2: task_rescheduled → burst-collapse ────────────────────────
+    const rescheduleRows = await prisma.learningEvent.findMany({
+      where: {
+        userId,
+        eventType: 'task_rescheduled',
+        occurredAt: { gte: since },
+      },
+      orderBy: { occurredAt: 'asc' },
+      take: RESCHEDULE_LIMIT,
+      select: {
+        id: true,
+        userId: true,
+        taskId: true,
+        eventType: true,
+        source: true,
+        occurredAt: true,
+        taskTitleSnapshot: true,
+        fromStartTime: true,
+        toStartTime: true,
+        metadata: true,
+      },
+    });
+
+    const { memories: burstMemories, stats: burstCollapseStats } =
+      collapseRescheduleBursts(rescheduleRows as RawRescheduledEvent[], DEFAULT_BURST_WINDOW_MINUTES);
+
+    const memories = [...behaviorMemories, ...burstMemories];
 
     console.log(
-      `[MemoryLoader] loaded ${memories.length} brain memories for user ${userId} (last ${lookbackDays}d)`
+      `[MemoryLoader] loaded ${behaviorMemories.length} behavior + ${burstMemories.length} burst memories` +
+      ` (${rescheduleRows.length} reschedule events collapsed) for user ${userId}`
     );
 
-    return { memories, count: memories.length, source: 'real_db' };
+    return { memories, count: memories.length, source: 'real_db', burstCollapseStats };
   } catch (err: unknown) {
     const error = err instanceof Error ? err.message : String(err);
     console.warn('[MemoryLoader] DB load failed, returning empty memories:', error);
