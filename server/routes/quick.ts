@@ -5,6 +5,7 @@ import { buildInquiryForMissingInfo, OrgInquiry, EntityInfo } from '../layers/de
 import { orgStore, pendingEntities } from './org.js';
 import { resolveAnchorStartIso, TimelineBlock } from '../layers/task/index.js';
 import { persistDeferredQuestions } from '../brain/services/openQuestions.js';
+import { runBrainPipeline } from '../brain/services/brainPipeline.js';
 
 // Generic Hebrew words that are task concepts, not real named entities.
 // These must never become entity_identity questions.
@@ -303,14 +304,47 @@ router.post('/', async (req: Request, res: Response) => {
         );
       }
 
-      res.json({
-        ...result,
-        action: {
-          type: 'TASK_CREATED',
-          taskFile,
-          taskRun,
-        }
+      // Brain Pipeline (Phase 3): run context analysis + open questions + decision support.
+      // Fire-and-forget — never blocks task creation. Failure is logged, not propagated.
+      // devMode enabled when request header X-Synco-Dev: 1 is present.
+      const devMode = req.headers['x-synco-dev'] === '1';
+      const brainResultPromise = runBrainPipeline({
+        userId: resolvedUserId,
+        text,
+        memories: [],        // not yet fetched from DB — see dataAvailability in diagnostics
+        lifeRules: [],       // not yet fetched from DB — see dataAvailability in diagnostics
+        currentSignals: {},
+        relatedTaskId: taskFile.id,
+        relatedTaskTitle: result.task?.title,
+        devMode,
+      }).catch((e: unknown) => {
+        console.warn('[quick] brainPipeline error:', e instanceof Error ? e.message : String(e));
+        return null;
       });
+
+      // Await brain result only in dev mode (to include diagnostics in response).
+      // In production the response is sent immediately and brain runs in background.
+      if (devMode) {
+        const brainResult = await brainResultPromise;
+        res.json({
+          ...result,
+          action: {
+            type: 'TASK_CREATED',
+            taskFile,
+            taskRun,
+          },
+          _brain: brainResult ?? { ok: false, pipelineError: 'pipeline did not return' },
+        });
+      } else {
+        res.json({
+          ...result,
+          action: {
+            type: 'TASK_CREATED',
+            taskFile,
+            taskRun,
+          },
+        });
+      }
       return;
     }
     

@@ -332,9 +332,12 @@ export function generateOpenQuestionsFromContext(
     }
   }
 
-  if (ctx.missingInfo.includes("which") && ctx.intent === "create_task") {
+  if (
+    ctx.missingInfo.includes("which") &&
+    ["create_task", "create_reminder", "schedule_event", "unknown"].includes(ctx.intent)
+  ) {
     questions.push({
-      questionText: "על איזה פרויקט מדובר?",
+      questionText: "על איזה פרויקט התכוונת?",
       questionType: "project_identity",
     });
   }
