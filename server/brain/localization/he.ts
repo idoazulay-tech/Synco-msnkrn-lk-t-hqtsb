@@ -36,6 +36,18 @@ export const heMessages = {
     whoIsPerson: (name: string): string => `מי זה ${name} עבורך?`,
     whichProject: 'על איזה פרויקט התכוונת?',
   },
+  share: {
+    successPersisted:   'השיתוף הושלם. זיהיתי את ההקשר ושמרתי.',
+    successDryRun:      'הסריקה הושלמה. לא נשמר — העבר persist=true כדי לשמור.',
+    noSignals:          'לא זיהיתי הקשר מיוחד בטקסט. הכל נראה בסדר.',
+    partialFailure:     'השיתוף הושלם עם שגיאות חלקיות. הנתונים נשמרו חלקית.',
+    validationError:    'חסר מידע: נדרשים userId ו-text.',
+    unexpectedError:    'אירעה שגיאה. אנא נסה שוב.',
+    signalsSummary:     (count: number): string => `זיהיתי ${count} אות${count === 1 ? '' : 'ות'}.`,
+    wikiSummary:        (count: number): string => `עדכנתי ${count} נושא${count === 1 ? '' : 'ים'} בויקי.`,
+    graphSummary:       (count: number): string => `הוספתי ${count} קש${count === 1 ? 'ר' : 'רים'} לגרף.`,
+    openQSummary:       (count: number): string => `יש ${count} שאל${count === 1 ? 'ה' : 'ות'} פתוח${count === 1 ? 'ה' : 'ות'}.`,
+  },
 } as const;
 
 export type HeMessages = typeof heMessages;

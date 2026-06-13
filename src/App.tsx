@@ -21,6 +21,7 @@ import ShikulPage from "./pages/ShikulPage";
 import NotFound from "./pages/NotFound";
 import OnboardingPage from "./pages/OnboardingPage";
 import PriorityPlannerPage from "./pages/PriorityPlannerPage";
+import BrainSharePage from "./pages/BrainSharePage";
 
 const MIGRATION_FLAG = 'synco_migrated_v1';
 
@@ -125,6 +126,7 @@ const App = () => (
           <Route path="/shikul" element={<ShikulPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/planner" element={<PriorityPlannerPage />} />
+          <Route path="/brain-share" element={<BrainSharePage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

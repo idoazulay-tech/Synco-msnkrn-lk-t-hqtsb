@@ -272,3 +272,111 @@ model LifeRule {
   @@index([userId])
   @@index([userId, active])
 }
+
+// ─── Phase 9: Continuous Brain Models ────────────────────────────────────────
+
+model RawCaptureEvent {
+  id               String        @id @default(cuid())
+  userId           String
+  sourceType       String        // RawEventSourceType
+  sourceName       String
+  contentType      String        @default("text")
+  rawContent       String
+  languageHint     String?       // 'he' | 'en' | 'mixed' | 'unknown'
+  capturedAt       DateTime      @default(now())
+  processingStatus String        @default("pending")
+  sensitivityLevel String        @default("personal")
+  retentionPolicy  String        @default("7_days")
+  retainRawUntil   DateTime?
+  metadata         Json?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  signals          BrainSignal[]
+
+  @@index([userId])
+  @@index([userId, processingStatus])
+  @@index([capturedAt])
+}
+
+model BrainSignal {
+  id                  String           @id @default(cuid())
+  userId              String
+  rawEventId          String?
+  rawEvent            RawCaptureEvent? @relation(fields: [rawEventId], references: [id])
+  signalType          String
+  title               String
+  summary             String
+  confidence          Float
+  evidenceSource      String
+  suggestedMemoryType String
+  suggestedAction     Json?
+  relatedEntities     Json?
+  shouldCreateTask    Boolean          @default(false)
+  shouldUpdateWiki    Boolean          @default(false)
+  shouldUpdateGraph   Boolean          @default(false)
+  sensitivityLevel    String           @default("personal")
+  metadata            Json?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([userId, signalType])
+  @@index([rawEventId])
+}
+
+model WikiEntry {
+  id               String   @id @default(cuid())
+  userId           String
+  topic            String
+  parentTopic      String?
+  summary          String
+  keyPoints        Json     // string[]
+  sourceSignalIds  Json     // string[]
+  confidence       Float    @default(0.6)
+  sensitivityLevel String   @default("personal")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([userId, topic])
+  @@index([userId])
+}
+
+model GraphNode {
+  id               String      @id @default(cuid())
+  userId           String
+  nodeType         String
+  label            String
+  confidence       Float       @default(0.6)
+  sensitivityLevel String      @default("personal")
+  metadata         Json?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  fromEdges        GraphEdge[] @relation("EdgeFrom")
+  toEdges          GraphEdge[] @relation("EdgeTo")
+
+  @@unique([userId, nodeType, label])
+  @@index([userId])
+  @@index([userId, nodeType])
+}
+
+model GraphEdge {
+  id                String    @id @default(cuid())
+  userId            String
+  fromNodeId        String
+  fromNode          GraphNode @relation("EdgeFrom", fields: [fromNodeId], references: [id])
+  toNodeId          String
+  toNode            GraphNode @relation("EdgeTo", fields: [toNodeId], references: [id])
+  relationType      String
+  confidence        Float     @default(0.6)
+  evidenceSignalIds Json      // string[]
+  metadata          Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([userId, fromNodeId, toNodeId, relationType])
+  @@index([userId])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+}
