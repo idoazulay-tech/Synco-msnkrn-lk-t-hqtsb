@@ -109,3 +109,28 @@ export type OpenQuestion = Prisma.OpenQuestionModel
  * 
  */
 export type LifeRule = Prisma.LifeRuleModel
+/**
+ * Model RawCaptureEvent
+ * 
+ */
+export type RawCaptureEvent = Prisma.RawCaptureEventModel
+/**
+ * Model BrainSignal
+ * 
+ */
+export type BrainSignal = Prisma.BrainSignalModel
+/**
+ * Model WikiEntry
+ * 
+ */
+export type WikiEntry = Prisma.WikiEntryModel
+/**
+ * Model GraphNode
+ * 
+ */
+export type GraphNode = Prisma.GraphNodeModel
+/**
+ * Model GraphEdge
+ * 
+ */
+export type GraphEdge = Prisma.GraphEdgeModel

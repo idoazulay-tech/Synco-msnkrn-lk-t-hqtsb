@@ -64,7 +64,12 @@ export const ModelName = {
   UserTask: 'UserTask',
   PlanningDraft: 'PlanningDraft',
   OpenQuestion: 'OpenQuestion',
-  LifeRule: 'LifeRule'
+  LifeRule: 'LifeRule',
+  RawCaptureEvent: 'RawCaptureEvent',
+  BrainSignal: 'BrainSignal',
+  WikiEntry: 'WikiEntry',
+  GraphNode: 'GraphNode',
+  GraphEdge: 'GraphEdge'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -324,6 +329,99 @@ export const LifeRuleScalarFieldEnum = {
 } as const
 
 export type LifeRuleScalarFieldEnum = (typeof LifeRuleScalarFieldEnum)[keyof typeof LifeRuleScalarFieldEnum]
+
+
+export const RawCaptureEventScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  sourceType: 'sourceType',
+  sourceName: 'sourceName',
+  contentType: 'contentType',
+  rawContent: 'rawContent',
+  languageHint: 'languageHint',
+  capturedAt: 'capturedAt',
+  processingStatus: 'processingStatus',
+  sensitivityLevel: 'sensitivityLevel',
+  retentionPolicy: 'retentionPolicy',
+  retainRawUntil: 'retainRawUntil',
+  metadata: 'metadata',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type RawCaptureEventScalarFieldEnum = (typeof RawCaptureEventScalarFieldEnum)[keyof typeof RawCaptureEventScalarFieldEnum]
+
+
+export const BrainSignalScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  rawEventId: 'rawEventId',
+  signalType: 'signalType',
+  title: 'title',
+  summary: 'summary',
+  confidence: 'confidence',
+  evidenceSource: 'evidenceSource',
+  suggestedMemoryType: 'suggestedMemoryType',
+  suggestedAction: 'suggestedAction',
+  relatedEntities: 'relatedEntities',
+  shouldCreateTask: 'shouldCreateTask',
+  shouldUpdateWiki: 'shouldUpdateWiki',
+  shouldUpdateGraph: 'shouldUpdateGraph',
+  sensitivityLevel: 'sensitivityLevel',
+  metadata: 'metadata',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type BrainSignalScalarFieldEnum = (typeof BrainSignalScalarFieldEnum)[keyof typeof BrainSignalScalarFieldEnum]
+
+
+export const WikiEntryScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  topic: 'topic',
+  parentTopic: 'parentTopic',
+  summary: 'summary',
+  keyPoints: 'keyPoints',
+  sourceSignalIds: 'sourceSignalIds',
+  confidence: 'confidence',
+  sensitivityLevel: 'sensitivityLevel',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type WikiEntryScalarFieldEnum = (typeof WikiEntryScalarFieldEnum)[keyof typeof WikiEntryScalarFieldEnum]
+
+
+export const GraphNodeScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  nodeType: 'nodeType',
+  label: 'label',
+  confidence: 'confidence',
+  sensitivityLevel: 'sensitivityLevel',
+  metadata: 'metadata',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type GraphNodeScalarFieldEnum = (typeof GraphNodeScalarFieldEnum)[keyof typeof GraphNodeScalarFieldEnum]
+
+
+export const GraphEdgeScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  fromNodeId: 'fromNodeId',
+  toNodeId: 'toNodeId',
+  relationType: 'relationType',
+  confidence: 'confidence',
+  evidenceSignalIds: 'evidenceSignalIds',
+  metadata: 'metadata',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type GraphEdgeScalarFieldEnum = (typeof GraphEdgeScalarFieldEnum)[keyof typeof GraphEdgeScalarFieldEnum]
 
 
 export const SortOrder = {
