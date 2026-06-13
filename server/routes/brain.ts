@@ -4,6 +4,7 @@ import { createRawEvent }                   from '../brain/types/rawEvent.js';
 import { runContinuousBrainFoundation }     from '../brain/services/continuousBrainPipeline.js';
 import { saveRawEvent, updateRawEventStatus } from '../brain/services/rawEventStore.js';
 import { persistFromRoutingPlan }           from '../brain/services/persistFromRoutingPlan.js';
+import { retrieveContinuousBrainContext }   from '../brain/services/brainContextRetrieval.js';
 import { t }                                from '../brain/localization/index.js';
 
 const router = Router();
@@ -185,8 +186,8 @@ router.post('/share', async (req, res) => {
     if (persist && persisted.wikiUpdatesCount > 0) {
       messageParts.push(t.share.wikiSummary(persisted.wikiUpdatesCount));
     }
-    if (persist && persisted.graphNodesCount > 0) {
-      messageParts.push(t.share.graphSummary(persisted.graphNodesCount));
+    if (persist && (persisted.graphNodesCount > 0 || persisted.graphEdgesCount > 0)) {
+      messageParts.push(t.share.graphSummary(persisted.graphNodesCount, persisted.graphEdgesCount));
     }
     if (brainResult.openQuestions.length > 0) {
       messageParts.push(t.share.openQSummary(brainResult.openQuestions.length));
@@ -266,6 +267,74 @@ router.get('/share/status/:userId', async (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[brain/share/status] error:', msg);
     return res.status(500).json({ ok: false, message: t.share.unexpectedError });
+  }
+});
+
+// ─── GET /api/brain/retrieve ──────────────────────────────────────────────────
+// Query the Continuous Brain knowledge store.
+// ?userId=...&query=...&devMode=true
+
+router.get('/retrieve', async (req, res) => {
+  try {
+    const { userId, query, devMode } = req.query as Record<string, string>;
+
+    if (!userId || !userId.trim()) {
+      return res.status(400).json({ ok: false, message: t.retrieve.validationError });
+    }
+    if (!query || !query.trim()) {
+      return res.status(400).json({ ok: false, message: t.retrieve.validationError });
+    }
+
+    const result = await retrieveContinuousBrainContext(userId.trim(), query.trim());
+
+    const response: Record<string, unknown> = {
+      ok:          result.ok || result.sources.length > 0,
+      message:     result.summary,
+      query:       result.query,
+      sources:     result.sources,
+      wikiEntries: result.wikiEntries.map(w => ({
+        topic:       w.topic,
+        summary:     w.summary,
+        keyPoints:   w.keyPoints,
+        confidence:  w.confidence,
+        updatedAt:   w.updatedAt,
+      })),
+      signals: result.signals.map(s => ({
+        signalType:  s.signalType,
+        title:       s.title,
+        summary:     s.summary,
+        confidence:  s.confidence,
+        createdAt:   s.createdAt,
+      })),
+      graphNodes: result.graphNodes.map(n => ({
+        nodeType:   n.nodeType,
+        label:      n.label,
+        confidence: n.confidence,
+      })),
+      graphContext: result.graphContext ? {
+        nodeLabel:       result.graphContext.node?.label,
+        nodeType:        result.graphContext.node?.nodeType,
+        connectedLabels: result.graphContext.connectedLabels,
+        edgeCount:       result.graphContext.allEdges.length,
+        edges:           result.graphContext.allEdges.map(e => ({
+          direction:    e.direction,
+          relationType: e.relationType,
+          otherLabel:   e.otherNodeLabel,
+          otherType:    e.otherNodeType,
+          confidence:   e.confidence,
+        })),
+      } : null,
+    };
+
+    if (devMode === 'true') {
+      response.diagnostics = result.diagnostics;
+    }
+
+    return res.json(response);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[brain/retrieve] unexpected error:', msg);
+    return res.status(500).json({ ok: false, message: t.retrieve.unexpectedError });
   }
 });
 
