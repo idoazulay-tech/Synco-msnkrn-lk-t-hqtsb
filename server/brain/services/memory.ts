@@ -33,27 +33,31 @@ export async function storeUserMessage(
     return pointId;
   }
 
-  const { vector, isFallback } = await generateEmbedding(text);
-  const timestamp = new Date().toISOString();
+  try {
+    const { vector, isFallback } = await generateEmbedding(text);
+    const timestamp = new Date().toISOString();
 
-  await qdrant.upsert(COLLECTIONS.events, {
-    wait: true,
-    points: [{
-      id: pointId,
-      vector,
-      payload: {
-        userId,
-        text,
-        timestamp,
-        type: type ?? "message",
-        source: source ?? "user",
-        isFallbackEmbedding: isFallback,
-        ...extraPayload,
-      },
-    }],
-  });
+    await qdrant.upsert(COLLECTIONS.events, {
+      wait: true,
+      points: [{
+        id: pointId,
+        vector,
+        payload: {
+          userId,
+          text,
+          timestamp,
+          type: type ?? "message",
+          source: source ?? "user",
+          isFallbackEmbedding: isFallback,
+          ...extraPayload,
+        },
+      }],
+    });
 
-  console.log(`[Memory] saved event ${pointId} for user ${userId} (fallback=${isFallback})`);
+    console.log(`[Memory] saved event ${pointId} for user ${userId} (fallback=${isFallback})`);
+  } catch (err: unknown) {
+    console.warn(`[Memory] Qdrant write failed (quota/unavailable), skipping: ${String(err)}`);
+  }
   return pointId;
 }
 
@@ -64,24 +68,29 @@ export async function searchUserMemory(
 ): Promise<UserMemoryHit[]> {
   if (!qdrant) return [];
 
-  const { vector } = await generateEmbedding(queryText);
+  try {
+    const { vector } = await generateEmbedding(queryText);
 
-  const results = await qdrant.search(COLLECTIONS.events, {
-    vector,
-    limit,
-    with_payload: true,
-    filter: {
-      must: [{ key: "userId", match: { value: userId } }],
-    },
-  });
+    const results = await qdrant.search(COLLECTIONS.events, {
+      vector,
+      limit,
+      with_payload: true,
+      filter: {
+        must: [{ key: "userId", match: { value: userId } }],
+      },
+    });
 
-  console.log(`[Memory] retrieved ${results.length} memories for user ${userId}`);
+    console.log(`[Memory] retrieved ${results.length} memories for user ${userId}`);
 
-  return results.map(r => ({
-    text: String(r.payload?.text ?? ""),
-    timestamp: String(r.payload?.timestamp ?? ""),
-    score: r.score,
-  }));
+    return results.map(r => ({
+      text: String(r.payload?.text ?? ""),
+      timestamp: String(r.payload?.timestamp ?? ""),
+      score: r.score,
+    }));
+  } catch (err: unknown) {
+    console.warn(`[Memory] Qdrant search failed (quota/unavailable), returning empty: ${String(err)}`);
+    return [];
+  }
 }
 
 export async function storeEvent(event: BrainEvent): Promise<string> {
@@ -98,79 +107,89 @@ export async function storeEvent(event: BrainEvent): Promise<string> {
     return event.id;
   }
 
-  const embeddingText = createTextForEmbedding(event);
-  const { vector, isFallback } = await generateEmbedding(embeddingText);
+  try {
+    const embeddingText = createTextForEmbedding(event);
+    const { vector, isFallback } = await generateEmbedding(embeddingText);
 
-  await qdrant.upsert(COLLECTIONS.events, {
-    wait: true,
-    points: [{
-      id: event.id,
-      vector,
-      payload: {
-        userId: event.userId,
-        text: embeddingText,
-        type: event.type,
-        timestamp: event.timestamp.toISOString(),
-        source: event.source,
-        isFallbackEmbedding: isFallback,
-      },
-    }],
-  });
+    await qdrant.upsert(COLLECTIONS.events, {
+      wait: true,
+      points: [{
+        id: event.id,
+        vector,
+        payload: {
+          userId: event.userId,
+          text: embeddingText,
+          type: event.type,
+          timestamp: event.timestamp.toISOString(),
+          source: event.source,
+          isFallbackEmbedding: isFallback,
+        },
+      }],
+    });
 
-  console.log(`[Memory] saved event ${event.id} for user ${event.userId} (fallback=${isFallback})`);
+    console.log(`[Memory] saved event ${event.id} for user ${event.userId} (fallback=${isFallback})`);
+  } catch (err: unknown) {
+    console.warn(`[Memory] storeEvent Qdrant write failed (quota/unavailable), skipping: ${String(err)}`);
+  }
   return event.id;
 }
 
 export async function storeInsight(insight: BrainInsight): Promise<string> {
   if (!qdrant) return insight.id;
 
-  const text = `${insight.title} | ${insight.description}`;
-  const { vector } = await generateEmbedding(text);
+  try {
+    const text = `${insight.title} | ${insight.description}`;
+    const { vector } = await generateEmbedding(text);
 
-  await qdrant.upsert(COLLECTIONS.insights, {
-    wait: true,
-    points: [{
-      id: insight.id,
-      vector,
-      payload: {
-        userId: insight.userId,
-        insightType: insight.insightType,
-        title: insight.title,
-        description: insight.description,
-        confidence: insight.confidence,
-        evidence: JSON.stringify(insight.evidence),
-        createdAt: insight.createdAt.toISOString(),
-        status: insight.status,
-      },
-    }],
-  });
-
+    await qdrant.upsert(COLLECTIONS.insights, {
+      wait: true,
+      points: [{
+        id: insight.id,
+        vector,
+        payload: {
+          userId: insight.userId,
+          insightType: insight.insightType,
+          title: insight.title,
+          description: insight.description,
+          confidence: insight.confidence,
+          evidence: JSON.stringify(insight.evidence),
+          createdAt: insight.createdAt.toISOString(),
+          status: insight.status,
+        },
+      }],
+    });
+  } catch (err: unknown) {
+    console.warn(`[Memory] storeInsight Qdrant write failed (quota/unavailable), skipping: ${String(err)}`);
+  }
   return insight.id;
 }
 
 export async function storeProfileEntry(entry: UserProfileEntry): Promise<string> {
   if (!qdrant) return entry.id;
 
-  const text = `${entry.category}:${entry.key} = ${entry.value}`;
-  const { vector } = await generateEmbedding(text);
+  try {
+    const text = `${entry.category}:${entry.key} = ${entry.value}`;
+    const { vector } = await generateEmbedding(text);
 
-  await qdrant.upsert(COLLECTIONS.profile, {
-    wait: true,
-    points: [{
-      id: entry.id,
-      vector,
-      payload: {
-        userId: entry.userId,
-        category: entry.category,
-        key: entry.key,
-        value: entry.value,
-        confidence: entry.confidence,
-        confirmedByUser: entry.confirmedByUser,
-        lastUpdated: entry.lastUpdated.toISOString(),
-      },
-    }],
-  });
-
+    await qdrant.upsert(COLLECTIONS.profile, {
+      wait: true,
+      points: [{
+        id: entry.id,
+        vector,
+        payload: {
+          userId: entry.userId,
+          category: entry.category,
+          key: entry.key,
+          value: entry.value,
+          confidence: entry.confidence,
+          confirmedByUser: entry.confirmedByUser,
+          lastUpdated: entry.lastUpdated.toISOString(),
+        },
+      }],
+    });
+  } catch (err: unknown) {
+    console.warn(`[Memory] storeProfileEntry Qdrant write failed (quota/unavailable), skipping: ${String(err)}`);
+  }
   return entry.id;
 }
 
@@ -182,26 +201,30 @@ export async function storeLearningState(
 ): Promise<void> {
   if (!qdrant) return;
 
-  const stateId = uuidv5(`learning-state-${userId}`, LEARNING_STATE_NS);
-  const text = `learning_state user:${userId} trust:${state.trustLevel}`;
-  const { vector } = await generateEmbedding(text);
+  try {
+    const stateId = uuidv5(`learning-state-${userId}`, LEARNING_STATE_NS);
+    const text = `learning_state user:${userId} trust:${state.trustLevel}`;
+    const { vector } = await generateEmbedding(text);
 
-  await qdrant.upsert(COLLECTIONS.profile, {
-    wait: true,
-    points: [{
-      id: stateId,
-      vector,
-      payload: {
-        userId,
-        category: "learning_state",
-        key: "brain_trust",
-        value: JSON.stringify(state),
-        confidence: 1.0,
-        confirmedByUser: false,
-        lastUpdated: new Date().toISOString(),
-      },
-    }],
-  });
+    await qdrant.upsert(COLLECTIONS.profile, {
+      wait: true,
+      points: [{
+        id: stateId,
+        vector,
+        payload: {
+          userId,
+          category: "learning_state",
+          key: "brain_trust",
+          value: JSON.stringify(state),
+          confidence: 1.0,
+          confirmedByUser: false,
+          lastUpdated: new Date().toISOString(),
+        },
+      }],
+    });
+  } catch (err: unknown) {
+    console.warn(`[Memory] storeLearningState Qdrant write failed (quota/unavailable), skipping: ${String(err)}`);
+  }
 }
 
 export async function loadLearningState(userId: string): Promise<Record<string, unknown> | null> {
@@ -269,20 +292,26 @@ export async function searchKnowledge(
 ): Promise<MemorySearchResult[]> {
   if (!qdrant) return [];
 
-  const { vector } = await generateEmbedding(query);
+  try {
+    const { vector } = await generateEmbedding(query);
 
-  const results = await qdrant.search(COLLECTIONS.knowledge, {
-    vector,
-    limit,
-    score_threshold: 0.4,
-  });
+    const results = await qdrant.search(COLLECTIONS.knowledge, {
+      vector,
+      limit,
+      score_threshold: 0.4,
+    });
 
-  return results.map(r => ({
-    id: typeof r.id === 'string' ? r.id : String(r.id),
-    score: r.score,
-    payload: r.payload as Record<string, unknown>,
-    collection: COLLECTIONS.knowledge,
-  }));
+    return results.map(r => ({
+      id: typeof r.id === 'string' ? r.id : String(r.id),
+      score: r.score,
+      payload: r.payload as Record<string, unknown>,
+      collection: COLLECTIONS.knowledge,
+    }));
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[Memory] searchKnowledge Qdrant failed (quota/unavailable): ${msg}`);
+    return [];
+  }
 }
 
 export async function buildContext(
