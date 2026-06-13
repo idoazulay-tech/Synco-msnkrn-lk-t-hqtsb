@@ -45,8 +45,19 @@ export const heMessages = {
     unexpectedError:    'אירעה שגיאה. אנא נסה שוב.',
     signalsSummary:     (count: number): string => `זיהיתי ${count} אות${count === 1 ? '' : 'ות'}.`,
     wikiSummary:        (count: number): string => `עדכנתי ${count} נושא${count === 1 ? '' : 'ים'} בויקי.`,
-    graphSummary:       (count: number): string => `הוספתי ${count} קש${count === 1 ? 'ר' : 'רים'} לגרף.`,
+    graphSummary:       (nodes: number, edges: number): string => {
+      const total = nodes + edges;
+      if (edges > 0) {
+        return `הוספתי ${total} קשר${total === 1 ? '' : 'ים'} לגרף האישי.`;
+      }
+      return `הוספתי ${nodes} פריט${nodes === 1 ? '' : 'ים'} לגרף האישי.`;
+    },
     openQSummary:       (count: number): string => `יש ${count} שאל${count === 1 ? 'ה' : 'ות'} פתוח${count === 1 ? 'ה' : 'ות'}.`,
+  },
+  retrieve: {
+    missingParams:   'חסר מידע: נדרשים userId ו-query.',
+    noResults:       'לא נמצאו תוצאות לשאילתה זו.',
+    unexpectedError: 'שגיאה בשליפה. אנא נסה שוב.',
   },
 } as const;
 

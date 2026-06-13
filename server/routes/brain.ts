@@ -186,7 +186,7 @@ router.post('/share', async (req, res) => {
       messageParts.push(t.share.wikiSummary(persisted.wikiUpdatesCount));
     }
     if (persist && persisted.graphNodesCount > 0) {
-      messageParts.push(t.share.graphSummary(persisted.graphNodesCount));
+      messageParts.push(t.share.graphSummary(persisted.graphNodesCount, persisted.graphEdgesCount));
     }
     if (brainResult.openQuestions.length > 0) {
       messageParts.push(t.share.openQSummary(brainResult.openQuestions.length));
@@ -238,6 +238,101 @@ router.post('/share', async (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[brain/share] unexpected error:', msg);
     return res.status(500).json({ ok: false, message: t.share.unexpectedError });
+  }
+});
+
+// ─── GET /api/brain/retrieve ─────────────────────────────────────────────────
+// Search persisted brain data by query string.
+// ?userId=  &query=  [&devMode=true]
+
+router.get('/retrieve', async (req, res) => {
+  try {
+    const userId  = req.query.userId  as string | undefined;
+    const query   = req.query.query   as string | undefined;
+    const devMode = req.query.devMode === 'true';
+
+    if (!userId?.trim() || !query?.trim()) {
+      return res.status(400).json({ ok: false, message: t.retrieve.missingParams });
+    }
+
+    const { prisma } = await import('../lib/prisma.js');
+    const q = query.trim();
+    const diagnostics: string[] = [];
+
+    diagnostics.push(`retrieve: userId=${userId}, query="${q}"`);
+
+    const [signals, wikiEntries, graphNodes] = await Promise.all([
+      prisma.brainSignal.findMany({
+        where: {
+          userId,
+          OR: [
+            { signalType: { contains: q, mode: 'insensitive' } },
+            { title:      { contains: q, mode: 'insensitive' } },
+            { summary:    { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        select: {
+          id: true, signalType: true, title: true, summary: true,
+          confidence: true, shouldCreateTask: true,
+          shouldUpdateWiki: true, shouldUpdateGraph: true,
+          sensitivityLevel: true, createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
+      prisma.wikiEntry.findMany({
+        where: {
+          userId,
+          topic: { contains: q, mode: 'insensitive' },
+        },
+        select: {
+          id: true, topic: true, summary: true, keyPoints: true,
+          sourceSignalIds: true, confidence: true, sensitivityLevel: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 10,
+      }),
+      prisma.graphNode.findMany({
+        where: {
+          userId,
+          OR: [
+            { label:    { contains: q, mode: 'insensitive' } },
+            { nodeType: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        select: {
+          id: true, nodeType: true, label: true,
+          confidence: true, sensitivityLevel: true, createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
+    ]);
+
+    diagnostics.push(`signals: ${signals.length}, wiki: ${wikiEntries.length}, nodes: ${graphNodes.length}`);
+
+    const totalResults = signals.length + wikiEntries.length + graphNodes.length;
+
+    const response: Record<string, unknown> = {
+      ok:      true,
+      query:   q,
+      userId,
+      totalResults,
+      signals,
+      wikiEntries,
+      graphNodes,
+    };
+
+    if (devMode) {
+      response.diagnostics = diagnostics;
+    }
+
+    return res.json(response);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[brain/retrieve] error:', msg);
+    return res.status(500).json({ ok: false, message: t.retrieve.missingParams });
   }
 });
 
