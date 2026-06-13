@@ -9,6 +9,8 @@ import { runBrainPipeline } from '../brain/services/brainPipeline.js';
 import { runContinuousBrainFromText } from '../brain/services/continuousBrainPipeline.js';
 import { loadBrainMemoriesForUser } from '../brain/services/memoryLoader.js';
 import { loadLifeRulesForUser } from '../brain/services/lifeRuleLoader.js';
+import { retrieveContinuousBrainContext } from '../brain/services/brainContextRetrieval.js';
+import { checkKnownEntities } from '../brain/services/knownEntityChecker.js';
 
 // Generic Hebrew words that are task concepts, not real named entities.
 // These must never become entity_identity questions.
@@ -283,53 +285,86 @@ router.post('/', async (req: Request, res: Response) => {
       });
 
       // Phase 11: Load known persons from GraphNode — resilient, failure = empty list.
-      // Known persons suppress "מי זה X עבורך?" open questions to avoid duplicates.
-      let knownPersonLabels: string[] = [];
+      // Merged into knownEntityNames Set for full coverage beyond just ruleEngine participants.
+      let allKnownPersonLabels: string[] = [];
       try {
         const knownNodes = await prisma.graphNode.findMany({
           where: { userId: resolvedUserId, nodeType: 'person' },
           select: { label: true },
         });
-        knownPersonLabels = knownNodes.map(n => n.label.toLowerCase());
+        allKnownPersonLabels = knownNodes.map(n => n.label.toLowerCase());
       } catch (e: unknown) {
         console.warn('[quick] GraphNode person-lookup failed (non-blocking):', e instanceof Error ? e.message : String(e));
       }
 
-      // Phase 2b hook: persist non-blocking entity identity questions (fire-and-forget)
-      // Only on successful task creation path (no blocking missingInfo).
-      // Phase 11: filters out persons already known in GraphNode.
+      // Phase 11: extract participant names for entity check + question filtering.
+      // Uses participants already extracted by ruleEngine — no extra AI call needed.
       const participants = result.task?.participants ?? [];
-      const entityQuestions = participants
+      const cleanParticipantNames = participants
         .map(cleanParticipantName)
-        .filter(name => name.length > 1 && !QUICK_GENERIC_ENTITY_WORDS.has(name.toLowerCase()))
-        .filter(name => !knownPersonLabels.includes(name.toLowerCase()))
-        .map(name => `מי זה ${name} עבורך?`);
+        .filter(name => name.length > 1 && !QUICK_GENERIC_ENTITY_WORDS.has(name.toLowerCase()));
 
-      if (entityQuestions.length > 0) {
-        persistDeferredQuestions({
-          userId: resolvedUserId,
-          questions: entityQuestions,
-          sourceInputText: text ? text.slice(0, 100) : undefined,
-          sourceInputRoute: 'quick',
-          relatedTaskId: taskFile.id,
-          relatedTaskTitle: result.task?.title,
-          questionType: 'entity_identity',
-          generationReason: 'Unknown participant detected in quick input',
-        }).catch((e: unknown) =>
-          console.warn('[quick] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
-        );
-      }
-
-      // Brain Pipeline (Phase 4): load real memories + life rules, then run pipeline.
-      // Fire-and-forget — never blocks task creation. Any failure returns null safely.
       // devMode enabled when request header X-Synco-Dev: 1 is present.
       const devMode = req.headers['x-synco-dev'] === '1';
 
+      // Phase 11: load ALL known person labels from GraphNode for brainPipeline filtering.
+      // This ensures that any person mentioned in text (not just ruleEngine-extracted participants)
+      // is suppressed from open questions if already known. Resilient — failure = empty list.
+      let allKnownPersonLabels: string[] = [];
+      try {
+        const knownNodes = await prisma.graphNode.findMany({
+          where: { userId: resolvedUserId, nodeType: 'person' },
+          select: { label: true },
+        });
+        allKnownPersonLabels = knownNodes.map(n => n.label.toLowerCase());
+      } catch (e: unknown) {
+        console.warn('[quick] GraphNode person-lookup failed (non-blocking):', e instanceof Error ? e.message : String(e));
+      }
+
+      // Phase 11: unified fire-and-forget chain.
+      // Runs System C retrieval + known-entity check concurrently with memory loading,
+      // then: filters entity questions for known persons, then runs brain pipeline.
+      // Any single failure degrades gracefully — task creation is never affected.
       const brainResultPromise = Promise.all([
         loadBrainMemoriesForUser(resolvedUserId),
         loadLifeRulesForUser(resolvedUserId),
-      ]).then(([memResult, ruleResult]) =>
-        runBrainPipeline({
+        retrieveContinuousBrainContext(resolvedUserId, text).catch((): null => null),
+        checkKnownEntities(resolvedUserId, cleanParticipantNames)
+          .catch(() => new Map<string, import('../brain/services/knownEntityChecker.js').KnownEntityResult>()),
+      ]).then(([memResult, ruleResult, continuousCtx, knownEntityMap]) => {
+        // Build lowercase Set combining: participant-check results + all GraphNode persons.
+        // This ensures both ruleEngine-extracted participants AND any person in text
+        // that was already known are suppressed from open questions.
+        const knownEntityNames = new Set([
+          ...allKnownPersonLabels,
+          ...[...knownEntityMap.entries()]
+            .filter(([, v]) => v.isKnown)
+            .map(([k]) => k.toLowerCase()),
+        ]);
+
+        // Persist entity identity questions for UNKNOWN participants only (fire-and-forget)
+        if (cleanParticipantNames.length > 0) {
+          const entityQuestions = cleanParticipantNames
+            .filter(name => !knownEntityNames.has(name.toLowerCase()))
+            .map(name => `מי זה ${name} עבורך?`);
+
+          if (entityQuestions.length > 0) {
+            persistDeferredQuestions({
+              userId: resolvedUserId,
+              questions: entityQuestions,
+              sourceInputText: text ? text.slice(0, 100) : undefined,
+              sourceInputRoute: 'quick',
+              relatedTaskId: taskFile.id,
+              relatedTaskTitle: result.task?.title,
+              questionType: 'entity_identity',
+              generationReason: 'Unknown participant detected in quick input',
+            }).catch((e: unknown) =>
+              console.warn('[quick] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
+            );
+          }
+        }
+
+        return runBrainPipeline({
           userId: resolvedUserId,
           text,
           memories: memResult.memories,
@@ -340,10 +375,11 @@ router.post('/', async (req: Request, res: Response) => {
           currentSignals: {},
           relatedTaskId: taskFile.id,
           relatedTaskTitle: result.task?.title,
-          knownPersonLabels,          // Phase 11: suppress known-person Open Questions
+          continuousContext: continuousCtx,
+          knownEntityNames,
           devMode,
-        })
-      ).catch((e: unknown) => {
+        });
+      }).catch((e: unknown) => {
         console.warn('[quick] brainPipeline error:', e instanceof Error ? e.message : String(e));
         return null;
       });
@@ -351,16 +387,16 @@ router.post('/', async (req: Request, res: Response) => {
       // Await brain result only in dev mode (to include diagnostics in response).
       // In production the response is sent immediately and brain runs in background.
       if (devMode) {
-        // Phase 11: also run continuousBrain with knownEntities injected.
+        // Phase 11: also run continuousBrain for full signal/diagnostic context in devMode.
         const continuousContext = (() => {
           try {
             return runContinuousBrainFromText(resolvedUserId, text, 'quick_input', {
-              knownEntities: knownPersonLabels,
+              knownEntities: allKnownPersonLabels,
             });
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
             console.warn('[quick] continuousBrain failed (non-blocking):', msg);
-            return { ok: false, pipelineError: msg };
+            return { ok: false as const, pipelineError: msg };
           }
         })();
 

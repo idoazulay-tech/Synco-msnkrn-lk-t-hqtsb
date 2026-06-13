@@ -46,18 +46,20 @@ export const heMessages = {
     signalsSummary:     (count: number): string => `זיהיתי ${count} אות${count === 1 ? '' : 'ות'}.`,
     wikiSummary:        (count: number): string => `עדכנתי ${count} נושא${count === 1 ? '' : 'ים'} בויקי.`,
     graphSummary:       (nodes: number, edges: number): string => {
-      const total = nodes + edges;
-      if (edges > 0) {
-        return `הוספתי ${total} קשר${total === 1 ? '' : 'ים'} לגרף האישי.`;
-      }
-      return `הוספתי ${nodes} פריט${nodes === 1 ? '' : 'ים'} לגרף האישי.`;
+      if (nodes > 0 && edges > 0)
+        return `הוספתי ${nodes} צמת${nodes === 1 ? '' : 'ים'} ו-${edges} קש${edges === 1 ? 'ר' : 'רים'} לגרף האישי.`;
+      if (nodes > 0)
+        return `הוספתי ${nodes} פריט${nodes === 1 ? '' : 'ים'} לגרף האישי.`;
+      return `הוספתי ${edges} קש${edges === 1 ? 'ר' : 'רים'} לגרף האישי.`;
     },
     openQSummary:       (count: number): string => `יש ${count} שאל${count === 1 ? 'ה' : 'ות'} פתוח${count === 1 ? 'ה' : 'ות'}.`,
   },
   retrieve: {
-    missingParams:   'חסר מידע: נדרשים userId ו-query.',
-    noResults:       'לא נמצאו תוצאות לשאילתה זו.',
-    unexpectedError: 'שגיאה בשליפה. אנא נסה שוב.',
+    noResults:      (query: string): string => `לא נמצא מידע שמור על "${query}".`,
+    found:          (query: string, sources: string[]): string =>
+      `נמצא מידע על "${query}" מ: ${sources.join(', ')}.`,
+    validationError: 'חסר מידע: נדרשים userId ו-query.',
+    unexpectedError: 'אירעה שגיאה בשליפה. אנא נסה שוב.',
   },
 } as const;
 

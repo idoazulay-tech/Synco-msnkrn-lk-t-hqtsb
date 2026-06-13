@@ -3,25 +3,34 @@ name: Brain Phase 11 — Person Context Lookup
 description: Quick route person deduplication logic and continuousContext in devMode
 ---
 
-## Person Lookup (quick.ts)
-- Runs after task creation (TASK_CREATED path only), before persistDeferredQuestions
-- `prisma.graphNode.findMany({ where: { userId, nodeType: 'person' } })`
-- On failure: knownPersonLabels = [] (non-blocking try-catch)
-- Passed to BOTH: quick.ts entity filter AND runBrainPipeline(knownPersonLabels)
+## Person Lookup (quick.ts) — dual strategy
+Two mechanisms run in parallel, both must suppress known-person questions:
 
-## Two sources of "מי זה X?" questions
-1. quick.ts entity questions (lines ~305-309): filtered by `.filter(name => !knownPersonLabels.includes(...))`
-2. brainPipeline.ts Step 3: `filteredQuestions` skips questions where relatedEntityName is known
-Both must be filtered — filtering only one leaves duplicates.
+1. **Direct GraphNode query** (non-blocking try-catch before brainResultPromise):
+   - `prisma.graphNode.findMany({ where: { userId, nodeType: 'person' } })`
+   - Builds `allKnownPersonLabels: string[]` — ALL known persons, not just participants
+   - On failure: empty array (non-blocking)
 
-**Why:** continuousBrain already has knownEntities suppression; quick route entity flow needed same.
+2. **checkKnownEntities** (inside brainResultPromise Promise.all):
+   - `checkKnownEntities(resolvedUserId, cleanParticipantNames)` — checks ruleEngine-extracted names
+   - Results merged into `knownEntityNames` Set along with `allKnownPersonLabels`
 
-## _brain.continuousContext
+`knownEntityNames` Set is passed to `runBrainPipeline` to suppress questions in brainPipeline step 3.
+Entity questions from quick.ts also filtered using `knownEntityNames`.
+
+**Why:** ruleEngine may not extract every person mentioned; direct GraphNode query catches ALL known persons.
+Without this, brainPipeline generates "מי זה X?" for known persons not in cleanParticipantNames.
+
+## Two sources of "מי זה X?" questions — BOTH must be filtered
+1. quick.ts entity questions: `cleanParticipantNames.filter(name => !knownEntityNames.has(...))`
+2. brainPipeline.ts Step 3: filters questions where `relatedEntityName` is in `knownEntityNames`
+
+## _brain.continuousContext in devMode
 - Only appears in devMode (X-Synco-Dev: 1 header) on TASK_CREATED path
-- runContinuousBrainFromText(userId, text, 'quick_input', { knownEntities: knownPersonLabels })
-- Synchronous (not async) — IIFE with try-catch
+- Synchronous IIFE calling `runContinuousBrainFromText(userId, text, 'quick_input', { knownEntities: allKnownPersonLabels })`
+- Merged into `_brain` response: `{ ...brainResult, continuousContext }`
+- Shape: `{ ok: boolean, signals: Signal[], diagnostics: string[], ... }` — full ContinuousBrainResult
 
 ## Test inputs that guarantee TASK_CREATED (not PENDING)
-- "שיחה עם X מחר בשלוש" → date=tomorrow, time=15:00 → TASK_CREATED
-- "שיחה עם X מחר בחמש" → date=tomorrow, time=17:00 → TASK_CREATED
-- Inputs without time (e.g. "תחזור ל-X מחר") → PENDING_CREATED (no _brain returned)
+- "שיחה עם X מחר בשלוש" → time=15:00 → TASK_CREATED
+- "שיחה עם X מחר בחמש" → time=17:00 → TASK_CREATED

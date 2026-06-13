@@ -24,6 +24,7 @@ import type { SyncoMemory, LifeRule, DecisionCandidate, SyncoPattern, CausalHypo
 import { runSyncoThinkingLayer } from './syncoThinkingLayer.js';
 import type { BurstCollapseStats } from './rescheduleBurstCollapse.js';
 import { generateRecommendation, type BrainRecommendation } from './brainRecommendation.js';
+import type { BrainContextResult } from './brainContextRetrieval.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,15 @@ export interface BrainPipelineInput {
 
   // Enable full diagnostics output (dev/debug only)
   devMode?: boolean;
+
+  // Phase 11: entities already known in System C (GraphNode/WikiEntry)
+  // When set, open questions for these entities are suppressed.
+  // Lowercase names for case-insensitive matching.
+  knownEntityNames?: Set<string>;
+
+  // Phase 11: retrieved continuous brain context (for diagnostics only)
+  // undefined = retrieval not attempted; null = retrieval failed
+  continuousContext?: BrainContextResult | null;
 }
 
 export interface OpenQuestionCreated {
@@ -96,6 +106,18 @@ export interface BrainPipelineResult {
 
   // Set if pipeline itself threw an error (task creation continues regardless)
   pipelineError?: string;
+
+  // Phase 11: continuous brain context summary (always present when Phase 11 active)
+  continuousContext: {
+    retrieved:          boolean;
+    wikiCount:          number;
+    signalCount:        number;
+    graphNodeCount:     number;
+    matchedEntities:    string[];  // entity names found in System C
+    suppressedQuestions: string[]; // entity names whose open question was suppressed
+    source:             'postgres';
+    failedReason?:      string;
+  } | null;
 }
 
 // ─── Safe fallback ────────────────────────────────────────────────────────────
@@ -118,6 +140,7 @@ function safeFallback(error: unknown): BrainPipelineResult {
       qdrantAvailable: false,
       postgresMemoriesAvailable: false,
     },
+    continuousContext: null,
     pipelineError: msg,
   };
 }
@@ -142,7 +165,25 @@ export async function runBrainPipeline(
     const inputContext = analyzeInputContext(input.text);
 
     // ── Step 2: generate open questions ───────────────────────────────────
-    const suggestedQuestions = generateOpenQuestionsFromContext(inputContext);
+    const rawSuggestedQuestions = generateOpenQuestionsFromContext(inputContext);
+
+    // Phase 11: suppress questions for entities already known in System C
+    const knownNamesLower = input.knownEntityNames
+      ? new Set([...input.knownEntityNames].map(n => n.toLowerCase()))
+      : new Set<string>();
+    const suppressedByContext: string[] = [];
+
+    const suggestedQuestions = rawSuggestedQuestions.filter(q => {
+      if (
+        q.questionType === 'entity_identity' &&
+        q.relatedEntityName &&
+        knownNamesLower.has(q.relatedEntityName.toLowerCase())
+      ) {
+        suppressedByContext.push(q.relatedEntityName);
+        return false;
+      }
+      return true;
+    });
 
     // ── Step 3: persist open questions fire-and-forget ────────────────────
     // Phase 11: suppress questions for known persons (injected by caller).
@@ -248,6 +289,22 @@ export async function runBrainPipeline(
       ? `reschedule_bursts: ${burstStats.rawRescheduleEventsCount} raw events → ${burstStats.collapsedRescheduleBurstsCount} bursts (window=${burstStats.rescheduleCollapseWindowMinutes}m)`
       : 'reschedule_bursts: no reschedule data in this request';
 
+    // ── Phase 11: build continuousContext summary ──────────────────────────
+    const ctxInput = input.continuousContext;
+    const continuousContextSummary: BrainPipelineResult['continuousContext'] =
+      ctxInput !== undefined
+        ? {
+            retrieved:          ctxInput !== null,
+            wikiCount:          ctxInput?.wikiEntries.length ?? 0,
+            signalCount:        ctxInput?.signals.length ?? 0,
+            graphNodeCount:     ctxInput?.graphNodes.length ?? 0,
+            matchedEntities:    input.knownEntityNames ? [...input.knownEntityNames] : [],
+            suppressedQuestions: suppressedByContext,
+            source:             'postgres',
+            failedReason:       ctxInput?.error,
+          }
+        : null;
+
     const dataAvailabilityNotes: string[] = [
       memoriesAvailable
         ? `memories: ${memories.length} loaded from ${memoriesSource}`
@@ -260,6 +317,9 @@ export async function runBrainPipeline(
         ? 'postgres_memories: loaded from real DB'
         : 'postgres_memories: not from DB — injected by caller or unavailable',
       burstNote,
+      continuousContextSummary
+        ? `continuous_context: retrieved=${continuousContextSummary.retrieved} wiki=${continuousContextSummary.wikiCount} signals=${continuousContextSummary.signalCount} graph=${continuousContextSummary.graphNodeCount} suppressed=${suppressedByContext.length}`
+        : 'continuous_context: not injected (Phase 11 inactive)',
     ];
 
     const result: BrainPipelineResult = {
@@ -278,6 +338,7 @@ export async function runBrainPipeline(
         qdrantAvailable: false,
         postgresMemoriesAvailable,
       },
+      continuousContext: continuousContextSummary,
     };
 
     if (input.devMode) {

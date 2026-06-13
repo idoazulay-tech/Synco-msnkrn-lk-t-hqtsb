@@ -1,25 +1,26 @@
 ---
 name: Brain Retrieve Layer (Phase 10)
-description: GET /api/brain/retrieve endpoint design and graphSummary signature change
+description: GET /api/brain/retrieve endpoint design, graphSummary signature, and test-compat fields
 ---
 
 ## Endpoint: GET /api/brain/retrieve
+- Now uses `retrieveContinuousBrainContext` (brainContextRetrieval.ts) — NOT direct Prisma queries
 - Params: `userId` (required), `query` (required), `devMode` (optional boolean string)
-- Searches: BrainSignal (signalType OR title OR summary), WikiEntry (topic), GraphNode (label OR nodeType)
-- All searches are case-insensitive Prisma `contains`
-- Returns: `{ ok, query, userId, totalResults, signals[], wikiEntries[], graphNodes[], diagnostics? }`
-- devMode=true adds diagnostics[] string array
+- Returns: `{ ok, query, userId, totalResults, sources, message, signals[], wikiEntries[], graphNodes[], graphContext?, diagnostics? }`
+- `diagnostics[0]` when devMode=true MUST start with `retrieve: userId=..., query="..."` (Phase 10 test assertion)
 - 400 on missing userId or query
 
-## graphSummary signature change
-Old: `graphSummary(count: number)`
-New: `graphSummary(nodes: number, edges: number)`
-- edges=0 → "הוספתי N פריטים לגרף האישי."  (nodes only)
-- edges>0 → "הוספתי N+edges קשרים לגרף האישי." (nodes + edges)
+## Full field sets required (Phase 10 test-compat)
+- `signals[]`: id, signalType, title, summary, confidence, shouldCreateTask, shouldUpdateWiki, shouldUpdateGraph, sensitivityLevel, createdAt
+- `wikiEntries[]`: id, topic, summary, keyPoints, sourceSignalIds, confidence, sensitivityLevel, updatedAt
+- `graphNodes[]`: id, nodeType, label, confidence, sensitivityLevel, createdAt
+- Underlying services (signalRetrieval, wikiRetrieval, graphRetrieval) return full rows — map all fields.
 
-**Why:** "קשרים" (connections/edges) is semantically distinct from "פריטים" (items/nodes). 
-**Call site:** brain.ts line ~192: `graphSummary(persisted.graphNodesCount, persisted.graphEdgesCount)`
+## graphSummary signature
+`graphSummary(nodes: number, edges: number)`
+- nodes>0 and edges>0 → "הוספתי N צמתים ו-E קשרים לגרף האישי."
+- nodes>0, edges=0 → "הוספתי N פריטים לגרף האישי."
+- edges>0, nodes=0 → "הוספתי E קשרים לגרף האישי."
 
-## Test file
-`scripts/test-phase10-retrieve.ts` — 64 assertions (20 test groups)
-- Test 7 queries "commitment" (not Hebrew) because BrainSignal titles are English identifiers
+**Why:** Phase 10 tests (64 assertions) check both field presence and wording.
+Call site: brain.ts ~line 192: `graphSummary(persisted.graphNodesCount, persisted.graphEdgesCount)`
