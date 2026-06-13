@@ -6,6 +6,7 @@ import { orgStore, pendingEntities } from './org.js';
 import { resolveAnchorStartIso, TimelineBlock } from '../layers/task/index.js';
 import { persistDeferredQuestions } from '../brain/services/openQuestions.js';
 import { runBrainPipeline } from '../brain/services/brainPipeline.js';
+import { runContinuousBrainFromText } from '../brain/services/continuousBrainPipeline.js';
 import { loadBrainMemoriesForUser } from '../brain/services/memoryLoader.js';
 import { loadLifeRulesForUser } from '../brain/services/lifeRuleLoader.js';
 
@@ -281,14 +282,27 @@ router.post('/', async (req: Request, res: Response) => {
         }
       });
 
+      // Phase 11: Load known persons from GraphNode — resilient, failure = empty list.
+      // Known persons suppress "מי זה X עבורך?" open questions to avoid duplicates.
+      let knownPersonLabels: string[] = [];
+      try {
+        const knownNodes = await prisma.graphNode.findMany({
+          where: { userId: resolvedUserId, nodeType: 'person' },
+          select: { label: true },
+        });
+        knownPersonLabels = knownNodes.map(n => n.label.toLowerCase());
+      } catch (e: unknown) {
+        console.warn('[quick] GraphNode person-lookup failed (non-blocking):', e instanceof Error ? e.message : String(e));
+      }
+
       // Phase 2b hook: persist non-blocking entity identity questions (fire-and-forget)
       // Only on successful task creation path (no blocking missingInfo).
-      // Uses participants already extracted by ruleEngine — no extra AI call needed.
-      // Format: "מי זה {name} עבורך?" — only for real named entities, not generic words.
+      // Phase 11: filters out persons already known in GraphNode.
       const participants = result.task?.participants ?? [];
       const entityQuestions = participants
         .map(cleanParticipantName)
         .filter(name => name.length > 1 && !QUICK_GENERIC_ENTITY_WORDS.has(name.toLowerCase()))
+        .filter(name => !knownPersonLabels.includes(name.toLowerCase()))
         .map(name => `מי זה ${name} עבורך?`);
 
       if (entityQuestions.length > 0) {
@@ -326,6 +340,7 @@ router.post('/', async (req: Request, res: Response) => {
           currentSignals: {},
           relatedTaskId: taskFile.id,
           relatedTaskTitle: result.task?.title,
+          knownPersonLabels,          // Phase 11: suppress known-person Open Questions
           devMode,
         })
       ).catch((e: unknown) => {
@@ -336,6 +351,19 @@ router.post('/', async (req: Request, res: Response) => {
       // Await brain result only in dev mode (to include diagnostics in response).
       // In production the response is sent immediately and brain runs in background.
       if (devMode) {
+        // Phase 11: also run continuousBrain with knownEntities injected.
+        const continuousContext = (() => {
+          try {
+            return runContinuousBrainFromText(resolvedUserId, text, 'quick_input', {
+              knownEntities: knownPersonLabels,
+            });
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.warn('[quick] continuousBrain failed (non-blocking):', msg);
+            return { ok: false, pipelineError: msg };
+          }
+        })();
+
         const brainResult = await brainResultPromise;
         res.json({
           ...result,
@@ -344,7 +372,10 @@ router.post('/', async (req: Request, res: Response) => {
             taskFile,
             taskRun,
           },
-          _brain: brainResult ?? { ok: false, pipelineError: 'pipeline did not return' },
+          _brain: {
+            ...(brainResult ?? { ok: false, pipelineError: 'pipeline did not return' }),
+            continuousContext,
+          },
         });
       } else {
         res.json({

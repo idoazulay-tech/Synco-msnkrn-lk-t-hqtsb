@@ -28,6 +28,7 @@
  */
 
 import { t } from '../server/brain/localization/index.js';
+import { prisma } from '../server/lib/prisma.js';
 
 // ─── Test helpers ──────────────────────────────────────────────────────────────
 let passed = 0;
@@ -84,8 +85,14 @@ console.log('Test 5: retrieve endpoint responds');
 }
 
 // ── 6. query=דני → graphNodes contains "דני"
+// Self-seeding: ensure "דני" node exists before this test (idempotent upsert).
 console.log('Test 6: query=דני → graphNode found');
 {
+  await prisma.graphNode.upsert({
+    where: { userId_nodeType_label: { userId: USER, nodeType: 'person', label: 'דני' } },
+    create: { userId: USER, nodeType: 'person', label: 'דני', confidence: 0.9, sensitivityLevel: 'personal' },
+    update: {},
+  });
   const r = await get(`/api/brain/retrieve?userId=${USER}&query=דני`);
   const hasNode = (r.graphNodes ?? []).some((n: any) => n.label?.includes('דני'));
   assert(Array.isArray(r.graphNodes), 'graphNodes is array');

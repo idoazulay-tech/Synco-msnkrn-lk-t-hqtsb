@@ -47,6 +47,9 @@ export interface BrainPipelineInput {
   relatedTaskId?: string;
   relatedTaskTitle?: string;
 
+  // Phase 11: known person labels from GraphNode — suppresses duplicate entity questions
+  knownPersonLabels?: string[];
+
   // Enable full diagnostics output (dev/debug only)
   devMode?: boolean;
 }
@@ -142,10 +145,17 @@ export async function runBrainPipeline(
     const suggestedQuestions = generateOpenQuestionsFromContext(inputContext);
 
     // ── Step 3: persist open questions fire-and-forget ────────────────────
+    // Phase 11: suppress questions for known persons (injected by caller).
+    const knownSet = new Set((input.knownPersonLabels ?? []).map(n => n.toLowerCase()));
+    const filteredQuestions = knownSet.size > 0
+      ? suggestedQuestions.filter(q =>
+          !q.relatedEntityName || !knownSet.has(q.relatedEntityName.toLowerCase()),
+        )
+      : suggestedQuestions;
     const openQuestionsCreated: OpenQuestionCreated[] = [];
 
-    if (suggestedQuestions.length > 0) {
-      const questionTexts = suggestedQuestions.map(q => q.questionText);
+    if (filteredQuestions.length > 0) {
+      const questionTexts = filteredQuestions.map(q => q.questionText);
 
       const persistResult = await persistDeferredQuestions({
         userId: input.userId,
@@ -161,7 +171,7 @@ export async function runBrainPipeline(
           error: e instanceof Error ? e.message : String(e),
         }));
 
-      for (const q of suggestedQuestions) {
+      for (const q of filteredQuestions) {
         openQuestionsCreated.push({
           questionText: q.questionText,
           questionType: q.questionType,

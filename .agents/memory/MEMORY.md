@@ -1,3 +1,4 @@
 - [Settled Reschedule Deriver](settled-reschedule-deriver.md) — Phase 4a: script-first settled memory, deterministic pointId, retry-safe marker ordering.
 - [Reschedule Data Quality](reschedule-data-quality.md) — Phases 1-3: integrity gate, data quality fix, burst annotation conventions.
 - [Brain Retrieve Layer](brain-retrieve-phase10.md) — GET /api/brain/retrieve searches signalType+title+summary+topic+label; graphSummary now takes (nodes,edges).
+- [Brain Phase 11 Person Lookup](brain-phase11-person-lookup.md) — quick route checks GraphNode before Open Questions; knownPersonLabels suppresses both entity-Qs AND brainPipeline Qs.
