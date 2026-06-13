@@ -8,6 +8,8 @@ import { persistDeferredQuestions } from '../brain/services/openQuestions.js';
 import { runBrainPipeline } from '../brain/services/brainPipeline.js';
 import { loadBrainMemoriesForUser } from '../brain/services/memoryLoader.js';
 import { loadLifeRulesForUser } from '../brain/services/lifeRuleLoader.js';
+import { retrieveContinuousBrainContext } from '../brain/services/brainContextRetrieval.js';
+import { checkKnownEntities } from '../brain/services/knownEntityChecker.js';
 
 // Generic Hebrew words that are task concepts, not real named entities.
 // These must never become entity_identity questions.
@@ -281,41 +283,57 @@ router.post('/', async (req: Request, res: Response) => {
         }
       });
 
-      // Phase 2b hook: persist non-blocking entity identity questions (fire-and-forget)
-      // Only on successful task creation path (no blocking missingInfo).
+      // Phase 11: extract participant names for entity check + question filtering.
       // Uses participants already extracted by ruleEngine — no extra AI call needed.
-      // Format: "מי זה {name} עבורך?" — only for real named entities, not generic words.
       const participants = result.task?.participants ?? [];
-      const entityQuestions = participants
+      const cleanParticipantNames = participants
         .map(cleanParticipantName)
-        .filter(name => name.length > 1 && !QUICK_GENERIC_ENTITY_WORDS.has(name.toLowerCase()))
-        .map(name => `מי זה ${name} עבורך?`);
+        .filter(name => name.length > 1 && !QUICK_GENERIC_ENTITY_WORDS.has(name.toLowerCase()));
 
-      if (entityQuestions.length > 0) {
-        persistDeferredQuestions({
-          userId: resolvedUserId,
-          questions: entityQuestions,
-          sourceInputText: text ? text.slice(0, 100) : undefined,
-          sourceInputRoute: 'quick',
-          relatedTaskId: taskFile.id,
-          relatedTaskTitle: result.task?.title,
-          questionType: 'entity_identity',
-          generationReason: 'Unknown participant detected in quick input',
-        }).catch((e: unknown) =>
-          console.warn('[quick] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
-        );
-      }
-
-      // Brain Pipeline (Phase 4): load real memories + life rules, then run pipeline.
-      // Fire-and-forget — never blocks task creation. Any failure returns null safely.
       // devMode enabled when request header X-Synco-Dev: 1 is present.
       const devMode = req.headers['x-synco-dev'] === '1';
 
+      // Phase 11: unified fire-and-forget chain.
+      // Runs System C retrieval + known-entity check concurrently with memory loading,
+      // then: filters entity questions for known persons, then runs brain pipeline.
+      // Any single failure degrades gracefully — task creation is never affected.
       const brainResultPromise = Promise.all([
         loadBrainMemoriesForUser(resolvedUserId),
         loadLifeRulesForUser(resolvedUserId),
-      ]).then(([memResult, ruleResult]) =>
-        runBrainPipeline({
+        retrieveContinuousBrainContext(resolvedUserId, text).catch((): null => null),
+        checkKnownEntities(resolvedUserId, cleanParticipantNames)
+          .catch(() => new Map<string, import('../brain/services/knownEntityChecker.js').KnownEntityResult>()),
+      ]).then(([memResult, ruleResult, continuousCtx, knownEntityMap]) => {
+        // Build lowercase Set of known entity names for fast lookup
+        const knownEntityNames = new Set(
+          [...knownEntityMap.entries()]
+            .filter(([, v]) => v.isKnown)
+            .map(([k]) => k.toLowerCase()),
+        );
+
+        // Persist entity identity questions for UNKNOWN participants only (fire-and-forget)
+        if (cleanParticipantNames.length > 0) {
+          const entityQuestions = cleanParticipantNames
+            .filter(name => !knownEntityNames.has(name.toLowerCase()))
+            .map(name => `מי זה ${name} עבורך?`);
+
+          if (entityQuestions.length > 0) {
+            persistDeferredQuestions({
+              userId: resolvedUserId,
+              questions: entityQuestions,
+              sourceInputText: text ? text.slice(0, 100) : undefined,
+              sourceInputRoute: 'quick',
+              relatedTaskId: taskFile.id,
+              relatedTaskTitle: result.task?.title,
+              questionType: 'entity_identity',
+              generationReason: 'Unknown participant detected in quick input',
+            }).catch((e: unknown) =>
+              console.warn('[quick] persistDeferredQuestions failed:', e instanceof Error ? e.message : String(e))
+            );
+          }
+        }
+
+        return runBrainPipeline({
           userId: resolvedUserId,
           text,
           memories: memResult.memories,
@@ -326,9 +344,11 @@ router.post('/', async (req: Request, res: Response) => {
           currentSignals: {},
           relatedTaskId: taskFile.id,
           relatedTaskTitle: result.task?.title,
+          continuousContext: continuousCtx,
+          knownEntityNames,
           devMode,
-        })
-      ).catch((e: unknown) => {
+        });
+      }).catch((e: unknown) => {
         console.warn('[quick] brainPipeline error:', e instanceof Error ? e.message : String(e));
         return null;
       });
