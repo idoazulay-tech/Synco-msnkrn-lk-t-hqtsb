@@ -307,20 +307,6 @@ router.post('/', async (req: Request, res: Response) => {
       // devMode enabled when request header X-Synco-Dev: 1 is present.
       const devMode = req.headers['x-synco-dev'] === '1';
 
-      // Phase 11: load ALL known person labels from GraphNode for brainPipeline filtering.
-      // This ensures that any person mentioned in text (not just ruleEngine-extracted participants)
-      // is suppressed from open questions if already known. Resilient — failure = empty list.
-      let allKnownPersonLabels: string[] = [];
-      try {
-        const knownNodes = await prisma.graphNode.findMany({
-          where: { userId: resolvedUserId, nodeType: 'person' },
-          select: { label: true },
-        });
-        allKnownPersonLabels = knownNodes.map(n => n.label.toLowerCase());
-      } catch (e: unknown) {
-        console.warn('[quick] GraphNode person-lookup failed (non-blocking):', e instanceof Error ? e.message : String(e));
-      }
-
       // Phase 11: unified fire-and-forget chain.
       // Runs System C retrieval + known-entity check concurrently with memory loading,
       // then: filters entity questions for known persons, then runs brain pipeline.
