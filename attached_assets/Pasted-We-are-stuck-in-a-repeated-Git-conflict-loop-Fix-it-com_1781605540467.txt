@@ -1,0 +1,98 @@
+We are stuck in a repeated Git conflict loop. Fix it completely in one task.
+
+Current state:
+- A git merge is currently in progress.
+- Conflicts exist in:
+  1. server/routes/brain.ts
+  2. server/routes/quick.ts
+- The same conflict keeps repeating.
+- Do not ask me to run manual shell commands.
+- Do not work on onboarding.
+- Do not build new features.
+- Do not run unrelated tasks.
+
+Goal:
+Resolve the merge once and for all, preserve the complete current Synco implementation, run tests, commit, and push to GitHub.
+
+Critical rule:
+Do NOT blindly choose only one side.
+Open both conflicted files, inspect conflict blocks, and merge the correct code manually.
+
+Must preserve all of these capabilities:
+
+In server/routes/brain.ts:
+1. Phase 9 share endpoint: POST /api/brain/share
+2. Phase 10 retrieve endpoint: GET /api/brain/retrieve
+3. Correct graphSummary wording:
+   - nodes only: "פריטים לגרף האישי"
+   - nodes + edges: "קשרים לגרף האישי"
+4. devMode diagnostics behavior
+5. Hebrew-first responses
+6. Qdrant fallback behavior must not be touched
+
+In server/routes/quick.ts:
+1. Existing quick task creation behavior
+2. Phase 11 known person lookup
+3. allKnownPersonLabels support
+4. knownEntityNames / knownPersonLabels filtering
+5. suppression of duplicate "מי זה X?" open questions for known people
+6. unknown people must still create open questions
+7. continuousContext diagnostics in dev mode
+8. brainPipeline remains fire-and-forget / non-blocking
+9. quick route must still create tasks normally
+
+In server/brain/services/brainPipeline.ts:
+1. continuousContext support
+2. knownEntityNames / knownPersonLabels support
+3. filtering of open questions for known entities
+4. existing recommendation/dataAvailability behavior
+
+Hard requirements:
+1. Remove all conflict markers:
+   <<<<<<<
+   =======
+   >>>>>>>
+2. TypeScript must pass.
+3. Phase 9 tests must pass.
+4. Phase 10 tests must pass.
+5. Phase 11 tests must pass.
+6. quick smoke test must pass.
+7. share/retrieve smoke tests must pass.
+8. generated/prisma must remain ignored.
+9. Do not touch unrelated files unless absolutely necessary.
+10. Do not use force push unless regular push fails after a clean merge and you first confirm local contains all origin commits.
+
+Exact workflow:
+1. Run git status.
+2. Inspect the conflict markers in server/routes/brain.ts and server/routes/quick.ts.
+3. Resolve conflicts manually by combining both sides.
+4. Run:
+   grep -R "<<<<<<<\|=======\|>>>>>>>" server/routes/brain.ts server/routes/quick.ts server/brain/services/brainPipeline.ts
+5. Run TypeScript check.
+6. Run:
+   npx tsx scripts/test-phase9-share-persist.ts
+   npx tsx scripts/test-phase10-retrieve.ts
+   npx tsx scripts/test-phase11-knowledge-aware-quick.ts
+   If the Phase 11 test filename differs, find and run the correct Phase 11 script.
+7. Run a quick route smoke test if available.
+8. Run share/retrieve endpoint smoke tests if available.
+9. Commit the merge:
+   git add server/routes/brain.ts server/routes/quick.ts server/brain/services/brainPipeline.ts
+   git commit -m "Resolve Phase 10/11 merge conflicts"
+10. Push:
+   git push origin main
+
+If push fails because of GitHub credentials:
+Stop and report:
+"Merge resolved and committed locally, but push blocked by GitHub credentials."
+Also show the exact command I need to run manually.
+
+Final report must include:
+- whether merge is complete
+- files changed
+- conflict blocks resolved
+- test results
+- commit hash
+- push result
+- final git status
+- whether local main equals origin/main
