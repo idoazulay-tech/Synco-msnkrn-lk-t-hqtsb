@@ -1,0 +1,67 @@
+You are working on the existing Synco Replit project.
+
+Important:
+This is a synchronization and alignment step only.
+Do not change code.
+Do not delete files.
+Do not refactor.
+Do not create new features.
+Do not modify the database schema.
+Do not create or apply migrations.
+Do not overwrite existing work.
+Do not try to rebuild the app.
+
+We are changing the immediate product direction for the next development phase.
+
+Until now, Synco was developed mainly as a full daily planning and task management app:
+- Day view
+- Plan My Day
+- scheduling
+- task completion
+- learning events
+- AI parsing
+- ADHD-friendly planning
+
+The new immediate proof goal is narrower:
+
+Core Proof Flow:
+messy Hebrew free text
+→ extracted tasks and concerns
+→ small executable actions
+→ exactly one recommended action now
+→ user starts doing it
+→ Synco tracks what happened
+→ Synco learns from the result
+→ Synco suggests the next single action
+
+The short name for this direction is:
+Chaos to One Action
+
+Important:
+This does not replace the existing planner.
+This does not delete Plan My Day.
+This does not remove the day view.
+This does not remove existing learning events.
+This does not remove existing task/timer logic.
+
+The new flow is additive.
+It will likely be implemented first through:
+- a new /now page
+- a Now Action selector
+- a Now Action card
+- later: start/focus/finish/reason/reflection/next-action loop
+
+Claude Code may implement the next code changes and push them to GitHub.
+Your role in Replit is to stay synchronized with GitHub, understand the new direction, run the app, help inspect behavior, and avoid making conflicting changes.
+
+Please read the current codebase and return a short alignment report:
+
+1. Do you understand that GitHub is the source of truth?
+2. Do you understand that the next changes may come from Claude Code via GitHub?
+3. Which existing Replit parts are relevant to the new Core Proof Flow?
+4. Which existing flows must not be broken?
+5. What should be checked after pulling the next GitHub changes?
+6. Are there any Replit-specific risks we should be careful about?
+
+Do not implement anything yet.
+Only return the alignment report.
