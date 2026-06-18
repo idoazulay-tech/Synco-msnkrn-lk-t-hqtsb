@@ -1,124 +1,249 @@
 import { describe, test, expect } from '@jest/globals';
-import {
-  classifyIntentText,
-  extractTasksFromText,
-  decomposeProjectText,
-  buildIntakePreview,
-} from '../intakeClassifier.js';
+import { parseIntakeDeterministic } from '../intakeDeterministicParser.js';
 
-// ── classifyIntentText ─────────────────────────────────────────────────────────
+const CHAOS_INPUT =
+  'אני מוצף מהבנק, השכירות, החובות, סינקו, לדבר עם חיים, לבדוק ICP, ואני לא יודע מה לעשות קודם';
 
-describe('classifyIntentText', () => {
-  test('single short line → single_task', () => {
-    expect(classifyIntentText('לקנות חלב')).toBe('single_task');
+// ── Test 1: Main chaos input returns full structure ────────────────────────────
+
+describe('main chaos input', () => {
+  const preview = parseIntakeDeterministic(CHAOS_INPUT);
+
+  test('returns nowAction', () => {
+    expect(preview.nowAction).not.toBeNull();
   });
 
-  test('multiple lines → multi_task', () => {
-    const input = 'לקנות חלב\nלשלוח מייל\nלהתקשר לרופא';
-    expect(classifyIntentText(input)).toBe('multi_task');
+  test('nowAction.title is not an emotional phrase', () => {
+    const forbidden = [
+      'אני מוצף מהבנק',
+      'השכירות',
+      'החובות',
+      'ואני לא יודע מה לעשות קודם',
+      'אני לא יודע מה לעשות קודם',
+      'לא יודע מה לעשות קודם',
+    ];
+    const title = preview.nowAction?.title ?? '';
+    for (const f of forbidden) {
+      expect(title).not.toBe(f);
+    }
   });
 
-  test('comma-separated items → multi_task', () => {
-    expect(classifyIntentText('לקנות חלב, לקנות לחם, לקנות גבינה')).toBe('multi_task');
+  test('nowAction.title is non-empty and actionable (has verb)', () => {
+    const title = preview.nowAction?.title ?? '';
+    expect(title.length).toBeGreaterThan(3);
+    // Should NOT be just a noun or emotional phrase
+    expect(title).not.toMatch(/^אני/);
+    expect(title).not.toMatch(/^ואני/);
   });
 
-  test('text with "פרויקט" keyword → project', () => {
-    expect(classifyIntentText('פרויקט בניית אתר')).toBe('project');
+  test('notes includes at least one emotional/overload entry', () => {
+    expect(preview.notes.length).toBeGreaterThan(0);
+    const categories = preview.notes.map(n => n.category);
+    const hasEmotionOrOverload = categories.some(
+      c => c === 'emotion' || c === 'overload',
+    );
+    expect(hasEmotionOrOverload).toBe(true);
   });
 
-  test('text with "לבנות" keyword → project', () => {
-    expect(classifyIntentText('לבנות מערכת ניהול')).toBe('project');
+  test('projects includes a finance-related project', () => {
+    const financeProj = preview.projects.find(
+      p => p.tempId === 'proj_finance' || p.title.includes('בנק') || p.title.includes('חוב'),
+    );
+    expect(financeProj).toBeDefined();
   });
 
-  test('text with "מיזם" keyword → project', () => {
-    expect(classifyIntentText('מיזם שיווקי חדש')).toBe('project');
+  test('projects includes a Synco-related project', () => {
+    const syncoProj = preview.projects.find(
+      p => p.tempId === 'proj_synco' || p.title.includes('סינקו') || p.title.includes('מוצר'),
+    );
+    expect(syncoProj).toBeDefined();
   });
 
-  test('empty string → single_task (graceful)', () => {
-    expect(classifyIntentText('')).toBe('single_task');
+  test('each project has at least 3 steps', () => {
+    for (const proj of preview.projects) {
+      expect(proj.steps.length).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  test('each project has firstActionTitle', () => {
+    for (const proj of preview.projects) {
+      expect(proj.firstActionTitle).toBeTruthy();
+      expect(proj.firstActionTitle.length).toBeGreaterThan(3);
+    }
+  });
+
+  test('entities.topics includes בנק, שכירות, חובות, סינקו, ICP', () => {
+    const topics = preview.entities.topics.map(t => t.toLowerCase());
+    // At least 3 of these must appear
+    const expected = ['בנק', 'שכירות', 'חובות', 'סינקו', 'icp'];
+    const found = expected.filter(e => topics.includes(e));
+    expect(found.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('entities.people includes חיים', () => {
+    expect(preview.entities.people).toContain('חיים');
+  });
+
+  test('todayTasks includes "לדבר עם חיים" or "לבדוק ICP"', () => {
+    const titles = preview.todayTasks.map(t => t.title.toLowerCase());
+    const hasChaimOrICP =
+      titles.some(t => t.includes('חיים')) ||
+      titles.some(t => t.includes('icp') || t.includes('ICP'));
+    expect(hasChaimOrICP).toBe(true);
   });
 });
 
-// ── extractTasksFromText ────────────────────────────────────────────────────────
+// ── Test 2: Emotional phrase becomes note, not task ────────────────────────────
 
-describe('extractTasksFromText', () => {
-  test('single line → one task with correct title', () => {
-    const tasks = extractTasksFromText('לשלוח מייל ללקוח');
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0].title).toBe('לשלוח מייל ללקוח');
+describe('emotional phrases → notes not tasks', () => {
+  test('"אני מוצף" is not a todayTask title', () => {
+    const preview = parseIntakeDeterministic('אני מוצף, לדבר עם שני');
+    const taskTitles = preview.todayTasks.map(t => t.title);
+    expect(taskTitles).not.toContain('אני מוצף');
+    expect(taskTitles.some(t => t.includes('מוצף'))).toBe(false);
   });
 
-  test('multi-line → multiple tasks', () => {
-    const tasks = extractTasksFromText('לקנות חלב\nלשלוח מייל\nלהתקשר');
-    expect(tasks.length).toBeGreaterThanOrEqual(2);
-  });
-
-  test('task with "דחוף" → priority high', () => {
-    const tasks = extractTasksFromText('לשלוח חוזה דחוף');
-    expect(tasks[0].priority).toBe('high');
-  });
-
-  test('regular task → no explicit priority (defaults omitted)', () => {
-    const tasks = extractTasksFromText('לקנות חלב');
-    expect(tasks[0].priority).toBeUndefined();
+  test('"אני מוצף" becomes a note', () => {
+    const preview = parseIntakeDeterministic('אני מוצף, לדבר עם שני');
+    const noteTexts = preview.notes.map(n => n.text.toLowerCase());
+    const hasOverloadNote = noteTexts.some(t => t.includes('מוצף'));
+    expect(hasOverloadNote).toBe(true);
   });
 });
 
-// ── decomposeProjectText ────────────────────────────────────────────────────────
+// ── Test 3: Bare nouns → converted to actionable / assigned to project ─────────
 
-describe('decomposeProjectText', () => {
-  test('returns a project title', () => {
-    const result = decomposeProjectText('פרויקט בניית אתר\nעיצוב\nפיתוח\nבדיקות');
-    expect(result.title.length).toBeGreaterThan(0);
+describe('bare nouns → actionable or project', () => {
+  test('"השכירות" is NOT a standalone task title', () => {
+    const preview = parseIntakeDeterministic('השכירות, החובות');
+    const taskTitles = preview.todayTasks.map(t => t.title);
+    expect(taskTitles).not.toContain('השכירות');
+    expect(taskTitles).not.toContain('החובות');
   });
 
-  test('returns at least 2 steps', () => {
-    const result = decomposeProjectText('פרויקט בניית אתר\nשלב א\nשלב ב');
-    expect(result.steps.length).toBeGreaterThanOrEqual(2);
-  });
-
-  test('steps have ordered orderIndex starting at 0', () => {
-    const result = decomposeProjectText('פרויקט\nשלב א\nשלב ב\nשלב ג');
-    const indices = result.steps.map(s => s.orderIndex);
-    expect(indices[0]).toBe(0);
-    expect(indices[1]).toBe(1);
-  });
-
-  test('single-line project → generates generic steps', () => {
-    const result = decomposeProjectText('מיזם חדש');
-    expect(result.steps.length).toBeGreaterThanOrEqual(2);
+  test('"השכירות" and "החובות" result in a finance project', () => {
+    const preview = parseIntakeDeterministic('השכירות, החובות');
+    const hasFinance = preview.projects.some(
+      p => p.tempId === 'proj_finance' || p.title.includes('בנק') || p.title.includes('חוב'),
+    );
+    expect(hasFinance).toBe(true);
   });
 });
 
-// ── buildIntakePreview ──────────────────────────────────────────────────────────
+// ── Test 4: Synco grouping ─────────────────────────────────────────────────────
 
-describe('buildIntakePreview', () => {
-  test('project type → preview has project field', () => {
-    const preview = buildIntakePreview('פרויקט בניית אפליקציה');
-    expect(preview.type).toBe('project');
-    expect(preview.project).toBeDefined();
+describe('Synco / ICP / product grouping', () => {
+  test('"סינקו, לדבר עם חיים, לבדוק ICP" creates Synco project', () => {
+    const preview = parseIntakeDeterministic('סינקו, לדבר עם חיים, לבדוק ICP');
+    const syncoProj = preview.projects.find(p => p.tempId === 'proj_synco');
+    expect(syncoProj).toBeDefined();
   });
 
-  test('multi_task → preview tasks array has multiple items', () => {
-    const preview = buildIntakePreview('לקנות חלב\nלשלוח מייל\nלהתקשר לרופא');
-    expect(preview.type).toBe('multi_task');
-    expect(preview.tasks.length).toBeGreaterThanOrEqual(2);
+  test('"לדבר עם חיים" is a todayTask', () => {
+    const preview = parseIntakeDeterministic('סינקו, לדבר עם חיים, לבדוק ICP');
+    const titles = preview.todayTasks.map(t => t.title);
+    expect(titles.some(t => t.includes('חיים'))).toBe(true);
   });
 
-  test('single_task → preview tasks has exactly one item', () => {
-    const preview = buildIntakePreview('לשלוח מייל');
-    expect(preview.type).toBe('single_task');
-    expect(preview.tasks).toHaveLength(1);
+  test('חיים appears in entities.people', () => {
+    const preview = parseIntakeDeterministic('לדבר עם חיים');
+    expect(preview.entities.people).toContain('חיים');
+  });
+});
+
+// ── Test 5: "כביסה" → multi-step routine project ──────────────────────────────
+
+describe('כביסה → multi-step project', () => {
+  const preview = parseIntakeDeterministic('כביסה');
+
+  test('creates a house project', () => {
+    const houseProj = preview.projects.find(p => p.tempId === 'proj_house');
+    expect(houseProj).toBeDefined();
   });
 
-  test('preserves rawText in preview', () => {
-    const text = 'לקנות חלב';
-    const preview = buildIntakePreview(text);
-    expect(preview.rawText).toBe(text);
+  test('house project has steps that cover laundry phases', () => {
+    const houseProj = preview.projects.find(p => p.tempId === 'proj_house');
+    const stepTitles = (houseProj?.steps ?? []).map(s => s.title.toLowerCase());
+    // At least one of these laundry keywords should appear in steps
+    const laundryKeywords = ['כביסה', 'מכונה', 'להפריד', 'לאסוף', 'לאחסן'];
+    const found = laundryKeywords.filter(kw => stepTitles.some(t => t.includes(kw)));
+    expect(found.length).toBeGreaterThanOrEqual(2);
   });
 
-  test('project type → tasks array is empty (steps used instead)', () => {
-    const preview = buildIntakePreview('פרויקט בניית מערכת');
-    expect(preview.tasks).toHaveLength(0);
+  test('has at least 3 steps', () => {
+    const houseProj = preview.projects.find(p => p.tempId === 'proj_house');
+    expect((houseProj?.steps ?? []).length).toBeGreaterThanOrEqual(3);
   });
+});
+
+// ── Test 6: Every project has 3–7 steps ───────────────────────────────────────
+
+test('all projects have 3 to 7 steps', () => {
+  const preview = parseIntakeDeterministic(CHAOS_INPUT);
+  for (const proj of preview.projects) {
+    expect(proj.steps.length).toBeGreaterThanOrEqual(3);
+    expect(proj.steps.length).toBeLessThanOrEqual(7);
+  }
+});
+
+// ── Test 7: Every project has firstActionTitle ─────────────────────────────────
+
+test('all projects have non-empty firstActionTitle', () => {
+  const preview = parseIntakeDeterministic(CHAOS_INPUT);
+  for (const proj of preview.projects) {
+    expect(proj.firstActionTitle).toBeTruthy();
+    expect(typeof proj.firstActionTitle).toBe('string');
+    expect(proj.firstActionTitle.length).toBeGreaterThan(3);
+  }
+});
+
+// ── Test 8: nowAction exists for non-empty input ───────────────────────────────
+
+test('nowAction is not null for non-empty input', () => {
+  const preview = parseIntakeDeterministic('לדבר עם יוסי');
+  expect(preview.nowAction).not.toBeNull();
+});
+
+// ── Test 9: nowAction is a concrete actionable item ───────────────────────────
+
+test('nowAction title is actionable (not emotional, not noun-only)', () => {
+  const preview = parseIntakeDeterministic(CHAOS_INPUT);
+  const title = preview.nowAction?.title ?? '';
+  expect(title).not.toMatch(/^אני/);
+  expect(title).not.toMatch(/^מוצף/);
+  expect(title.length).toBeGreaterThan(5);
+});
+
+// ── Test 10: Empty input returns ok:false equivalent ──────────────────────────
+
+test('empty input returns preview with warning and null nowAction', () => {
+  const preview = parseIntakeDeterministic('');
+  expect(preview.nowAction).toBeNull();
+  expect(preview.warnings.length).toBeGreaterThan(0);
+  expect(preview.warnings[0]).toContain('ריק');
+});
+
+// ── Test 11: Output has required top-level keys ────────────────────────────────
+
+test('preview has all required top-level keys', () => {
+  const preview = parseIntakeDeterministic(CHAOS_INPUT);
+  const requiredKeys: (keyof typeof preview)[] = [
+    'nowAction', 'todayTasks', 'laterTasks', 'projects',
+    'openQuestions', 'notes', 'entities', 'warnings',
+  ];
+  for (const key of requiredKeys) {
+    expect(key in preview).toBe(true);
+  }
+});
+
+// ── Test 12: entities has all required sub-keys ────────────────────────────────
+
+test('entities has all required sub-keys', () => {
+  const preview = parseIntakeDeterministic(CHAOS_INPUT);
+  const requiredKeys: (keyof typeof preview.entities)[] = [
+    'people', 'places', 'times', 'dates', 'priorities', 'topics', 'emotions',
+  ];
+  for (const key of requiredKeys) {
+    expect(Array.isArray(preview.entities[key])).toBe(true);
+  }
 });
