@@ -196,7 +196,60 @@ model UserTask {
   updatedAt             DateTime  @updatedAt
   completedAt           DateTime?
 
+  // Project linkage (added Build Pack 4A)
+  projectId             String?
+  projectStepId         String?
+  parentTaskId          String?
+  firstStep             String?
+
   @@index([userId, deletedAt])
+  @@index([projectId])
+}
+
+model IntakeRecord {
+  id          String    @id @default(cuid())
+  userId      String
+  rawText     String
+  parsedJson  Json
+  status      String    @default("preview")
+  committedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([userId, status])
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  status      String        @default("active")
+  priority    String        @default("medium")
+  goalText    String?
+  dueAt       DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  steps       ProjectStep[]
+
+  @@index([userId])
+  @@index([userId, status])
+}
+
+model ProjectStep {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id])
+  title      String
+  orderIndex Int
+  status     String   @default("pending")
+  taskId     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([projectId])
 }
 
 model PlanningDraft {
