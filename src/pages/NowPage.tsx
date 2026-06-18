@@ -7,6 +7,15 @@ import { logLearningEvent } from '@/lib/api/learningClient';
 
 const USER_ID = 'default-user';
 
+async function serverCompleteTask(taskId: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`/api/user-tasks/${taskId}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ completed: true }),
+  });
+  return { ok: res.ok };
+}
+
 interface NowTask {
   id: string;
   title: string;
@@ -30,9 +39,10 @@ export default function NowPage() {
   const [pageState, setPageState] = useState<PageState>('loading');
   const [nowData, setNowData] = useState<NowResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [completionError, setCompletionError] = useState<string | null>(null);
   const excludedIdsRef = useRef<Set<string>>(new Set());
 
-  const { startTaskExecution, completeTask } = useTaskStore();
+  const { startTaskExecution } = useTaskStore();
 
   const fetchNow = useCallback(async () => {
     setPageState('loading');
@@ -75,12 +85,34 @@ export default function NowPage() {
     await fetchNow();
   }, [nowData, fetchNow]);
 
-  const handleDone = useCallback(() => {
+  const handleDone = useCallback(async () => {
     if (!nowData?.task) return;
-    completeTask(nowData.task.id, true);
-    excludedIdsRef.current.add(nowData.task.id);
-    fetchNow();
-  }, [nowData, completeTask, fetchNow]);
+    const task = nowData.task;
+    setCompletionError(null);
+
+    try {
+      const { ok } = await serverCompleteTask(task.id);
+      if (!ok) {
+        setCompletionError('לא הצלחתי לסמן את המשימה כהושלמה. נסה שוב.');
+        return;
+      }
+    } catch {
+      setCompletionError('לא הצלחתי לסמן את המשימה כהושלמה. נסה שוב.');
+      return;
+    }
+
+    // Server confirmed — log once and move on
+    logLearningEvent({
+      taskId: task.id,
+      eventType: 'task_completed',
+      source: 'now_flow',
+      taskTitleSnapshot: task.title,
+      metadata: { source: 'now_flow', completionSource: 'server_fallback' },
+    });
+
+    excludedIdsRef.current.add(task.id);
+    await fetchNow();
+  }, [nowData, fetchNow]);
 
   const handleStuck = useCallback(async () => {
     if (!nowData?.task) return;
@@ -175,6 +207,10 @@ export default function NowPage() {
                 לא צריך לפתור הכל. רק את הפעולה הזאת.
               </p>
             </div>
+
+            {completionError && (
+              <p className="text-destructive text-sm text-right">{completionError}</p>
+            )}
 
             <div className="flex flex-col gap-2">
               <button
