@@ -20,6 +20,7 @@ import aiRoutes from './routes/ai.js';
 import userTasksRoutes from './routes/user-tasks.js';
 import planningDraftsRoutes from './routes/planning-drafts.js';
 import openQuestionsRoutes from './routes/openQuestions.js';
+import nowRoutes from './routes/now.js';
 import { testQdrantConnection } from './lib/qdrant.js';
 import { initQdrantCollections } from './lib/qdrant-init.js';
 
@@ -48,6 +49,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/user-tasks', userTasksRoutes);
 app.use('/api/planning-drafts', planningDraftsRoutes);
 app.use('/api/open-questions', openQuestionsRoutes);
+app.use('/api/now', nowRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

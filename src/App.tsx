@@ -22,6 +22,7 @@ import NotFound from "./pages/NotFound";
 import OnboardingPage from "./pages/OnboardingPage";
 import PriorityPlannerPage from "./pages/PriorityPlannerPage";
 import BrainSharePage from "./pages/BrainSharePage";
+import NowPage from "./pages/NowPage";
 
 const MIGRATION_FLAG = 'synco_migrated_v1';
 
@@ -127,6 +128,7 @@ const App = () => (
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/planner" element={<PriorityPlannerPage />} />
           <Route path="/brain-share" element={<BrainSharePage />} />
+          <Route path="/now" element={<NowPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
