@@ -1,0 +1,81 @@
+Claude Code pushed Build Pack 2.5 to GitHub.
+
+Commit:
+f704dc2661e685f88d8b061ac21293f003cd5a31
+
+Important:
+Do not modify code.
+Do not refactor.
+Do not create files.
+Do not apply migrations.
+Do not change Prisma.
+Do not change taskStore.
+Report only.
+
+Please pull the latest changes from GitHub:
+
+git pull origin main
+
+Then verify local HEAD includes:
+f704dc2661e685f88d8b061ac21293f003cd5a31
+
+Expected Build Pack 2.5 changes:
+- NowPage "סיימתי" uses server-first completion
+- endpoint used: POST /api/user-tasks/:id/complete
+- no new completion route
+- no Prisma schema changes
+- no taskStore rewrite
+- new pure nowScoringLogic service
+- new tests for selector/scoring logic
+
+Please test:
+
+1. App starts successfully.
+2. TypeScript passes.
+3. /api/now works.
+4. Create a new relevant task for today, not stale.
+5. Go to /now.
+6. Confirm the new task can appear as the Now Action.
+7. Click "התחל".
+8. Confirm focus state appears.
+9. Click "סיימתי".
+10. Verify POST /api/user-tasks/:id/complete is called successfully.
+11. Verify the task status in DB becomes completed.
+12. Verify the completed task disappears from /api/now.
+13. Verify /now refreshes to the next action or empty state.
+14. Verify task_completed learning event is created with:
+    source: now_flow
+    completionSource: server_fallback
+15. Test server failure if practical:
+    If completion endpoint fails, verify the Hebrew error appears:
+    "לא הצלחתי לסמן את המשימה כהושלמה. נסה שוב."
+16. Verify "לא עכשיו" still excludes task in session.
+17. Verify "נתקעתי" still logs task_postponed.
+18. Verify Plan My Day still works.
+19. Verify regular DayView task completion still works.
+20. Verify no new console/server errors.
+
+Run:
+- TypeScript check
+- npm test or relevant test suite
+- app startup check
+
+Return report:
+
+A. Current HEAD after pull
+B. Sync status
+C. /api/now result with fresh task
+D. /now page result
+E. התחל result
+F. סיימתי result
+G. DB completion result
+H. Learning event result
+I. לא עכשיו / נתקעתי regression
+J. Plan My Day / DayView regression
+K. Tests run and results
+L. Errors found
+M. Is Build Pack 2.5 safe?
+N. Is the taskStore completion risk fixed?
+O. Next smallest fix if needed
+
+Do not implement fixes unless I explicitly ask.
