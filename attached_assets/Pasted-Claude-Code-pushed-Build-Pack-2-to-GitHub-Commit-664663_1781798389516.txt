@@ -1,0 +1,94 @@
+Claude Code pushed Build Pack 2 to GitHub.
+
+Commit:
+6646636c2147d3c186fe52846e6fbd6df466398d
+
+Important:
+Do not modify code.
+Do not refactor.
+Do not create files.
+Do not apply migrations.
+Do not change Prisma.
+Do not change taskStore.
+Report only.
+
+Please pull the latest changes from GitHub using the Shell if needed:
+
+git pull origin main
+
+Then verify that local HEAD includes:
+6646636c2147d3c186fe52846e6fbd6df466398d
+
+Expected Build Pack 2 changes:
+- stale task guard in nowActionSelector
+- excludedTaskIds support in GET /api/now
+- NowActionCard
+- /now execution flow
+- start action
+- focus state
+- buttons:
+  - סיימתי
+  - נתקעתי
+  - לא עכשיו
+- task_postponed learning event for stuck / not_now
+- no Prisma schema changes
+- no taskStore changes
+
+Please test:
+
+1. App starts successfully.
+2. TypeScript passes.
+3. /api/now?userId=default-user returns valid JSON.
+4. Very old stale tasks older than 7 days are not selected.
+5. The old task "לצאת לאוטובוס" from 2026-05-12 is not selected anymore.
+6. /now page loads.
+7. /now shows exactly one NowActionCard, not a long list.
+8. The card shows:
+   - task title
+   - reason
+   - duration
+   - candidateCount
+   - staleCount note if relevant
+9. Click "התחל" and verify it enters focus state.
+10. Focus state shows:
+   - "עכשיו רק זה"
+   - task title
+   - message
+   - buttons: סיימתי / נתקעתי / לא עכשיו
+11. Click "לא עכשיו" and verify:
+   - it logs task_postponed if possible
+   - the same task is not immediately selected again
+   - another task appears, or empty state appears
+12. Click "נתקעתי" and verify:
+   - it logs task_postponed with reasonCategory stuck if possible
+   - the same task is excluded for the session
+13. Click "סיימתי" and verify carefully:
+   - does the task actually become completed?
+   - does it disappear from /now?
+   - does the next action refresh?
+   - are task_completed and task_execution_completed created?
+14. Check whether completion works even if the selected task came from the DB and not from local taskStore.
+15. Verify Plan My Day still works.
+16. Verify task creation still works.
+17. Verify task completion from the regular DayView still works.
+18. Check console and server logs for errors.
+
+Return report:
+
+A. Current HEAD after pull
+B. Sync status
+C. /api/now result after stale guard
+D. /now page result
+E. Start button result
+F. Focus state result
+G. לא עכשיו result
+H. נתקעתי result
+I. סיימתי result
+J. Learning events result
+K. Regression check: Plan My Day, task creation, task completion
+L. Errors found
+M. Is Build Pack 2 safe?
+N. Is the completeTask/taskStore risk real in Replit?
+O. Next smallest fix if needed
+
+Do not implement fixes unless I explicitly ask.
