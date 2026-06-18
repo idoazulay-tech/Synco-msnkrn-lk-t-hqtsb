@@ -11,6 +11,15 @@ export interface NowActionResult {
   } | null;
   reason: string;
   candidateCount: number;
+  staleCount: number;
+}
+
+const STALE_DAYS = 7;
+const EXCLUDED_STATUSES = new Set(['completed', 'standby']);
+
+function isStale(startTime: Date): boolean {
+  const cutoff = new Date(Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000);
+  return startTime < cutoff;
 }
 
 function scoreTask(task: {
@@ -20,26 +29,26 @@ function scoreTask(task: {
 }): number {
   let score = 0;
 
-  // Priority
-  if (task.priority === 'high') score += 30;
-  else if (task.priority === 'medium') score += 20;
-  else if (task.priority === 'low') score += 10;
-  else score += 5;
-
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  // Overdue bonus
-  if (task.startTime < now) {
-    score += 20;
-  }
-  // Scheduled for today bonus
-  else if (task.startTime >= todayStart && task.startTime < todayEnd) {
-    score += 15;
+  // Today
+  if (task.startTime >= todayStart && task.startTime < todayEnd) {
+    score += 30;
   }
 
-  // Shorter tasks get a small bonus (max +10 for <=15 min)
+  // Priority
+  if (task.priority === 'high') score += 25;
+  else if (task.priority === 'medium') score += 15;
+  else if (task.priority === 'low') score += 5;
+
+  // Recent overdue (within last 7 days — already filtered, so any negative startTime here is recent)
+  if (task.startTime < now && task.startTime >= todayStart === false) {
+    score += 20;
+  }
+
+  // Duration bonus (shorter = easier to start)
   if (task.duration <= 15) score += 10;
   else if (task.duration <= 30) score += 5;
   else if (task.duration <= 60) score += 2;
@@ -51,26 +60,38 @@ function buildReason(task: {
   priority: string | null;
   startTime: Date;
   duration: number;
-}): string {
+}, staleCount: number): string {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  if (task.startTime < now || task.priority === 'high') {
-    return 'זו נראית הפעולה הכי מתאימה להתחיל ממנה עכשיו כי היא דחופה וקצרה יחסית.';
-  }
+  let reason = '';
+
   if (task.startTime >= todayStart && task.startTime < todayEnd) {
-    return 'זו פעולה טובה להתחלה כי היא כבר מתוכננת להיום.';
+    reason = 'זו פעולה טובה להתחלה כי היא מתוכננת להיום.';
+  } else if (task.startTime < now) {
+    reason = 'זו פעולה טובה להתחלה כי היא דחופה ועדיין רלוונטית.';
+  } else if (task.duration <= 30) {
+    reason = 'זו פעולה קצרה יחסית שיכולה לפתוח תנועה.';
+  } else {
+    reason = 'זו נראית הפעולה הכי מתאימה להתחיל ממנה עכשיו.';
   }
-  return 'זו נראית הפעולה הכי מתאימה להתחיל ממנה עכשיו כי היא דחופה וקצרה יחסית.';
+
+  if (staleCount > 0) {
+    reason += ` (${staleCount} משימות ישנות לא נכללו כי כנראה כבר לא רלוונטיות.)`;
+  }
+
+  return reason;
 }
 
-export async function selectNowAction(userId: string): Promise<NowActionResult> {
-  const candidates = await prisma.userTask.findMany({
+export async function selectNowAction(
+  userId: string,
+  excludedTaskIds: string[] = [],
+): Promise<NowActionResult> {
+  const allOpen = await prisma.userTask.findMany({
     where: {
       userId,
       deletedAt: null,
-      NOT: { status: 'completed' },
     },
     select: {
       id: true,
@@ -82,17 +103,35 @@ export async function selectNowAction(userId: string): Promise<NowActionResult> 
     },
   });
 
-  if (candidates.length === 0) {
-    return { task: null, reason: 'אין משימות פתוחות כרגע.', candidateCount: 0 };
+  // Split into stale vs active
+  let staleCount = 0;
+  const excludedSet = new Set(excludedTaskIds);
+
+  const active = allOpen.filter((t) => {
+    if (EXCLUDED_STATUSES.has(t.status)) return false;
+    if (excludedSet.has(t.id)) return false;
+    if (isStale(t.startTime)) {
+      staleCount++;
+      return false;
+    }
+    return true;
+  });
+
+  if (active.length === 0) {
+    const emptyReason = staleCount > 0
+      ? `אין משימות פתוחות רלוונטיות כרגע. (${staleCount} משימות ישנות לא נכללו כי כנראה כבר לא רלוונטיות.)`
+      : 'אין משימות פתוחות כרגע.';
+    return { task: null, reason: emptyReason, candidateCount: 0, staleCount };
   }
 
-  const scored = candidates.map(t => ({ task: t, score: scoreTask(t) }));
+  const scored = active.map((t) => ({ task: t, score: scoreTask(t) }));
   scored.sort((a, b) => b.score - a.score);
   const best = scored[0].task;
 
   return {
     task: best,
-    reason: buildReason(best),
-    candidateCount: candidates.length,
+    reason: buildReason(best, staleCount),
+    candidateCount: active.length,
+    staleCount,
   };
 }

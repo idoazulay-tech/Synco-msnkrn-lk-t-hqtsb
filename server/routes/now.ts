@@ -9,13 +9,19 @@ router.get('/', async (req: Request, res: Response) => {
       ? req.query.userId
       : 'default-user';
 
-    const result = await selectNowAction(userId);
+    const excludedTaskIds: string[] =
+      typeof req.query.excludedTaskIds === 'string' && req.query.excludedTaskIds
+        ? req.query.excludedTaskIds.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+
+    const result = await selectNowAction(userId, excludedTaskIds);
 
     res.json({
       ok: true,
       task: result.task,
       reason: result.reason,
       candidateCount: result.candidateCount,
+      staleCount: result.staleCount,
     });
   } catch (error) {
     console.error('[now] error:', error instanceof Error ? error.message : String(error));
