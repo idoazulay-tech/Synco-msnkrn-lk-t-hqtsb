@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Zap, Loader2, Inbox } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NowActionCard } from '@/components/now/NowActionCard';
+import { NowResultReflection } from '@/components/now/NowResultReflection';
 import { useTaskStore } from '@/store/taskStore';
 import { logLearningEvent } from '@/lib/api/learningClient';
+import type { ResultType } from '@/lib/now/nowReflectionCopy';
 
 const USER_ID = 'default-user';
 
@@ -33,16 +36,19 @@ interface NowResponse {
   staleCount: number;
 }
 
-type PageState = 'loading' | 'selecting' | 'focusing' | 'empty';
+type PageState = 'loading' | 'selecting' | 'focusing' | 'reflecting' | 'empty';
 
 export default function NowPage() {
   const [pageState, setPageState] = useState<PageState>('loading');
   const [nowData, setNowData] = useState<NowResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [completionError, setCompletionError] = useState<string | null>(null);
+  const [resultType, setResultType] = useState<ResultType | null>(null);
+  const [lastTaskTitle, setLastTaskTitle] = useState<string | null>(null);
   const excludedIdsRef = useRef<Set<string>>(new Set());
 
   const { startTaskExecution } = useTaskStore();
+  const navigate = useNavigate();
 
   const fetchNow = useCallback(async () => {
     setPageState('loading');
@@ -57,7 +63,7 @@ export default function NowPage() {
       setPageState(json.task ? 'selecting' : 'empty');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'שגיאה לא ידועה');
-      setPageState('selecting'); // show error in place
+      setPageState('selecting');
     }
   }, []);
 
@@ -65,13 +71,16 @@ export default function NowPage() {
     fetchNow();
   }, [fetchNow]);
 
+  // ── Actions ────────────────────────────────────────────────────────────────
+
   const handleStart = useCallback(() => {
     if (!nowData?.task) return;
     startTaskExecution(nowData.task.id);
     setPageState('focusing');
   }, [nowData, startTaskExecution]);
 
-  const handleSkipFromCard = useCallback(async () => {
+  // Card-level "לא עכשיו" (task not started yet)
+  const handleSkipFromCard = useCallback(() => {
     if (!nowData?.task) return;
     const task = nowData.task;
     excludedIdsRef.current.add(task.id);
@@ -82,9 +91,12 @@ export default function NowPage() {
       taskTitleSnapshot: task.title,
       metadata: { reasonCategory: 'not_now', reasonLabel: 'לא עכשיו', source: 'now_flow' },
     });
-    await fetchNow();
-  }, [nowData, fetchNow]);
+    setLastTaskTitle(task.title);
+    setResultType('not_now');
+    setPageState('reflecting');
+  }, [nowData]);
 
+  // Focus: "סיימתי"
   const handleDone = useCallback(async () => {
     if (!nowData?.task) return;
     const task = nowData.task;
@@ -101,7 +113,6 @@ export default function NowPage() {
       return;
     }
 
-    // Server confirmed — log once and move on
     logLearningEvent({
       taskId: task.id,
       eventType: 'task_completed',
@@ -111,10 +122,13 @@ export default function NowPage() {
     });
 
     excludedIdsRef.current.add(task.id);
-    await fetchNow();
-  }, [nowData, fetchNow]);
+    setLastTaskTitle(task.title);
+    setResultType('done');
+    setPageState('reflecting');
+  }, [nowData]);
 
-  const handleStuck = useCallback(async () => {
+  // Focus: "נתקעתי"
+  const handleStuck = useCallback(() => {
     if (!nowData?.task) return;
     const task = nowData.task;
     excludedIdsRef.current.add(task.id);
@@ -125,10 +139,13 @@ export default function NowPage() {
       taskTitleSnapshot: task.title,
       metadata: { reasonCategory: 'stuck', reasonLabel: 'נתקעתי', source: 'now_flow' },
     });
-    await fetchNow();
-  }, [nowData, fetchNow]);
+    setLastTaskTitle(task.title);
+    setResultType('stuck');
+    setPageState('reflecting');
+  }, [nowData]);
 
-  const handleNotNowFromFocus = useCallback(async () => {
+  // Focus: "לא עכשיו"
+  const handleNotNowFromFocus = useCallback(() => {
     if (!nowData?.task) return;
     const task = nowData.task;
     excludedIdsRef.current.add(task.id);
@@ -139,20 +156,40 @@ export default function NowPage() {
       taskTitleSnapshot: task.title,
       metadata: { reasonCategory: 'not_now', reasonLabel: 'לא עכשיו', source: 'now_flow' },
     });
-    await fetchNow();
-  }, [nowData, fetchNow]);
+    setLastTaskTitle(task.title);
+    setResultType('not_now');
+    setPageState('reflecting');
+  }, [nowData]);
+
+  // Reflection: "הצג פעולה הבאה / אחרת"
+  const handleNext = useCallback(() => {
+    fetchNow();
+  }, [fetchNow]);
+
+  // Reflection: "סיים כרגע"
+  const handleClose = useCallback(() => {
+    navigate('/');
+  }, [navigate]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  const headerTitle = (() => {
+    if (pageState === 'focusing') return 'עכשיו רק זה';
+    if (pageState === 'reflecting') return '';
+    return 'מה לעשות עכשיו?';
+  })();
 
   return (
     <AppLayout title="עכשיו">
       <div className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center gap-6" dir="rtl">
 
-        {/* Header */}
-        <div className="flex flex-col items-center gap-2">
-          <Zap className="w-8 h-8 text-primary" />
-          <h1 className="text-2xl font-bold">
-            {pageState === 'focusing' ? 'עכשיו רק זה' : 'מה לעשות עכשיו?'}
-          </h1>
-        </div>
+        {/* Header — hidden in reflecting to let card breathe */}
+        {pageState !== 'reflecting' && (
+          <div className="flex flex-col items-center gap-2">
+            <Zap className="w-8 h-8 text-primary" />
+            <h1 className="text-2xl font-bold">{headerTitle}</h1>
+          </div>
+        )}
 
         {/* Loading */}
         {pageState === 'loading' && (
@@ -162,7 +199,7 @@ export default function NowPage() {
           </div>
         )}
 
-        {/* Error */}
+        {/* Fetch error */}
         {error && pageState !== 'loading' && (
           <p className="text-destructive text-sm">{error}</p>
         )}
@@ -186,7 +223,7 @@ export default function NowPage() {
           </div>
         )}
 
-        {/* Selecting — show action card */}
+        {/* Selecting — action card */}
         {pageState === 'selecting' && nowData?.task && (
           <NowActionCard
             task={nowData.task}
@@ -233,6 +270,16 @@ export default function NowPage() {
               </button>
             </div>
           </div>
+        )}
+
+        {/* Reflecting — post-result reflection card */}
+        {pageState === 'reflecting' && resultType && lastTaskTitle && (
+          <NowResultReflection
+            resultType={resultType}
+            taskTitle={lastTaskTitle}
+            onNext={handleNext}
+            onClose={handleClose}
+          />
         )}
 
       </div>
