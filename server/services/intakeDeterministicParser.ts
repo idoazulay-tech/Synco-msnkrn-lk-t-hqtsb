@@ -546,6 +546,19 @@ export function parseIntakeDeterministic(text: string): SyncoIntakePreview {
     }
   }
 
+  // Link unlinked person-contact tasks to Synco when Synco is in context.
+  // "לדבר עם X" has no domain signal in its title, but in a Synco/ICP intake
+  // it almost always represents a validation or outreach call.
+  if (detectedDomains.has('synco')) {
+    for (const t of todayTasks) {
+      if (!t.linkedProjectTempId && t.title) {
+        if (PERSON_ACTION_PATTERNS.some(p => p.test(t.title))) {
+          t.linkedProjectTempId = 'proj_synco';
+        }
+      }
+    }
+  }
+
   // Pass 3: unknown segments → laterTasks or openQuestions
   const openQuestions: SyncoOpenQuestion[] = [];
   const laterTasks: SyncoLaterTask[] = [];

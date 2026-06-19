@@ -326,3 +326,44 @@ describe('no noun-only tasks (4A.2)', () => {
     expect(hasOverload).toBe(true);
   });
 });
+
+// ══ Person-task → Synco project linking (4A.3 quality fix) ═══════════════════
+
+describe('person-contact task linking to Synco project (4A.3)', () => {
+  const SYNCO_CONTEXT =
+    'אני מוצף מהבנק, השכירות, החובות, סינקו, לדבר עם חיים, לבדוק ICP, ואני לא יודע מה לעשות קודם';
+  const preview = parseIntakeDeterministic(SYNCO_CONTEXT);
+
+  test('creates a Synco project when Synco and ICP are mentioned', () => {
+    const sp = preview.projects.find(p => p.tempId === 'proj_synco');
+    expect(sp).toBeDefined();
+    expect(sp!.steps.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('"לדבר עם חיים" is linked to the Synco project', () => {
+    const chaimTask = preview.todayTasks.find(t => t.title.includes('חיים'));
+    expect(chaimTask).toBeDefined();
+    expect(chaimTask!.linkedProjectTempId).toBe('proj_synco');
+  });
+
+  test('"לבדוק ICP" is linked to the Synco project', () => {
+    const icpTask = preview.todayTasks.find(t => t.title.toLowerCase().includes('icp'));
+    expect(icpTask).toBeDefined();
+    expect(icpTask!.linkedProjectTempId).toBe('proj_synco');
+  });
+
+  test('finance tasks remain linked to the finance project', () => {
+    // The finance project should exist; nowAction links to it
+    const financeProj = preview.projects.find(p => p.tempId === 'proj_finance');
+    expect(financeProj).toBeDefined();
+    // nowAction should be linked to finance (finance has higher priority)
+    expect(preview.nowAction?.linkedProjectTempId).toBe('proj_finance');
+  });
+
+  test('"לדבר עם" without Synco context is NOT linked to Synco', () => {
+    const noSynco = parseIntakeDeterministic('לדבר עם דני, לשלם שכירות');
+    const daniTask = noSynco.todayTasks.find(t => t.title.includes('דני'));
+    expect(daniTask).toBeDefined();
+    expect(daniTask!.linkedProjectTempId).not.toBe('proj_synco');
+  });
+});

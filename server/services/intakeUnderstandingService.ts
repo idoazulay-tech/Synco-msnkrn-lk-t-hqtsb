@@ -190,8 +190,12 @@ export async function understandIntake(
             // Link any todayTask that belongs to this newly added domain project
             for (const task of normalized.todayTasks) {
               if (!task.linkedProjectTempId && task.title) {
-                if (detProj.tempId === 'proj_synco' && /icp|סינקו|ולידציה|mvp|b2b/i.test(task.title)) {
-                  task.linkedProjectTempId = detProj.tempId;
+                if (detProj.tempId === 'proj_synco') {
+                  const hasSyncoKeyword = /icp|סינקו|ולידציה|mvp|b2b/i.test(task.title);
+                  const isPersonContact  = /^(לדבר\s+עם|להתקשר|לפגוש|שיחה\s+עם|לשלוח\s+ל|לכתוב\s+ל)/i.test(task.title);
+                  if (hasSyncoKeyword || isPersonContact) {
+                    task.linkedProjectTempId = detProj.tempId;
+                  }
                 } else if (detProj.tempId === 'proj_finance' && /בנק|חוב|שכירות|תשלום/i.test(task.title)) {
                   task.linkedProjectTempId = detProj.tempId;
                 }
