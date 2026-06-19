@@ -97,7 +97,9 @@ export async function commitIntakePreview(
         });
         stepIds.push(s.id);
         stepTitleToId[proj.tempId][step.title] = s.id;
-        if (step.orderIndex === 0) {
+        // Always set firstStepIds to the first created step;
+        // override with the step whose orderIndex is 0 when found
+        if (!firstStepIds[proj.tempId] || step.orderIndex === 0) {
           firstStepIds[proj.tempId] = s.id;
         }
       }
@@ -109,11 +111,19 @@ export async function commitIntakePreview(
       linkedProjectTempId?: string,
     ): string | undefined {
       if (!linkedProjectTempId) return undefined;
-      // Exact title match first
-      const byTitle = stepTitleToId[linkedProjectTempId]?.[title];
+      const trimmed = title.trim();
+      // 1. Exact title match in linked project
+      const byTitle = stepTitleToId[linkedProjectTempId]?.[trimmed];
       if (byTitle) return byTitle;
-      // Fallback to first step of the project (nowAction is typically step 0)
-      return firstStepIds[linkedProjectTempId];
+      // 2. First step of linked project (nowAction is typically step 0)
+      const firstStep = firstStepIds[linkedProjectTempId];
+      if (firstStep) return firstStep;
+      // 3. Search all created projects for a step matching this title
+      for (const projTempId of Object.keys(stepTitleToId)) {
+        const anyMatch = stepTitleToId[projTempId][trimmed];
+        if (anyMatch) return anyMatch;
+      }
+      return undefined;
     }
 
     // ── Helper: create a single UserTask ─────────────────────────────────────

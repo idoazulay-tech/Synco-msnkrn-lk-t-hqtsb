@@ -180,6 +180,36 @@ export async function understandIntake(
 
       const normalized = parsed ? normalizeAIResult(parsed) : null;
       if (normalized) {
+        // Safety net: run deterministic to catch domain projects the AI may have missed
+        const detResult = parseIntakeDeterministic(text.trim());
+        const aiTempIds = new Set(normalized.projects.map(p => p.tempId));
+
+        for (const detProj of detResult.projects) {
+          if (!aiTempIds.has(detProj.tempId)) {
+            normalized.projects.push(detProj);
+            // Link any todayTask that belongs to this newly added domain project
+            for (const task of normalized.todayTasks) {
+              if (!task.linkedProjectTempId && task.title) {
+                if (detProj.tempId === 'proj_synco' && /icp|סינקו|ולידציה|mvp|b2b/i.test(task.title)) {
+                  task.linkedProjectTempId = detProj.tempId;
+                } else if (detProj.tempId === 'proj_finance' && /בנק|חוב|שכירות|תשלום/i.test(task.title)) {
+                  task.linkedProjectTempId = detProj.tempId;
+                }
+              }
+            }
+          }
+        }
+
+        // Ensure nowAction links to one of the final projects; replace with
+        // deterministic nowAction if the AI-generated link is missing or stale
+        if (normalized.nowAction) {
+          const finalTempIds = new Set(normalized.projects.map(p => p.tempId));
+          const linked = normalized.nowAction.linkedProjectTempId;
+          if (!linked || !finalTempIds.has(linked)) {
+            normalized.nowAction = detResult.nowAction;
+          }
+        }
+
         return { ...normalized, _source: 'ai' };
       }
       console.warn('[intakeUnderstandingService] AI result failed validation — falling back to deterministic');
