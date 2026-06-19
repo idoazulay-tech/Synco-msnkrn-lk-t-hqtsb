@@ -127,13 +127,21 @@ function normalizeNowAction(raw: unknown): SyncoIntakePreview['nowAction'] {
   };
 }
 
+// Words that are product/domain identifiers and must never appear in places[]
+const DOMAIN_KEYWORDS_NOT_PLACES = new Set([
+  'סינקו', 'synco', 'icp', 'mvp', 'b2b', 'ולידציה', 'validation',
+  'מוצר', 'product', 'לקוחות', 'runway', 'pivot', 'פיבוט',
+  'landing', 'לנדינג', 'go to market',
+]);
+
 function normalizeEntities(raw: unknown): SyncoIntakePreview['entities'] {
   const empty = { people: [], places: [], times: [], dates: [], priorities: [], topics: [], emotions: [] };
   if (!raw || typeof raw !== 'object') return empty;
   const r = raw as Record<string, unknown>;
+  const rawPlaces = Array.isArray(r.places) ? r.places as string[] : [];
   return {
     people:    Array.isArray(r.people)    ? r.people    as string[] : [],
-    places:    Array.isArray(r.places)    ? r.places    as string[] : [],
+    places:    rawPlaces.filter(p => !DOMAIN_KEYWORDS_NOT_PLACES.has(p.toLowerCase())),
     times:     Array.isArray(r.times)     ? r.times     as string[] : [],
     dates:     Array.isArray(r.dates)     ? r.dates     as string[] : [],
     priorities: Array.isArray(r.priorities) ? r.priorities as string[] : [],

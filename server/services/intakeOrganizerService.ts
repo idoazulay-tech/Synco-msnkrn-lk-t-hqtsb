@@ -3,8 +3,6 @@ import { understandIntake } from './intakeUnderstandingService.js';
 import type { SyncoIntakePreview } from './intakeUnderstandingService.js';
 
 export type { SyncoIntakePreview } from './intakeUnderstandingService.js';
-
-// Legacy shim for any code that imports the old IntakePreview type
 export type { IntakePreview } from './intakeDeterministicParser.js';
 
 export async function organizeIntake(
@@ -21,10 +19,20 @@ export async function organizeIntake(
 }
 
 export interface CommitResult {
+  // Legacy flat fields (backward compat)
   intakeId: string;
   taskIds: string[];
   projectIds: string[];
   stepIds: string[];
+  nowTaskId: string | null;
+  // Spec-required nested shape
+  created: {
+    intakeId: string;
+    projectIds: string[];
+    taskIds: string[];
+    stepIds: string[];
+    openQuestionIds: string[];
+  };
 }
 
 export async function commitIntakePreview(
@@ -35,26 +43,28 @@ export async function commitIntakePreview(
   const taskIds: string[] = [];
   const projectIds: string[] = [];
   const stepIds: string[] = [];
+  let nowTaskId: string | null = null;
   const now = new Date();
 
   // tempId → real DB project id
   const projectIdMap: Record<string, string> = {};
 
-  await prisma.$transaction(async (tx) => {
-    // 1. IntakeRecord
+  // tempId → (step title → step DB id) for task→step linking
+  const stepTitleToId: Record<string, Record<string, string>> = {};
+
+  // tempId → first step id (step at orderIndex 0)
+  const firstStepIds: Record<string, string> = {};
+
+  // ── Transaction ───────────────────────────────────────────────────────────────
+
+  const intakeId = await prisma.$transaction(async (tx) => {
+
+    // 1. IntakeRecord — store the full preview JSON as the canonical record
     const intakeRecord = await tx.intakeRecord.create({
       data: {
         userId,
         rawText,
-        parsedJson: {
-          notes:         preview.notes,
-          entities:      preview.entities,
-          openQuestions: preview.openQuestions,
-          warnings:      preview.warnings,
-          projectCount:  preview.projects.length,
-          taskCount:     preview.todayTasks.length + preview.laterTasks.length,
-          nowActionTitle: preview.nowAction?.title ?? null,
-        } as unknown as Record<string, unknown>,
+        parsedJson: preview as unknown as Record<string, unknown>,
         status:      'committed',
         committedAt: now,
       },
@@ -74,6 +84,7 @@ export async function commitIntakePreview(
       });
       projectIds.push(dbProj.id);
       projectIdMap[proj.tempId] = dbProj.id;
+      stepTitleToId[proj.tempId] = {};
 
       for (const step of proj.steps) {
         const s = await tx.projectStep.create({
@@ -85,47 +96,110 @@ export async function commitIntakePreview(
           },
         });
         stepIds.push(s.id);
+        stepTitleToId[proj.tempId][step.title] = s.id;
+        if (step.orderIndex === 0) {
+          firstStepIds[proj.tempId] = s.id;
+        }
       }
     }
 
-    // 3. nowAction task (if present and not already in todayTasks)
-    const nowTitle = preview.nowAction?.title;
+    // ── Helper: find the best ProjectStep id for a task ──────────────────────
+    function resolveStepId(
+      title: string,
+      linkedProjectTempId?: string,
+    ): string | undefined {
+      if (!linkedProjectTempId) return undefined;
+      // Exact title match first
+      const byTitle = stepTitleToId[linkedProjectTempId]?.[title];
+      if (byTitle) return byTitle;
+      // Fallback to first step of the project (nowAction is typically step 0)
+      return firstStepIds[linkedProjectTempId];
+    }
 
-    // 4. todayTasks + nowAction
-    const allTasks = [
-      ...(preview.nowAction ? [{ title: nowTitle!, priority: preview.nowAction.priority, linkedProjectTempId: preview.nowAction.linkedProjectTempId, isNow: true }] : []),
-      ...preview.todayTasks.map(t => ({ ...t, isNow: false })),
-    ];
-
-    // Deduplicate by title
-    const seenTitles = new Set<string>();
-    for (const task of allTasks) {
-      if (!task.title || seenTitles.has(task.title)) continue;
-      seenTitles.add(task.title);
-
-      const taskStart = new Date(now.getTime() + 60 * 60 * 1000);
-      const taskEnd   = new Date(taskStart.getTime() + (task.priority === 'high' ? 60 : 30) * 60 * 1000);
-      const id        = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const realProjectId = task.linkedProjectTempId ? projectIdMap[task.linkedProjectTempId] : undefined;
+    // ── Helper: create a single UserTask ─────────────────────────────────────
+    async function createTask(opts: {
+      title: string;
+      priority: 'high' | 'medium' | 'low';
+      linkedProjectTempId?: string;
+      firstStepText?: string;
+      startOffsetMs: number;
+      source: string;
+    }): Promise<string> {
+      const id = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const durationMin = opts.priority === 'high' ? 60 : 30;
+      const taskStart = new Date(now.getTime() + opts.startOffsetMs);
+      const taskEnd   = new Date(taskStart.getTime() + durationMin * 60 * 1000);
+      const realProjectId = opts.linkedProjectTempId
+        ? projectIdMap[opts.linkedProjectTempId]
+        : undefined;
+      const stepId = resolveStepId(opts.title, opts.linkedProjectTempId);
 
       await tx.userTask.create({
         data: {
           id,
           userId,
-          title:       task.title,
+          title:       opts.title,
           startTime:   taskStart,
           endTime:     taskEnd,
-          duration:    task.priority === 'high' ? 60 : 30,
+          duration:    durationMin,
           status:      'pending',
-          priority:    task.priority ?? 'medium',
+          priority:    opts.priority,
           isAllDay:    false,
           isRecurring: false,
           excludedDates: [],
           tagsJson:    [],
           historyJson: [],
-          createdFromJson: { source: 'intake', intakeId: intakeRecord.id },
-          ...(realProjectId ? { projectId: realProjectId } : {}),
+          createdFromJson: {
+            source:       opts.source,
+            intakeId:     intakeRecord.id,
+            originalText: rawText.slice(0, 200),
+          },
+          ...(realProjectId    ? { projectId:     realProjectId } : {}),
+          ...(stepId           ? { projectStepId: stepId        } : {}),
+          ...(opts.firstStepText ? { firstStep:   opts.firstStepText } : {}),
         },
+      });
+
+      // Back-link: update ProjectStep.taskId to point to this task
+      if (stepId) {
+        await tx.projectStep.update({
+          where: { id: stepId },
+          data:  { taskId: id },
+        });
+      }
+
+      return id;
+    }
+
+    // 3. nowAction task
+    if (preview.nowAction) {
+      const id = await createTask({
+        title:               preview.nowAction.title,
+        priority:            preview.nowAction.priority,
+        linkedProjectTempId: preview.nowAction.linkedProjectTempId,
+        firstStepText:       preview.nowAction.firstStep,
+        startOffsetMs:       60 * 60 * 1000,  // 1 hour from now
+        source:              'intake_now',
+      });
+      taskIds.push(id);
+      nowTaskId = id;
+    }
+
+    // 4. todayTasks (skip exact duplicates of nowAction title)
+    const seenTitles = new Set<string>(
+      preview.nowAction ? [preview.nowAction.title] : [],
+    );
+
+    for (const task of preview.todayTasks) {
+      if (!task.title || seenTitles.has(task.title)) continue;
+      seenTitles.add(task.title);
+      const id = await createTask({
+        title:               task.title,
+        priority:            task.priority ?? 'medium',
+        linkedProjectTempId: task.linkedProjectTempId,
+        firstStepText:       task.firstStep,
+        startOffsetMs:       90 * 60 * 1000,  // 1.5 hours from now
+        source:              'intake',
       });
       taskIds.push(id);
     }
@@ -134,30 +208,13 @@ export async function commitIntakePreview(
     for (const task of preview.laterTasks) {
       if (!task.title || seenTitles.has(task.title)) continue;
       seenTitles.add(task.title);
-
-      const taskStart = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      const taskEnd   = new Date(taskStart.getTime() + 30 * 60 * 1000);
-      const id        = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const realProjectId = task.linkedProjectTempId ? projectIdMap[task.linkedProjectTempId] : undefined;
-
-      await tx.userTask.create({
-        data: {
-          id,
-          userId,
-          title:       task.title,
-          startTime:   taskStart,
-          endTime:     taskEnd,
-          duration:    30,
-          status:      'pending',
-          priority:    'low',
-          isAllDay:    false,
-          isRecurring: false,
-          excludedDates: [],
-          tagsJson:    [],
-          historyJson: [],
-          createdFromJson: { source: 'intake_later', intakeId: intakeRecord.id },
-          ...(realProjectId ? { projectId: realProjectId } : {}),
-        },
+      const id = await createTask({
+        title:               task.title,
+        priority:            'low',
+        linkedProjectTempId: task.linkedProjectTempId,
+        firstStepText:       task.firstStep,
+        startOffsetMs:       24 * 60 * 60 * 1000,  // tomorrow
+        source:              'intake_later',
       });
       taskIds.push(id);
     }
@@ -165,5 +222,22 @@ export async function commitIntakePreview(
     return intakeRecord.id;
   });
 
-  return { intakeId: '', taskIds, projectIds, stepIds };
+  // ── Build return value ────────────────────────────────────────────────────────
+
+  const created = {
+    intakeId,
+    projectIds: [...projectIds],
+    taskIds:    [...taskIds],
+    stepIds:    [...stepIds],
+    openQuestionIds: [],
+  };
+
+  return {
+    intakeId,
+    taskIds,
+    projectIds,
+    stepIds,
+    nowTaskId,
+    created,
+  };
 }

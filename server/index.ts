@@ -23,6 +23,7 @@ import openQuestionsRoutes from './routes/openQuestions.js';
 import nowRoutes from './routes/now.js';
 import intakeRoutes from './routes/intake.js';
 import projectsRoutes from './routes/projects.js';
+import metricsRoutes from './routes/metrics.js';
 import { testQdrantConnection } from './lib/qdrant.js';
 import { initQdrantCollections } from './lib/qdrant-init.js';
 
@@ -54,6 +55,7 @@ app.use('/api/open-questions', openQuestionsRoutes);
 app.use('/api/now', nowRoutes);
 app.use('/api/intake', intakeRoutes);
 app.use('/api/projects', projectsRoutes);
+app.use('/api/metrics', metricsRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

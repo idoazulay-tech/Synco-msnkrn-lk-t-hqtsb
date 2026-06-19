@@ -247,3 +247,82 @@ test('entities has all required sub-keys', () => {
     expect(Array.isArray(preview.entities[key])).toBe(true);
   }
 });
+
+// ══ 4A.2 / 4A.3 — Intake quality + entity correctness ════════════════════════
+
+const CHAOS = 'אני מוצף מהבנק, השכירות, החובות, סינקו, לדבר עם חיים, לבדוק ICP, ואני לא יודע מה לעשות קודם';
+
+describe('multi-project detection (4A.2)', () => {
+  const preview = parseIntakeDeterministic(CHAOS);
+
+  test('creates a finance project', () => {
+    const fp = preview.projects.find(p => p.tempId === 'proj_finance');
+    expect(fp).toBeDefined();
+    expect(fp!.steps.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('creates a Synco project', () => {
+    const sp = preview.projects.find(p => p.tempId === 'proj_synco');
+    expect(sp).toBeDefined();
+    expect(sp!.steps.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('synco project steps cover ICP/ולידציה/לקוח or todayTasks cover חיים/ICP', () => {
+    const sp = preview.projects.find(p => p.tempId === 'proj_synco');
+    const syncoStepTitles = (sp?.steps ?? []).map(s => s.title.toLowerCase());
+    const todayTaskTitles  = preview.todayTasks.map(t => t.title.toLowerCase());
+    const hasSyncoContent  = [...syncoStepTitles, ...todayTaskTitles].some(
+      t => t.includes('icp') || t.includes('חיים') || t.includes('ולידציה') || t.includes('לקוח'),
+    );
+    expect(hasSyncoContent).toBe(true);
+  });
+});
+
+describe('entity classification — Synco is NOT a place (4A.2)', () => {
+  const preview = parseIntakeDeterministic(CHAOS);
+
+  test('entities.places does not contain "סינקו"', () => {
+    const places = preview.entities.places.map(p => p.toLowerCase());
+    expect(places).not.toContain('סינקו');
+  });
+
+  test('entities.places is empty for deterministic path', () => {
+    expect(preview.entities.places).toHaveLength(0);
+  });
+
+  test('סינקו appears in entities.topics', () => {
+    const topics = preview.entities.topics.map(t => t.toLowerCase());
+    expect(topics).toContain('סינקו');
+  });
+
+  test('חיים appears in entities.people', () => {
+    expect(preview.entities.people).toContain('חיים');
+  });
+
+  test('ICP appears in entities.topics', () => {
+    const topics = preview.entities.topics.map(t => t.toLowerCase());
+    expect(topics.some(t => t === 'icp')).toBe(true);
+  });
+});
+
+describe('no noun-only tasks (4A.2)', () => {
+  const preview = parseIntakeDeterministic(CHAOS);
+
+  test('"השכירות" is not a standalone todayTask', () => {
+    const titles = preview.todayTasks.map(t => t.title);
+    expect(titles).not.toContain('השכירות');
+    expect(titles).not.toContain('שכירות');
+  });
+
+  test('"החובות" is not a standalone todayTask', () => {
+    const titles = preview.todayTasks.map(t => t.title);
+    expect(titles).not.toContain('החובות');
+    expect(titles).not.toContain('חובות');
+  });
+
+  test('notes include overload or emotion entry', () => {
+    const categories = preview.notes.map(n => n.category);
+    const hasOverload = categories.some(c => c === 'overload' || c === 'emotion');
+    expect(hasOverload).toBe(true);
+  });
+});

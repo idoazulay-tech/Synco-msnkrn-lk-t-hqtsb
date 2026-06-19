@@ -58,6 +58,11 @@ function prismaToTask(record: any) {
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     completedAt: record.completedAt?.toISOString() || undefined,
+    // Project linkage fields (Build Pack 4A)
+    projectId:     record.projectId     ?? undefined,
+    projectStepId: record.projectStepId ?? undefined,
+    parentTaskId:  record.parentTaskId  ?? undefined,
+    firstStep:     record.firstStep     ?? undefined,
   };
 }
 
