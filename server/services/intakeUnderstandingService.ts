@@ -26,6 +26,36 @@ export type {
   SyncoEntities,
 } from './intakeDeterministicParser.js';
 
+// ─── AI project domain normalizer ────────────────────────────────────────────
+// Regex patterns that identify which canonical domain an AI-generated project
+// belongs to (regardless of what tempId the AI chose).
+
+const FINANCE_SIGNALS_RE = /חוב|בנק|שכירות|תשלום|ביטוח|מינוס|אשראי|כסף|כלכל|פיננס|finance|debt|budget|תקציב/i;
+const SYNCO_SIGNALS_RE   = /icp|סינקו|ולידציה|mvp|מוצר|synco|b2b|לקוחות|startup|פרסונה|runway|pivot|פיבוט|validation|product/i;
+
+export function detectProjectDomain(proj: { title: string; goal?: string; firstActionTitle?: string }): 'finance' | 'synco' | undefined {
+  const text = [proj.title, proj.goal ?? '', proj.firstActionTitle ?? ''].join(' ');
+  if (FINANCE_SIGNALS_RE.test(text)) return 'finance';
+  if (SYNCO_SIGNALS_RE.test(text)) return 'synco';
+  return undefined;
+}
+
+/**
+ * Returns a mapping from each AI project's tempId to its canonical domain tempId.
+ * Projects that are unrecognized are not included.
+ * e.g. { "proj1": "proj_finance", "proj2": "proj_synco" }
+ */
+export function buildProjectTempIdRemap(
+  projects: Array<{ tempId: string; title: string; goal?: string; firstActionTitle?: string }>,
+): Record<string, string> {
+  const remap: Record<string, string> = {};
+  for (const proj of projects) {
+    const domain = detectProjectDomain(proj);
+    if (domain) remap[proj.tempId] = `proj_${domain}`;
+  }
+  return remap;
+}
+
 // ─── AI system prompt ─────────────────────────────────────────────────────────
 
 const INTAKE_SYSTEM_PROMPT = `אתה מומחה ארגון אישי לאנשים עם ADHD שמדברים עברית.
@@ -180,34 +210,62 @@ export async function understandIntake(
 
       const normalized = parsed ? normalizeAIResult(parsed) : null;
       if (normalized) {
-        // Safety net: run deterministic to catch domain projects the AI may have missed
         const detResult = parseIntakeDeterministic(text.trim());
-        const aiTempIds = new Set(normalized.projects.map(p => p.tempId));
 
+        // ── 1. Remap AI project tempIds to canonical domain tempIds ────────────
+        // e.g. AI "proj1" (title: "ניהול כספים") → "proj_finance"
+        const remap = buildProjectTempIdRemap(normalized.projects);
+        for (const proj of normalized.projects) {
+          if (remap[proj.tempId]) proj.tempId = remap[proj.tempId];
+        }
+
+        // ── 2. Deduplicate + merge with deterministic canonical projects ────────
+        // Deterministic canonical always wins (has proper step templates).
+        // Use Map so duplicate canonical tempIds collapse to one entry.
+        const projMap = new Map<string, SyncoIntakePreview['projects'][number]>();
+        for (const proj of normalized.projects) {
+          if (!projMap.has(proj.tempId)) projMap.set(proj.tempId, proj);
+        }
         for (const detProj of detResult.projects) {
-          if (!aiTempIds.has(detProj.tempId)) {
-            normalized.projects.push(detProj);
-            // Link any todayTask that belongs to this newly added domain project
-            for (const task of normalized.todayTasks) {
-              if (!task.linkedProjectTempId && task.title) {
-                if (detProj.tempId === 'proj_synco') {
-                  const hasSyncoKeyword = /icp|סינקו|ולידציה|mvp|b2b/i.test(task.title);
-                  const isPersonContact  = /^(לדבר\s+עם|להתקשר|לפגוש|שיחה\s+עם|לשלוח\s+ל|לכתוב\s+ל)/i.test(task.title);
-                  if (hasSyncoKeyword || isPersonContact) {
-                    task.linkedProjectTempId = detProj.tempId;
-                  }
-                } else if (detProj.tempId === 'proj_finance' && /בנק|חוב|שכירות|תשלום/i.test(task.title)) {
-                  task.linkedProjectTempId = detProj.tempId;
-                }
-              }
-            }
+          projMap.set(detProj.tempId, detProj); // canonical template always wins
+        }
+        normalized.projects = [...projMap.values()];
+
+        // ── 3. Rewrite all linkedProjectTempId references ─────────────────────
+        const rewrite = (id?: string): string | undefined =>
+          id ? (remap[id] ?? id) : id;
+
+        if (normalized.nowAction) {
+          normalized.nowAction = {
+            ...normalized.nowAction,
+            linkedProjectTempId: rewrite(normalized.nowAction.linkedProjectTempId),
+          };
+        }
+        for (const t of normalized.todayTasks) {
+          if (t.linkedProjectTempId) t.linkedProjectTempId = rewrite(t.linkedProjectTempId);
+        }
+        for (const t of normalized.laterTasks) {
+          if (t.linkedProjectTempId) t.linkedProjectTempId = rewrite(t.linkedProjectTempId);
+        }
+
+        // ── 4. Link any still-unlinked tasks ──────────────────────────────────
+        const finalTempIds = new Set(normalized.projects.map(p => p.tempId));
+
+        for (const t of normalized.todayTasks) {
+          if (t.linkedProjectTempId) continue;
+          if (!t.title) continue;
+          if (finalTempIds.has('proj_synco')) {
+            const hasSyncoKw      = /icp|סינקו|ולידציה|mvp|b2b/i.test(t.title);
+            const isPersonContact  = /^(לדבר\s+עם|להתקשר|לפגוש|שיחה\s+עם|לשלוח\s+ל|לכתוב\s+ל)/i.test(t.title);
+            if (hasSyncoKw || isPersonContact) { t.linkedProjectTempId = 'proj_synco'; continue; }
+          }
+          if (finalTempIds.has('proj_finance') && /בנק|חוב|שכירות|תשלום/i.test(t.title)) {
+            t.linkedProjectTempId = 'proj_finance';
           }
         }
 
-        // Ensure nowAction links to one of the final projects; replace with
-        // deterministic nowAction if the AI-generated link is missing or stale
+        // ── 5. Ensure nowAction links to a real project ────────────────────────
         if (normalized.nowAction) {
-          const finalTempIds = new Set(normalized.projects.map(p => p.tempId));
           const linked = normalized.nowAction.linkedProjectTempId;
           if (!linked || !finalTempIds.has(linked)) {
             normalized.nowAction = detResult.nowAction;
